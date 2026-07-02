@@ -5,6 +5,8 @@ exactly once per database (tracked via PRAGMA user_version).
 All state is per-guild, so one bot process can serve many servers.
 """
 
+import os
+
 import aiosqlite
 
 MIGRATIONS: list[str] = [
@@ -59,6 +61,8 @@ class Database:
         self.conn: aiosqlite.Connection | None = None
 
     async def connect(self) -> None:
+        parent = os.path.dirname(os.path.abspath(self.path))
+        os.makedirs(parent, exist_ok=True)
         self.conn = await aiosqlite.connect(self.path)
         self.conn.row_factory = aiosqlite.Row
         await self.conn.execute("PRAGMA journal_mode = WAL")

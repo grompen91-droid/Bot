@@ -98,3 +98,26 @@ cogs/
 Set `GUILD_ID` in `.env` for instant slash-command sync while testing;
 global sync can take up to an hour. Requires Python 3.10+ and
 discord.py 2.6+ (Components V2).
+
+## Deploying on Railway
+
+The repo ships with `railway.json`, a `Procfile`, and `.python-version`,
+so Railway needs no extra configuration:
+
+1. Go to [railway.app](https://railway.app) → **New Project** →
+   **Deploy from GitHub repo** → pick this repo (choose the branch you
+   want under the service's *Settings → Source* if it isn't the default).
+2. In the service's **Variables** tab add:
+   - `DISCORD_TOKEN` — your bot token
+   - `GUILD_ID` — your server ID (instant slash-command sync)
+   - `DB_PATH` — `/data/economy.db` (see step 3)
+3. **Keep your economy safe across deploys:** in the service, open
+   **Settings → Volumes** (or right-click the service → *Attach Volume*)
+   and mount a volume at `/data`. Without a volume the container
+   filesystem is wiped on every redeploy — balances, skills, and
+   inventories included.
+4. Deploy. The logs should end with
+   `Logged in as <your bot> — Synced N commands to guild …`.
+
+The free trial credit is enough to test; after that a small always-on
+worker like this costs roughly $5/month.
