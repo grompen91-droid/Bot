@@ -7,10 +7,10 @@ from discord import app_commands, ui
 from discord.ext import commands
 
 from econ import formulas
-from econ.data.items import ITEMS, item_label, rarity_badge
+from econ.data.items import ITEMS, item_label
 from econ.data.jobs import JOBS
 from econ.data.tools import MAX_TOOL_TIER, TOOLS, tool_name, tool_price
-from ui.panels import Palette, Panel, simple_panel
+from ui.panels import AMT_W, NAME_W, QTY_W, TOOL_W, Palette, Panel, chip, simple_panel
 
 
 def resolve_item(query: str) -> str | None:
@@ -55,12 +55,14 @@ class Market(commands.Cog):
             total = 0
             lines = []
             for row in rows:
-                price = formulas.market_price(row["item"], ITEMS[row["item"]]["value"])
-                worth = price * row["qty"]
+                info_i = ITEMS[row["item"]]
+                price = formulas.market_price(row["item"], info_i["value"])
+                qty = row["qty"]
+                worth = price * qty
                 total += worth
                 lines.append(
-                    f"{rarity_badge(row['item'])}{item_label(row['item'])} × "
-                    f"**{row['qty']}** · {formulas.fmt_gold(worth)}"
+                    f"{info_i['emoji']} "
+                    f"{chip((info_i['name'], NAME_W), (f'x{qty}', QTY_W), (f'{worth:,}', -AMT_W))} 🪙"
                 )
             panel.text("\n".join(lines))
             panel.footer(f"Worth {total:,} gold today · sell with .sell")
@@ -80,8 +82,11 @@ class Market(commands.Cog):
             for item, *_rest in info["yields"]:
                 base = ITEMS[item]["value"]
                 price = formulas.market_price(item, base)
-                arrow = "▲ " if price > base else ("▼ " if price < base else "")
-                lines.append(f"{item_label(item)} · {arrow}**{formulas.fmt_gold(price)}**")
+                arrow = " ▲" if price > base else (" ▼" if price < base else "")
+                lines.append(
+                    f"{ITEMS[item]['emoji']} "
+                    f"{chip((ITEMS[item]['name'], NAME_W), (f'{price:,}', -AMT_W))} 🪙{arrow}"
+                )
             panel.field(f"{info['emoji']} {info['name']}", "\n".join(lines))
         panel.footer("▲ above the usual rate · ▼ below · sell with .sell")
         await ctx.send(view=panel)
@@ -159,8 +164,8 @@ class Market(commands.Cog):
         panel = Panel(accent=Palette.GREEN, timeout=None)
         panel.header("🏪 Sold!")
         panel.text(
-            f"{rarity_badge(item_key)}{item_label(item_key)} × **{qty}** · "
-            f"**{formulas.fmt_gold(earned)}**"
+            f"{ITEMS[item_key]['emoji']} "
+            f"{chip((ITEMS[item_key]['name'], NAME_W), (f'x{qty}', QTY_W), (f'{earned:,}', -AMT_W))} 🪙"
         )
         panel.footer(f"{price:,} gold each · Purse: {balance:,} gold")
         await ctx.send(view=panel)
@@ -175,13 +180,16 @@ class Market(commands.Cog):
             return "You have nothing to sell. Go `.work` first!"
         total, count, lines = 0, 0, []
         for row in rows:
-            price = formulas.market_price(row["item"], ITEMS[row["item"]]["value"])
-            earned = price * row["qty"]
-            await self.db.remove_item(gid, uid, row["item"], row["qty"])
+            info_i = ITEMS[row["item"]]
+            price = formulas.market_price(row["item"], info_i["value"])
+            qty = row["qty"]
+            earned = price * qty
+            await self.db.remove_item(gid, uid, row["item"], qty)
             total += earned
-            count += row["qty"]
+            count += qty
             lines.append(
-                f"{item_label(row['item'])} × {row['qty']} · {formulas.fmt_gold(earned)}"
+                f"{info_i['emoji']} "
+                f"{chip((info_i['name'], NAME_W), (f'x{qty}', QTY_W), (f'{earned:,}', -AMT_W))} 🪙"
             )
         balance = await self.db.add_gold(gid, uid, total)
         await self.db.incr_stat(gid, uid, "items_sold", count)
@@ -191,7 +199,9 @@ class Market(commands.Cog):
         panel.header("🏪 Everything Sold!")
         panel.text("\n".join(lines))
         panel.divider()
-        panel.text(f"**Total · {formulas.fmt_gold(total)}**")
+        panel.text(
+            f"💰 {chip(('Total', NAME_W), ('', QTY_W), (f'{total:,}', -AMT_W))} 🪙"
+        )
         panel.footer(f"Purse: {balance:,} gold")
         return panel
 
@@ -226,16 +236,15 @@ class Market(commands.Cog):
         lines = []
         for t in range(1, MAX_TOOL_TIER + 1):
             name = TOOLS[job_key][t - 1]
-            mult = formulas.tool_multiplier(t)
+            mult = f"×{formulas.tool_multiplier(t):.2f}"
             if t <= tier:
-                lines.append(f"✅ **{name}** ×{mult:.2f}")
-            elif t == tier + 1:
                 lines.append(
-                    f"⚒️ **{name}** ×{mult:.2f} · **{formulas.fmt_gold(tool_price(t))}**"
+                    f"✅ {chip((name, TOOL_W), (mult, 6), ('owned', -AMT_W))}"
                 )
             else:
+                icon = "⚒️" if t == tier + 1 else "🔒"
                 lines.append(
-                    f"🔒 **{name}** ×{mult:.2f} · {formulas.fmt_gold(tool_price(t))}"
+                    f"{icon} {chip((name, TOOL_W), (mult, 6), (f'{tool_price(t):,}', -AMT_W))} 🪙"
                 )
         panel.text("\n".join(lines))
         panel.footer(f"Your purse: {user['gold']:,} gold")

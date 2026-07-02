@@ -11,7 +11,7 @@ from discord.ext import commands
 from econ import formulas
 from econ.data.jobs import JOBS
 from econ.data.tools import tool_name
-from ui.panels import Palette, Panel, simple_panel
+from ui.panels import AMT_W, NAME_W, Palette, Panel, chip, simple_panel
 
 
 class Economy(commands.Cog):
@@ -65,13 +65,18 @@ class Economy(commands.Cog):
         panel = Panel(accent=Palette.GREEN, timeout=None)
         panel.header("🏛️ The Daily Stipend")
         panel.text(f"The town treasurer counts out **{formulas.fmt_gold(payout)}**.")
-        details = []
+        details = [
+            f"🏛️ {chip(('Stipend', NAME_W), (f'{formulas.DAILY_BASE:,}', -AMT_W))} 🪙"
+        ]
         if streak_bonus:
-            details.append(f"🔥 **{streak}** day streak · +{formulas.fmt_gold(streak_bonus)}")
+            details.append(
+                f"🔥 {chip((f'Streak x{streak}', NAME_W), (f'+{streak_bonus:,}', -AMT_W))} 🪙"
+            )
         if level_bonus:
-            details.append(f"📖 Skill bonus · +{formulas.fmt_gold(level_bonus)}")
-        if details:
-            panel.text("\n".join(details))
+            details.append(
+                f"📖 {chip(('Skill bonus', NAME_W), (f'+{level_bonus:,}', -AMT_W))} 🪙"
+            )
+        panel.text("\n".join(details))
         panel.footer(f"Purse: {balance:,} gold · return tomorrow to keep the streak")
         await ctx.send(view=panel)
 

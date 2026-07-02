@@ -124,3 +124,25 @@ def simple_panel(body: str, *, accent: discord.Colour = Palette.GOLD) -> Panel:
     panel = Panel(accent=accent, timeout=None)
     panel.text(body)
     return panel
+
+
+# ── ledger chips ─────────────────────────────────────────────────────────
+# Discord's normal font is proportional, so amounts can never line up in
+# plain text. These render as inline-code (monospace) chips with fixed
+# column widths, giving every list a clean aligned coin column.
+# Column = (text, width); positive width = left-aligned, negative = right.
+
+NAME_W = 18   # item names ("Philosopher's Dust" = 18)
+TOOL_W = 19   # tool names ("Masterwork Greataxe" = 19)
+QTY_W = 5     # "x999"
+AMT_W = 7     # "999,999"
+
+
+def chip(*cols: tuple[str, int]) -> str:
+    parts = []
+    for text, width in cols:
+        w = abs(width)
+        if len(text) > w:
+            text = text[: w - 1] + "…"
+        parts.append(f"{text:>{w}}" if width < 0 else f"{text:<{w}}")
+    return "`" + " ".join(parts) + "`"

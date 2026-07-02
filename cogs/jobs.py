@@ -10,10 +10,10 @@ from discord import app_commands, ui
 from discord.ext import commands
 
 from econ import formulas
-from econ.data.items import item_label, rarity_badge
+from econ.data.items import ITEMS, rarity_badge
 from econ.data.jobs import JOBS, resolve_job
 from econ.data.tools import tool_name
-from ui.panels import Palette, Panel, simple_panel
+from ui.panels import AMT_W, NAME_W, QTY_W, Palette, Panel, chip, simple_panel
 
 JOB_CHOICES = [
     app_commands.Choice(name=f"{info['emoji']} {info['name']}", value=key)
@@ -109,13 +109,20 @@ class Jobs(commands.Cog):
             panel.text("💥 **A masterful day's work. Double haul!**")
         panel.divider()
 
-        haul_lines = [
-            f"{rarity_badge(item)}{item_label(item)} × **{qty}**"
-            for item, qty in hauls
-        ]
+        haul_lines = []
+        for item, qty in hauls:
+            info_i = ITEMS[item]
+            badge = rarity_badge(item).strip()
+            haul_lines.append(
+                f"{info_i['emoji']} "
+                f"{chip((info_i['name'], NAME_W), (f'x{qty}', QTY_W), ('', AMT_W))}"
+                + (f" {badge}" if badge else "")
+            )
         if len(hauls) > 1:
-            haul_lines[-1] += " *(bonus find)*"
-        haul_lines.append(f"💰 Tip · **{formulas.fmt_gold(tip)}**")
+            haul_lines[-1] += " *(bonus)*"
+        haul_lines.append(
+            f"💰 {chip(('Tip', NAME_W), ('', QTY_W), (f'{tip:,}', -AMT_W))} 🪙"
+        )
         panel.text("\n".join(haul_lines))
 
         if levels_gained:
@@ -151,8 +158,6 @@ class Jobs(commands.Cog):
 
     @staticmethod
     def _rarity(item_key: str) -> str:
-        from econ.data.items import ITEMS
-
         return ITEMS[item_key]["rarity"]
 
     @staticmethod
@@ -340,11 +345,14 @@ class Jobs(commands.Cog):
         panel.divider()
 
         total_weight = sum(w for *_rest, w in info["yields"])
-        yield_lines = [
-            f"{rarity_badge(item)}{item_label(item)} · {lo}-{hi} "
-            f"*({w / total_weight:.0%})*"
-            for item, lo, hi, w in info["yields"]
-        ]
+        yield_lines = []
+        for item, lo, hi, w in info["yields"]:
+            badge = rarity_badge(item).strip()
+            yield_lines.append(
+                f"{ITEMS[item]['emoji']} "
+                f"{chip((ITEMS[item]['name'], NAME_W), (f'{lo}-{hi}', QTY_W), (f'{w / total_weight:.0%}', -AMT_W))}"
+                + (f" {badge}" if badge else "")
+            )
         panel.field("Possible hauls", "\n".join(yield_lines))
         panel.divider()
         panel.field(
