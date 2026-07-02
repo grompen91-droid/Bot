@@ -55,12 +55,6 @@ class Venture(commands.Cog):
 
         panel = Panel(accent=Palette.GOLD, author_id=ctx.author.id, timeout=120)
         panel.header("🗺️ Beyond the Town Walls")
-        panel.text(
-            "A courier has posted three routes on the board. Choose your "
-            "path: the deeper you go, the more you risk, and the more "
-            "you stand to gain."
-        )
-        panel.divider()
         blocks = []
         for path in VENTURE_PATHS.values():
             lo, hi = path["reward"]

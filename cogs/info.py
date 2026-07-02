@@ -10,41 +10,10 @@ from econ.data.jobs import JOBS
 from ui.panels import Palette, Panel
 
 HELP_SECTIONS = [
-    (
-        "⚒️ Your Trade",
-        [
-            ("`.job`", "the job board, pick a trade"),
-            ("`.job info <trade>`", "yields, odds, your standing"),
-            ("`.job quit`", "quit (skills are kept)"),
-            ("`.work`", "labour for goods, coin, and XP"),
-            ("`.skills`", "skill levels in every trade"),
-        ],
-    ),
-    (
-        "🏪 The Market",
-        [
-            ("`.inventory`", "your satchel and its worth"),
-            ("`.market`", "today's prices"),
-            ("`.sell [item] [amount]`", "sell goods (nothing = sell all)"),
-            ("`.shop` / `.buy`", "the smithy, better tools"),
-        ],
-    ),
-    (
-        "🗺️ Ventures",
-        [
-            ("`.venture`", "risk a journey beyond the walls, no trade needed"),
-        ],
-    ),
-    (
-        "💰 Gold",
-        [
-            ("`.balance`", "coin in your purse"),
-            ("`.daily`", "daily stipend, streaks pay more"),
-            ("`.pay <member> <amount>`", "hand coin to someone"),
-            ("`.profile`", "your standing in the town"),
-            ("`.leaderboard`", "the town's finest"),
-        ],
-    ),
+    ("⚒️ Trade", ".job · .work · .skills"),
+    ("🏪 Market", ".inventory · .market · .sell · .shop · .buy"),
+    ("🗺️ Venture", ".venture"),
+    ("💰 Gold", ".balance · .daily · .pay · .profile · .leaderboard"),
 ]
 
 
@@ -57,18 +26,10 @@ class Info(commands.Cog):
     @commands.hybrid_command(name="help", description="A guide to life in the town")
     async def help(self, ctx: commands.Context):
         panel = Panel(timeout=None)
-        panel.header("📜 A Guide to Life in the Town")
-        panel.text(
-            "Take a trade, `.work` to gather goods, `.sell` them, "
-            "save for better tools at the `.shop`."
-        )
-        for title, entries in HELP_SECTIONS:
-            panel.divider()
-            panel.field(
-                title,
-                "\n".join(f"{cmd} · {desc}" for cmd, desc in entries),
-            )
-        panel.footer("every command also works as a slash command")
+        panel.header("📜 Commands")
+        for title, cmds in HELP_SECTIONS:
+            panel.field(title, cmds)
+        panel.footer("also work as /slash commands")
         await ctx.send(view=panel)
 
     @commands.hybrid_command(name="about", description="About this humble town")
@@ -76,13 +37,9 @@ class Info(commands.Cog):
         panel = Panel(accent=Palette.BLUE, timeout=None)
         panel.header("🏰 About the Town")
         panel.text(
-            f"A medieval economy for this server: **{len(JOBS)}** trades, "
-            f"**{len(ITEMS)}** goods, **{len(formulas.TOOL_MULTIPLIERS) - 1}** "
-            "tool tiers per trade, and a market that shifts every day.\n\n"
-            "No Discord roles are used. Your rank in town is measured in "
-            "gold and skill alone."
+            f"{len(JOBS)} trades · {len(ITEMS)} goods · daily-shifting market. "
+            "No Discord roles, your rank is gold and skill alone."
         )
-        panel.footer("start with .help")
         await ctx.send(view=panel)
 
 

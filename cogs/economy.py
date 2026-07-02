@@ -11,7 +11,7 @@ from discord.ext import commands
 from econ import formulas
 from econ.data.jobs import JOBS
 from econ.data.tools import tool_name
-from ui.panels import AMT_W, NAME_W, Palette, Panel, chip, simple_panel
+from ui.panels import Palette, Panel, simple_panel
 
 
 class Economy(commands.Cog):
@@ -63,21 +63,16 @@ class Economy(commands.Cog):
         balance = await self.db.add_gold(gid, uid, payout)
 
         panel = Panel(accent=Palette.GREEN, timeout=None)
-        panel.header("🏛️ The Daily Stipend")
-        panel.text(f"The town treasurer counts out **{formulas.fmt_gold(payout)}**.")
-        details = [
-            f"🏛️ {chip(('Stipend', NAME_W), (f'{formulas.DAILY_BASE:,}', -AMT_W))} 🪙"
-        ]
+        panel.header("🏛️ Daily Stipend")
+        panel.text(f"# {formulas.fmt_gold(payout)}")
+        extras = []
         if streak_bonus:
-            details.append(
-                f"🔥 {chip((f'Streak x{streak}', NAME_W), (f'+{streak_bonus:,}', -AMT_W))} 🪙"
-            )
+            extras.append(f"🔥 streak ×{streak}: +{streak_bonus:,}")
         if level_bonus:
-            details.append(
-                f"📖 {chip(('Skill bonus', NAME_W), (f'+{level_bonus:,}', -AMT_W))} 🪙"
-            )
-        panel.text("\n".join(details))
-        panel.footer(f"Purse: {balance:,} gold · return tomorrow to keep the streak")
+            extras.append(f"📖 skill: +{level_bonus:,}")
+        if extras:
+            panel.text(" · ".join(extras))
+        panel.footer(f"Purse: {balance:,} gold")
         await ctx.send(view=panel)
 
     @commands.hybrid_command(name="pay", description="Hand coin to another townsfolk")
@@ -123,10 +118,7 @@ class Economy(commands.Cog):
         target = member or ctx.author
         gid = ctx.guild.id
         user = await self.db.get_user(gid, target.id)
-        inventory = await self.db.get_inventory(gid, target.id)
-        stats = await self.db.get_stats(gid, target.id)
         total_level = await self.db.total_level(gid, target.id)
-        total_items = sum(row["qty"] for row in inventory)
 
         if user["job"]:
             info = JOBS[user["job"]]
@@ -134,13 +126,13 @@ class Economy(commands.Cog):
             tier = await self.db.get_tool_tier(gid, target.id, user["job"])
             needed = formulas.xp_to_next(skill["level"])
             trade_lines = [
-                f"⚒️ {info['emoji']} **{info['name']}** Lv **{skill['level']}** · "
+                f"{info['emoji']} **{info['name']}** Lv **{skill['level']}** · "
                 f"🔧 {tool_name(user['job'], tier)}",
                 f"`{formulas.progress_bar(skill['xp'], needed)}` "
                 f"{skill['xp']}/{needed} XP",
             ]
         else:
-            trade_lines = ["⚒️ *No trade yet. See* `.job`"]
+            trade_lines = ["*No trade yet, see* `.job`"]
 
         rank_emoji, rank_title = formulas.town_rank(total_level)
         panel = Panel(timeout=None)
@@ -148,34 +140,11 @@ class Economy(commands.Cog):
         panel.section(
             f"{rank_emoji} **{rank_title}**",
             f"💰 **{formulas.fmt_gold(user['gold'])}**",
-            f"📖 Total skill **{total_level}** · 🎒 {total_items:,} goods",
             thumbnail=target.display_avatar.url,
         )
-        panel.divider()
         panel.text("\n".join(trade_lines))
-
-        ventures = stats.get("ventures_won", 0) + stats.get("ventures_lost", 0)
-        footer_lines = [
-            f"worked {stats.get('works', 0):,} · gathered "
-            f"{stats.get('items_gathered', 0):,} · sold {stats.get('items_sold', 0):,} · "
-            f"earned {stats.get('gold_from_sales', 0):,} gold"
-            + (f" · 🔥 {user['daily_streak']} day streak" if user["daily_streak"] else "")
-        ]
-        if ventures:
-            footer_lines.append(
-                f"ventures: {stats.get('ventures_won', 0):,}W/"
-                f"{stats.get('ventures_lost', 0):,}L · "
-                f"earned {stats.get('gold_from_ventures', 0):,} gold"
-                + (f" · 🔥 {user['venture_streak']} streak" if user["venture_streak"] else "")
-            )
-        next_rank = formulas.next_town_rank(total_level)
-        if next_rank:
-            next_title, need = next_rank
-            footer_lines.append(
-                f"`{formulas.progress_bar(total_level, need)}` {total_level}/{need} "
-                f"to {next_title}"
-            )
-        panel.footer("\n".join(footer_lines))
+        if user["daily_streak"]:
+            panel.footer(f"🔥 {user['daily_streak']} day streak")
         await ctx.send(view=panel)
 
     @commands.hybrid_command(name="leaderboard", aliases=["lb", "top"], description="The wealthiest and most skilled in town")
@@ -211,7 +180,6 @@ class Economy(commands.Cog):
         panel = Panel(timeout=None)
         panel.header(title)
         panel.text("\n".join(lines) or "*The town ledger is empty.*")
-        panel.footer("try .leaderboard skills / .leaderboard gold")
         await ctx.send(view=panel)
 
 

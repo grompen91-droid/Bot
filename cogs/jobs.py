@@ -121,11 +121,11 @@ class Jobs(commands.Cog):
         # ── build the result panel ──────────────────────────────────────
         accent = Palette.PURPLE if crit else Palette.GOLD
         panel = Panel(accent=accent, author_id=member.id)
-        panel.header(f"{info['emoji']} {info['name']} at Work")
-        panel.text(f"*{random.choice(info['flavour'])}*")
+        panel.header(f"{info['emoji']} {info['name']}")
         if crit:
-            panel.text("💥 **A masterful day's work. Double haul!**")
-        panel.divider()
+            panel.text("💥 **Critical work, double haul!**")
+        else:
+            panel.text(f"*{random.choice(info['flavour'])}*")
 
         haul_lines = []
         for item, qty in hauls:
@@ -233,7 +233,7 @@ class Jobs(commands.Cog):
         panel = Panel(author_id=ctx.author.id)
         panel.header("🪧 The Town Job Board")
         panel.field(
-            "Starter trades",
+            "Starter",
             " · ".join(
                 f"{i['emoji']} **{i['name']}**"
                 + (" 📍" if user["job"] == k else "")
@@ -244,30 +244,19 @@ class Jobs(commands.Cog):
         for key, i in guild_trades:
             req = i["unlock_total_level"]
             if user["job"] == key:
-                status = "📍 *your trade*"
+                status = "📍"
             elif total >= req:
-                status = "✅ unlocked"
+                status = "✅"
             else:
-                status = "🔒 locked"
-            guild_lines.append(
-                f"{i['emoji']} **{i['name']}** · needs **{req}** · {status}"
-            )
-        panel.field("Guild trades", "\n".join(guild_lines))
+                status = "🔒"
+            guild_lines.append(f"{i['emoji']} **{i['name']}** ({req}) {status}")
+        panel.field("Guild", "\n".join(guild_lines))
 
         rank_emoji, rank_title = formulas.town_rank(total)
-        footer_lines = [f"{rank_emoji} {rank_title} · total level {total}"]
+        footer = f"{rank_emoji} {rank_title} · Lv {total}"
         if user["job"]:
-            footer_lines[0] = f"trade: {JOBS[user['job']]['name']} · " + footer_lines[0]
-        next_unlock = next(
-            (i for _key, i in guild_trades if total < i["unlock_total_level"]), None
-        )
-        if next_unlock:
-            need = next_unlock["unlock_total_level"]
-            footer_lines.append(
-                f"`{formulas.progress_bar(total, need)}` {total}/{need} "
-                f"to unlock {next_unlock['name']}"
-            )
-        panel.footer("\n".join(footer_lines))
+            footer = f"trade: {JOBS[user['job']]['name']} · " + footer
+        panel.footer(footer)
 
         select = ui.Select(placeholder="⚒️ Take up a trade…")
         for key, info in JOBS.items():
@@ -397,9 +386,7 @@ class Jobs(commands.Cog):
         level = skill["level"]
 
         panel = Panel(accent=Palette.BLUE, timeout=None)
-        panel.header(f"{info['emoji']} The {info['name']}'s Trade")
-        panel.text(f"*{info['description']}*")
-        panel.divider()
+        panel.header(f"{info['emoji']} {info['name']}")
 
         total_weight = sum(w for *_rest, w in info["yields"])
         yield_lines = []
@@ -410,20 +397,16 @@ class Jobs(commands.Cog):
                 f"{chip((ITEMS[item]['name'], NAME_W), (f'{lo}-{hi}', QTY_W), (f'{w / total_weight:.0%}', -AMT_W))}"
                 + (f" {badge}" if badge else "")
             )
-        panel.field("Possible hauls", "\n".join(yield_lines))
-        panel.divider()
+        panel.text("\n".join(yield_lines))
+
         total = await self.db.total_level(ctx.guild.id, ctx.author.id)
         coin_mult = formulas.coin_multiplier(total)
-        panel.field(
-            "Your standing",
-            f"Skill: **Lv. {level}** · Tool: **{tool_name(job_key, tier)}**\n"
-            f"Item yields ×{formulas.total_multiplier(level, tier):.2f} · "
-            f"coin (tips) ×{coin_mult:.2f} *(from total skill level)*\n"
-            f"work every {formulas.effective_cooldown(info['cooldown'], level):.0f}s · "
-            f"crit {formulas.crit_chance(level, tier):.0%} · "
-            f"bonus find {formulas.bonus_find_chance(level):.0%}",
+        panel.footer(
+            f"Lv {level} · {tool_name(job_key, tier)} · "
+            f"yields ×{formulas.total_multiplier(level, tier):.2f} · "
+            f"coin ×{coin_mult:.2f} · "
+            f"{formulas.effective_cooldown(info['cooldown'], level):.0f}s cooldown"
         )
-        panel.footer(f"tip {info['tip'][0]}–{info['tip'][1]} gold per work, before bonuses")
         await ctx.send(view=panel)
 
     # ══════════════════════════════ work ═══════════════════════════════

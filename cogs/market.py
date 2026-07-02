@@ -65,7 +65,7 @@ class Market(commands.Cog):
                     f"{chip((info_i['name'], NAME_W), (f'x{qty}', QTY_W), (f'{worth:,}', -AMT_W))} 🪙"
                 )
             panel.text("\n".join(lines))
-            panel.footer(f"Worth {total:,} gold today · sell with .sell")
+            panel.footer(f"Worth {total:,} gold today")
         await ctx.send(view=panel)
 
     # ══════════════════════════ the market ═════════════════════════════
@@ -75,8 +75,6 @@ class Market(commands.Cog):
     async def market(self, ctx: commands.Context):
         panel = Panel(timeout=None)
         panel.header("🏪 The Town Market")
-        panel.text("*Prices drift each day. Sell high!*")
-        panel.divider()
         for job_key, info in JOBS.items():
             lines = []
             for item, *_rest in info["yields"]:
@@ -88,7 +86,7 @@ class Market(commands.Cog):
                     f"{chip((ITEMS[item]['name'], NAME_W), (f'{price:,}', -AMT_W))} 🪙{arrow}"
                 )
             panel.field(f"{info['emoji']} {info['name']}", "\n".join(lines))
-        panel.footer("▲ above the usual rate · ▼ below · sell with .sell")
+        panel.footer("▲ above usual · ▼ below")
         await ctx.send(view=panel)
 
     async def _sell_item_autocomplete(
@@ -232,7 +230,6 @@ class Market(commands.Cog):
             f"You carry: **{tool_name(job_key, tier)}** "
             f"*(×{formulas.tool_multiplier(tier):.2f})*"
         )
-        panel.divider()
         lines = []
         for t in range(1, MAX_TOOL_TIER + 1):
             name = TOOLS[job_key][t - 1]

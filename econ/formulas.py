@@ -208,8 +208,8 @@ def daily_payout(streak: int, total_level: int) -> tuple[int, int, int]:
 
 
 # ══════════════════════════ town rank titles ═══════════════════════════
-# A flavour title from total skill level across all trades, a light
-# meta-progression layer on top of individual skills. Purely cosmetic.
+# A title from total skill level across all trades. See coin_multiplier
+# below for the real, mechanical payoff attached to each tier.
 
 TOWN_RANKS = [
     (0, "🌱", "Newcomer"),
