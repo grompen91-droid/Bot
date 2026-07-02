@@ -51,18 +51,30 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
   *pocket* gold only, never their bank. 20-minute cooldown per
   attacker, and a successful victim is shielded from further attempts
   for 10 minutes. Failing costs a small fine.
-- **`.brew`**: a memory minigame, and the first of the per-job minigames.
-  Watch a sequence of reagents flash by, then tap them back in order
-  before a 20-second-per-tap timer runs out; one wrong tap ends the
-  attempt and the reward reflects how far you got, with a 50% bonus for
-  a flawless brew. Open to current Alchemists always, or anyone with
-  Alchemist skill level 5+ even without the job. Sequence length grows
-  with Alchemist level (3 up to 8 reagents). 6-hour cooldown, but the
-  single biggest payout in the game — no risk of loss, only how far
-  your memory takes you. Reward scales with skill level (low at level
-  1, up to 6x that at max level) and with how late-game the trade is to
-  unlock in the first place — Alchemist starts far higher per round
-  than a starter trade's minigame would.
+- **Job minigames**: every trade has its own quick, timed challenge,
+  the real hands-on way to earn beyond `.work`. All eight share one
+  reward curve: pay scales with skill level (low at level 1, up to 6x
+  that at max level) and with how late-game the trade was to unlock in
+  the first place (Alchemist pays far more per round than Farmer from
+  square one), reward is proportional to how many rounds you clear, and
+  a flawless run earns a 50% bonus. Every one has a genuine fail state,
+  one mistake or a blown timer ends the attempt right there, and every
+  one has an admin-only `*test` twin (e.g. `.harvesttest`) to try it
+  with no job, cooldown, or real reward. Access follows the same rule
+  everywhere: your current job always qualifies, or skill level 5+ in
+  that trade even without holding the job.
+  - 🌾 `.harvest` (Farmer): a crop is named among decoys, tap the right one
+  - ⛏️ `.dig` (Miner): a direction flashes, follow the vein before it's lost
+  - 🎣 `.fish` (Fisherman): pure reflex, reel in the instant it bites,
+    too early or too late both fail the cast
+  - 🪓 `.fell` (Lumberjack): the trunk leans one way, swing that side, fast
+  - 🏹 `.hunt` (Hunter): the right prey breaks from decoys, loose an arrow
+  - 🍞 `.bake` (Baker): press-your-luck, keep adding ingredients toward a
+    hidden target or bank early, one scoop too many ruins the batch
+  - 🍺 `.tend` (Brewer): the vat that's ready flashes among decoys, tap it
+  - 🧪 `.brew` (Alchemist): watch a reagent sequence, then repeat it back
+    in order; the longest cooldown, and the single biggest payout in the
+    game since there's no risk of loss, only how far your memory takes you
 
 ## Commands
 
@@ -80,8 +92,8 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
 | `.balance` / `.daily` / `.pay` / `.profile` / `.leaderboard` | Gold |
 | `.bank` / `.deposit [amount\|all]` / `.withdraw [amount\|all]` | Bank |
 | `.pickpocket <member>` | Try to lift coin from their pocket |
-| `.brew` | Cauldron memory minigame (Alchemist, or lvl 5+ in it, biggest payout) |
-| `.brewtest [level]` | Admin-only: try the minigame with no job/cooldown/rewards |
+| `.harvest` / `.dig` / `.fish` / `.fell` / `.hunt` / `.bake` / `.tend` / `.brew` | Job minigames (current job, or lvl 5+ in it) |
+| `.harvesttest` / `.digtest` / `.fishtest` / `.felltest` / `.hunttest` / `.baketest` / `.tendtest` / `.brewtest [level]` | Admin-only: try any minigame with no job/cooldown/rewards |
 | `.help` / `.about` | Guidance |
 
 ## Architecture (how to expand it)
@@ -99,6 +111,7 @@ econ/
     tools.py         tool ladders per trade (names + prices)
     ventures.py      venture route registry (odds, rewards, flavour)
     bank.py          bank tier capacities and upgrade costs
+    minigames.py     per-job minigame content (options, flavour, timing)
 ui/
   panels.py          Components V2 medieval panel builder (fluent API)
 cogs/
@@ -108,6 +121,8 @@ cogs/
   venture.py         the .venture minigame
   crime.py           pickpocketing
   brew.py            the .brew cauldron memory minigame
+  minigames.py       the other 7 per-job minigames (harvest/dig/fish/
+                     fell/hunt/bake/tend) + their *test admin twins
   info.py            help, about
 ```
 

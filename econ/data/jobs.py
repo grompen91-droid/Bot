@@ -139,6 +139,10 @@ for _job_key, _info in JOBS.items():
         if _item not in ITEMS:
             raise RuntimeError(f"Job {_job_key!r} yields unknown item {_item!r}")
 
+# The hardest trade to unlock, used to anchor the per-job minigame
+# reward/cooldown curves (see formulas.py's minigame_round_base et al).
+MAX_JOB_UNLOCK_LEVEL = max(info["unlock_total_level"] for info in JOBS.values())
+
 
 def resolve_job(query: str) -> str | None:
     """Fuzzy-match a user-typed trade name ('farmer', 'Fisher', '🌾')."""

@@ -373,6 +373,29 @@ def roll_minigame_reward(
     return round(reward), perfect
 
 
+def minigame_length(level: int, min_len: int, max_len: int, level_per_step: int) -> int:
+    """Round count for a per-job minigame attempt: starts at min_len,
+    +1 round per level_per_step levels of skill, caps at max_len."""
+    return min(max_len, min_len + level // level_per_step)
+
+
+MINIGAME_XP_PER_ROUND = 3
+MINIGAME_PERFECT_BONUS = 1.5
+MINIGAME_MIN_LEVEL_WITHOUT_JOB = 5   # same access rule as .brew
+
+# Cooldown interpolates the same way the reward floor does: a starter
+# trade's minigame can be replayed often for a small payout, a
+# late-game trade's pays much more but far less often. Alchemist's
+# .brew sits just above this range at a flat 6h (see BREW_COOLDOWN).
+MINIGAME_COOLDOWN_MIN = 45 * 60        # starter trades, 45 minutes
+MINIGAME_COOLDOWN_MAX = 5 * 60 * 60    # hardest non-Alchemist trade, 5 hours
+
+
+def minigame_cooldown(unlock_level: int, max_unlock_level: int) -> int:
+    frac = (unlock_level / max_unlock_level) if max_unlock_level else 0.0
+    return round(MINIGAME_COOLDOWN_MIN + (MINIGAME_COOLDOWN_MAX - MINIGAME_COOLDOWN_MIN) * frac)
+
+
 # ═══════════════════════════ the cauldron brew ═════════════════════════
 # A memory minigame: recall a reagent sequence in order. No risk of
 # loss, reward scales with how many you get right, with a bonus for a
@@ -395,7 +418,7 @@ BREW_XP_PER_SYMBOL = 3
 
 
 def brew_sequence_length(level: int) -> int:
-    return min(BREW_MAX_LENGTH, BREW_MIN_LENGTH + level // BREW_LEVEL_PER_STEP)
+    return minigame_length(level, BREW_MIN_LENGTH, BREW_MAX_LENGTH, BREW_LEVEL_PER_STEP)
 
 
 def roll_brew_reward(

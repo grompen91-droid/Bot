@@ -76,6 +76,17 @@ MIGRATIONS: list[str] = [
     """
     ALTER TABLE users ADD COLUMN last_brew DOUBLE PRECISION NOT NULL DEFAULT 0;
     """,
+    # v6, the other 7 per-job minigames (one shared cooldown table rather
+    # than a users column per trade)
+    """
+    CREATE TABLE IF NOT EXISTS minigame_cooldowns (
+        guild_id    BIGINT NOT NULL,
+        user_id     BIGINT NOT NULL,
+        job         TEXT   NOT NULL,
+        last_played DOUBLE PRECISION NOT NULL DEFAULT 0,
+        PRIMARY KEY (guild_id, user_id, job)
+    );
+    """,
 ]
 
 
@@ -312,6 +323,26 @@ class Database:
         await self.execute(
             "UPDATE users SET last_brew = ? WHERE guild_id = ? AND user_id = ?",
             when, guild_id, user_id,
+        )
+
+    # ── the other per-job minigames ─────────────────────────────────────
+
+    async def get_minigame_cooldown(self, guild_id: int, user_id: int, job: str) -> float:
+        row = await self.fetchone(
+            "SELECT last_played FROM minigame_cooldowns "
+            "WHERE guild_id = ? AND user_id = ? AND job = ?",
+            guild_id, user_id, job,
+        )
+        return row["last_played"] if row else 0.0
+
+    async def set_minigame_cooldown(
+        self, guild_id: int, user_id: int, job: str, when: float
+    ) -> None:
+        await self.execute(
+            "INSERT INTO minigame_cooldowns (guild_id, user_id, job, last_played) "
+            "VALUES (?, ?, ?, ?) ON CONFLICT (guild_id, user_id, job) "
+            "DO UPDATE SET last_played = excluded.last_played",
+            guild_id, user_id, job, when,
         )
 
     # ── skills ──────────────────────────────────────────────────────────

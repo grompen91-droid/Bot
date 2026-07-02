@@ -18,7 +18,10 @@ HELP_SECTIONS = [
     ("🗡️ Crime", ".pickpocket"),
     # Every job-specific minigame lives in this one section, not a new
     # section per job, however many of these exist.
-    ("🎯 Job Minigames", ".brew"),
+    (
+        "🎯 Job Minigames",
+        ".harvest · .dig · .fish · .fell · .hunt · .bake · .tend · .brew",
+    ),
 ]
 
 

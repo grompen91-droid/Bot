@@ -20,7 +20,7 @@ from discord import app_commands, ui
 from discord.ext import commands
 
 from econ import formulas
-from econ.data.jobs import JOBS
+from econ.data.jobs import JOBS, MAX_JOB_UNLOCK_LEVEL
 from ui.panels import AMT_W, NAME_W, Palette, Panel, chip, simple_panel
 
 REAGENTS = {
@@ -29,7 +29,6 @@ REAGENTS = {
 }
 REAGENT_KEYS = list(REAGENTS)
 REVEAL_DELAY = 1.1     # seconds between flashing each reagent
-MAX_JOB_UNLOCK_LEVEL = max(info["unlock_total_level"] for info in JOBS.values())
 ANSWER_TIMEOUT = 20    # seconds to tap each reagent before the view expires
 
 
