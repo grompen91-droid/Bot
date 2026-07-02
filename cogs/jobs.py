@@ -73,8 +73,11 @@ class Jobs(commands.Cog):
 
         tier = await self.db.get_tool_tier(guild_id, member.id, job_key)
         total_before = await self.db.total_level(guild_id, member.id)
-        rank_mult = formulas.town_rank_multiplier(total_before)
-        multiplier = formulas.total_multiplier(level, tier) * rank_mult
+        # Item hauls scale with skill in THIS trade only; coin scales with
+        # total skill across every trade, so gold stays hard to come by
+        # early and grows with the breadth of what you've mastered.
+        multiplier = formulas.total_multiplier(level, tier)
+        coin_mult = formulas.coin_multiplier(total_before)
 
         # Primary haul: one weighted roll, with luck favouring rare+ finds.
         entries = info["yields"]
@@ -99,7 +102,7 @@ class Jobs(commands.Cog):
                 (item, round(qty * formulas.CRIT_MULTIPLIER)) for item, qty in hauls
             ]
 
-        tip = round(formulas.roll_tip(*info["tip"], level, tier) * rank_mult)
+        tip = round(formulas.roll_tip(*info["tip"], level, tier) * coin_mult)
         xp_gain = formulas.roll_work_xp(info["cooldown"])
 
         new_level, new_xp, levels_gained = formulas.apply_xp(
@@ -410,12 +413,12 @@ class Jobs(commands.Cog):
         panel.field("Possible hauls", "\n".join(yield_lines))
         panel.divider()
         total = await self.db.total_level(ctx.guild.id, ctx.author.id)
-        rank_mult = formulas.town_rank_multiplier(total)
+        coin_mult = formulas.coin_multiplier(total)
         panel.field(
             "Your standing",
             f"Skill: **Lv. {level}** · Tool: **{tool_name(job_key, tier)}**\n"
-            f"Yields ×{formulas.total_multiplier(level, tier) * rank_mult:.2f} "
-            f"*(incl. ×{rank_mult:.2f} town rank)* · "
+            f"Item yields ×{formulas.total_multiplier(level, tier):.2f} · "
+            f"coin (tips) ×{coin_mult:.2f} *(from total skill level)*\n"
             f"work every {formulas.effective_cooldown(info['cooldown'], level):.0f}s · "
             f"crit {formulas.crit_chance(level, tier):.0%} · "
             f"bonus find {formulas.bonus_find_chance(level):.0%}",

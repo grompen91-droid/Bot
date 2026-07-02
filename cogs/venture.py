@@ -60,17 +60,22 @@ class Venture(commands.Cog):
             "path: the deeper you go, the more you risk, and the more "
             "you stand to gain."
         )
-        lines = []
+        panel.divider()
+        blocks = []
         for path in VENTURE_PATHS.values():
             lo, hi = path["reward"]
-            lines.append(
-                f"{path['emoji']} **{path['name']}** · {path['risk']} · "
-                f"win {path['success']:.0%}\n"
-                f"   {chip(('reward', NAME_W), (f'{round(lo * mult):,}-{round(hi * mult):,}', -AMT_W))} 🪙"
+            range_s = f"{round(lo * mult):,}-{round(hi * mult):,}"
+            win_s = f"win {path['success']:.0%}"
+            blocks.append(
+                f"{path['emoji']} **{path['name']}** · {path['risk']}\n"
+                f"{chip((win_s, 8), (range_s, -12))} 🪙"
             )
-        panel.text("\n".join(lines))
+        panel.text("\n\n".join(blocks))
+
+        footer = f"×{mult:.2f} bonus from total skill level"
         if streak:
-            panel.footer(f"🔥 {streak} venture win streak · ×{mult:.2f} total bonus")
+            footer += f" & 🔥 {streak} win streak"
+        panel.footer(footer)
 
         buttons = []
         for key, path in VENTURE_PATHS.items():

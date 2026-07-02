@@ -246,15 +246,30 @@ def next_town_rank(total_level: int) -> tuple[str, int] | None:
     return None
 
 
-# Town rank isn't just a title: each tier grants a small permanent bonus
-# to ALL gold and yields, town-wide, on top of individual skill/tool
-# bonuses. Levelling a second or third trade keeps paying off even after
-# your main trade is maxed out, real progression, not just flavour text.
+# Town rank isn't just a title: each tier grants a small permanent
+# bonus, on top of individual skill/tool bonuses, so levelling a second
+# or third trade keeps paying off after your main trade is maxed out.
 TOWN_RANK_BONUS_PER_TIER = 0.02  # +2% per tier, up to +16% at the top rank
 
 
 def town_rank_multiplier(total_level: int) -> float:
+    """The tier-only bonus shown alongside the rank badge."""
     return 1.0 + _town_rank_index(total_level) * TOWN_RANK_BONUS_PER_TIER
+
+
+# Coin (tip, venture) scales with TOTAL skill level across every trade,
+# continuously, not just by rank tier. A fresh player earns close to
+# base rate, gold is genuinely hard to come by early; a player who has
+# invested broadly across trades earns meaningfully more, up to +180%
+# at total level 300, then it plateaus. Item hauls are NOT affected by
+# this, only coin, so it can't be farmed by grinding a single trade.
+COIN_BONUS_PER_LEVEL = 0.006
+COIN_BONUS_CAP_LEVEL = 300
+
+
+def coin_multiplier(total_level: int) -> float:
+    continuous = 1.0 + COIN_BONUS_PER_LEVEL * min(total_level, COIN_BONUS_CAP_LEVEL)
+    return town_rank_multiplier(total_level) * continuous
 
 
 # ═══════════════════════════ ventures ══════════════════════════════════
@@ -269,7 +284,7 @@ VENTURE_STREAK_CAP = 10
 
 
 def venture_multiplier(total_level: int, win_streak: int) -> float:
-    rank_bonus = town_rank_multiplier(total_level)
+    rank_bonus = coin_multiplier(total_level)
     streak_bonus = 1.0 + VENTURE_STREAK_BONUS_PER_WIN * min(win_streak, VENTURE_STREAK_CAP)
     return rank_bonus * streak_bonus
 
