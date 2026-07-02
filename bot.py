@@ -10,11 +10,13 @@ import logging
 import os
 
 import discord
+from discord import app_commands
 from discord.ext import commands
 from dotenv import load_dotenv
 
+from econ import captcha
 from econ.database import Database
-from ui.panels import Palette, simple_panel
+from ui.panels import Palette, captcha_panel, simple_panel
 
 load_dotenv()
 
@@ -22,6 +24,23 @@ log = logging.getLogger("medieval-bot")
 
 PREFIX = os.getenv("PREFIX", ".")
 EXTENSIONS = ("cogs.jobs", "cogs.economy", "cogs.market", "cogs.info")
+
+
+class GuardedTree(app_commands.CommandTree):
+    """Blocks slash commands while a town-guard check is unanswered."""
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.guild_id and captcha.has_pending(
+            interaction.guild_id, interaction.user.id
+        ):
+            await interaction.response.send_message(
+                view=captcha_panel(
+                    captcha.pending_code(interaction.guild_id, interaction.user.id)
+                ),
+                ephemeral=True,
+            )
+            return False
+        return True
 
 
 class MedievalBot(commands.Bot):
@@ -34,6 +53,7 @@ class MedievalBot(commands.Bot):
             help_command=None,  # cogs/info.py provides .help
             case_insensitive=True,
             strip_after_prefix=True,
+            tree_cls=GuardedTree,
             # Mentions render as highlights but never ping anyone.
             allowed_mentions=discord.AllowedMentions.none(),
         )
@@ -57,6 +77,28 @@ class MedievalBot(commands.Bot):
         else:
             synced = await self.tree.sync()
             log.info("Synced %d global commands (may take up to an hour)", len(synced))
+
+    async def on_message(self, message: discord.Message) -> None:
+        if message.author.bot:
+            return
+        if message.guild and captcha.has_pending(message.guild.id, message.author.id):
+            if captcha.try_solve(message.guild.id, message.author.id, message.content):
+                await message.channel.send(
+                    view=simple_panel(
+                        f"✅ The guard nods and waves {message.author.mention} "
+                        "through the gates. Carry on!",
+                        accent=Palette.GREEN,
+                    )
+                )
+            elif message.content.startswith(PREFIX):
+                # Commands stay locked; repeat the challenge.
+                await message.channel.send(
+                    view=captcha_panel(
+                        captcha.pending_code(message.guild.id, message.author.id)
+                    )
+                )
+            return
+        await self.process_commands(message)
 
     async def on_ready(self) -> None:
         log.info("Logged in as %s (%s)", self.user, self.user.id)

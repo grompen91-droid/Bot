@@ -9,11 +9,20 @@ import discord
 from discord import app_commands, ui
 from discord.ext import commands
 
-from econ import formulas
+from econ import captcha, formulas
 from econ.data.items import ITEMS, rarity_badge
 from econ.data.jobs import JOBS, resolve_job
 from econ.data.tools import tool_name
-from ui.panels import AMT_W, NAME_W, QTY_W, Palette, Panel, chip, simple_panel
+from ui.panels import (
+    AMT_W,
+    NAME_W,
+    QTY_W,
+    Palette,
+    Panel,
+    captcha_panel,
+    chip,
+    simple_panel,
+)
 
 JOB_CHOICES = [
     app_commands.Choice(name=f"{info['emoji']} {info['name']}", value=key)
@@ -45,6 +54,11 @@ class Jobs(commands.Cog):
                 "🪧 You have no trade! Visit the job board with `.job` "
                 "and take one up with `.job choose <trade>`."
             )
+
+        # The town guard's random anti-bot check.
+        code = captcha.maybe_challenge(guild_id, member.id)
+        if code:
+            return captcha_panel(code)
 
         job_key = user["job"]
         info = JOBS[job_key]
@@ -115,13 +129,13 @@ class Jobs(commands.Cog):
             badge = rarity_badge(item).strip()
             haul_lines.append(
                 f"{info_i['emoji']} "
-                f"{chip((info_i['name'], NAME_W), (f'x{qty}', QTY_W), ('', AMT_W))}"
+                f"{chip((info_i['name'], NAME_W), (f'x{qty}', -QTY_W))}"
                 + (f" {badge}" if badge else "")
             )
         if len(hauls) > 1:
             haul_lines[-1] += " *(bonus)*"
         haul_lines.append(
-            f"💰 {chip(('Tip', NAME_W), ('', QTY_W), (f'{tip:,}', -AMT_W))} 🪙"
+            f"💰 {chip(('Tip', NAME_W), (f'{tip:,}', -QTY_W))} 🪙"
         )
         panel.text("\n".join(haul_lines))
 
@@ -141,8 +155,8 @@ class Jobs(commands.Cog):
         needed = formulas.xp_to_next(new_level)
         ready = int(now + formulas.effective_cooldown(info["cooldown"], new_level))
         panel.footer(
-            f"+{xp_gain} XP · Lv {new_level} "
-            f"`{formulas.progress_bar(new_xp, needed)}` · ready <t:{ready}:R>"
+            f"+{xp_gain} XP · Lv {new_level} `{formulas.progress_bar(new_xp, needed)}` "
+            f"{new_xp}/{needed}\nready <t:{ready}:R>"
         )
 
         work_btn = ui.Button(
@@ -179,6 +193,9 @@ class Jobs(commands.Cog):
         if isinstance(result, str):
             await interaction.response.send_message(result, ephemeral=True)
             return
+        if getattr(result, "is_captcha", False):
+            await interaction.response.send_message(view=result)
+            return
         result.message = interaction.message
         await interaction.response.edit_message(view=result)
 
@@ -201,25 +218,40 @@ class Jobs(commands.Cog):
         total = await self.db.total_level(ctx.guild.id, ctx.author.id)
         user = await self.db.get_user(ctx.guild.id, ctx.author.id)
 
+        starters = [i for i in JOBS.values() if i["unlock_total_level"] == 0]
+        guild_trades = sorted(
+            (i for i in JOBS.values() if i["unlock_total_level"] > 0),
+            key=lambda i: i["unlock_total_level"],
+        )
+
         panel = Panel(author_id=ctx.author.id)
         panel.header("🪧 The Town Job Board")
-        panel.text(
-            "Take up a trade and earn your keep with `.work`. "
-            "Switch whenever you like, your skills are never forgotten."
+        panel.field(
+            "Starter trades",
+            " · ".join(f"{i['emoji']} **{i['name']}**" for i in starters),
         )
-        panel.divider()
+        panel.field(
+            "Guild trades",
+            "\n".join(
+                f"{'🔓' if total >= i['unlock_total_level'] else '🔒'} "
+                f"{i['emoji']} **{i['name']}** · total level "
+                f"**{i['unlock_total_level']}**"
+                for i in guild_trades
+            ),
+        )
 
-        lines = []
-        for key, info in JOBS.items():
-            req = info["unlock_total_level"]
-            lock = "" if total >= req else f" 🔒 *needs {req} levels*"
-            current = " ← *you*" if user["job"] == key else ""
-            lines.append(
-                f"{info['emoji']} **{info['name']}** · {info['description']}"
-                f"{lock}{current}"
+        footer = f"your total level: {total}"
+        if user["job"]:
+            footer = f"your trade: {JOBS[user['job']]['name']} · " + footer
+        next_unlock = next(
+            (i for i in guild_trades if total < i["unlock_total_level"]), None
+        )
+        if next_unlock:
+            footer += (
+                f" · next unlock: {next_unlock['name']} at "
+                f"{next_unlock['unlock_total_level']}"
             )
-        panel.text("\n".join(lines))
-        panel.footer(f"Your total skill level: {total}")
+        panel.footer(footer)
 
         select = ui.Select(placeholder="⚒️ Take up a trade…")
         for key, info in JOBS.items():
@@ -262,6 +294,15 @@ class Jobs(commands.Cog):
             )
             panel.accent_is_error = True
             return panel
+        ready_at = user["last_job_switch"] + formulas.JOB_SWITCH_COOLDOWN
+        if user["job"] and time.time() < ready_at:
+            panel = simple_panel(
+                "🏛️ The guild clerk shakes his head. You changed trades "
+                f"only recently. Come back <t:{int(ready_at)}:R>.",
+                accent=Palette.RED,
+            )
+            panel.accent_is_error = True
+            return panel
         if total < info["unlock_total_level"]:
             panel = simple_panel(
                 f"🔒 The {info['emoji']} **{info['name']}**'s guild turns you away. "
@@ -272,7 +313,7 @@ class Jobs(commands.Cog):
             panel.accent_is_error = True
             return panel
 
-        await self.db.set_job(guild_id, member.id, job_key)
+        await self.db.set_job(guild_id, member.id, job_key, time.time())
         skill = await self.db.get_skill(guild_id, member.id, job_key)
         tier = await self.db.get_tool_tier(guild_id, member.id, job_key)
 
@@ -315,7 +356,7 @@ class Jobs(commands.Cog):
             )
             return
         info = JOBS[user["job"]]
-        await self.db.set_job(ctx.guild.id, ctx.author.id, None)
+        await self.db.set_job(ctx.guild.id, ctx.author.id, None, time.time())
         await ctx.send(
             view=simple_panel(
                 f"You hang up your tools as a {info['emoji']} **{info['name']}**. "

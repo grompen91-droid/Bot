@@ -12,7 +12,7 @@ TOOL_PRICES = [300, 1_000, 3_200, 10_000, 30_000]
 TOOLS = {
     "farmer": [
         "Iron Sickle", "Steel Scythe", "Oxen & Plough",
-        "Masterwork Scythe", "Blessed Harvester",
+        "Master Scythe", "Holy Harvester",
     ],
     "miner": [
         "Iron Pickaxe", "Steel Pickaxe", "Blasting Powder",
@@ -20,18 +20,18 @@ TOOLS = {
     ],
     "fisherman": [
         "Oak Rod", "Woven Net", "River Skiff",
-        "Royal Trawling Net", "Leviathan Hook",
+        "Royal Trawler", "Leviathan Hook",
     ],
     "lumberjack": [
-        "Iron Axe", "Steel Felling Axe", "Two-Man Saw",
-        "Masterwork Greataxe", "Worldroot Cleaver",
+        "Iron Axe", "Felling Axe", "Two-Man Saw",
+        "Grand Greataxe", "Root Cleaver",
     ],
     "hunter": [
         "Yew Shortbow", "Composite Bow", "Hunting Hounds",
         "Elven Longbow", "Wyvernstring Bow",
     ],
     "baker": [
-        "Stone Oven", "Twin Brick Ovens", "Miller's Contract",
+        "Stone Oven", "Twin Brick Ovens", "Mill Contract",
         "Guild Bakehouse", "Enchanted Hearth",
     ],
     "brewer": [
@@ -40,7 +40,7 @@ TOOLS = {
     ],
     "alchemist": [
         "Glass Alembic", "Silver Cauldron", "Arcane Library",
-        "Philosopher's Still", "Starforged Athanor",
+        "Arcane Still", "Star Athanor",
     ],
 }
 

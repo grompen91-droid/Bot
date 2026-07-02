@@ -15,6 +15,8 @@ from __future__ import annotations
 import discord
 from discord import ui
 
+from econ import captcha
+
 
 class Palette:
     """Accent colours for panel edges."""
@@ -70,7 +72,8 @@ class Panel(ui.LayoutView):
 
     def footer(self, text: str) -> Panel:
         self.divider()
-        self.container.add_item(ui.TextDisplay(f"-# {text}"))
+        small = "\n".join(f"-# {line}" for line in text.split("\n"))
+        self.container.add_item(ui.TextDisplay(small))
         return self
 
     def section(self, *lines: str, thumbnail: str) -> Panel:
@@ -99,7 +102,18 @@ class Panel(ui.LayoutView):
     # ── behaviour ───────────────────────────────────────────────────────
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        """If an author is set, only they may press this panel's controls."""
+        """Guard checks come first; then, if an author is set, only they
+        may press this panel's controls."""
+        if interaction.guild_id and captcha.has_pending(
+            interaction.guild_id, interaction.user.id
+        ):
+            await interaction.response.send_message(
+                view=captcha_panel(
+                    captcha.pending_code(interaction.guild_id, interaction.user.id)
+                ),
+                ephemeral=True,
+            )
+            return False
         if self.author_id is None or interaction.user.id == self.author_id:
             return True
         await interaction.response.send_message(
@@ -132,10 +146,10 @@ def simple_panel(body: str, *, accent: discord.Colour = Palette.GOLD) -> Panel:
 # column widths, giving every list a clean aligned coin column.
 # Column = (text, width); positive width = left-aligned, negative = right.
 
-NAME_W = 18   # item names ("Philosopher's Dust" = 18)
-TOOL_W = 19   # tool names ("Masterwork Greataxe" = 19)
-QTY_W = 5     # "x999"
-AMT_W = 7     # "999,999"
+NAME_W = 16   # item names (all data names are kept to 16 chars max)
+TOOL_W = 16   # tool names (same cap, enforced in econ/data/tools.py)
+QTY_W = 4     # "x999"
+AMT_W = 6     # "30,000"
 
 
 def chip(*cols: tuple[str, int]) -> str:
@@ -146,3 +160,17 @@ def chip(*cols: tuple[str, int]) -> str:
             text = text[: w - 1] + "…"
         parts.append(f"{text:>{w}}" if width < 0 else f"{text:<{w}}")
     return "`" + " ".join(parts) + "`"
+
+
+def captcha_panel(code: str) -> Panel:
+    """The town guard's letter challenge."""
+    panel = Panel(accent=Palette.RED, timeout=None)
+    panel.is_captcha = True
+    panel.header("🛡️ Town Guard Checkpoint")
+    panel.text(
+        "Golems and automatons are not welcome in town! Prove you are "
+        "flesh and blood: **type these letters in chat** to carry on."
+    )
+    panel.text(f"# `{' '.join(code)}`")
+    panel.footer("just send the letters as a message · case doesn't matter")
+    return panel

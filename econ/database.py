@@ -56,6 +56,10 @@ MIGRATIONS: list[str] = [
         PRIMARY KEY (guild_id, user_id, key)
     );
     """,
+    # v2, cooldown between job switches
+    """
+    ALTER TABLE users ADD COLUMN last_job_switch DOUBLE PRECISION NOT NULL DEFAULT 0;
+    """,
 ]
 
 
@@ -194,11 +198,14 @@ class Database:
         )
         return True
 
-    async def set_job(self, guild_id: int, user_id: int, job: str | None) -> None:
+    async def set_job(
+        self, guild_id: int, user_id: int, job: str | None, switched_at: float
+    ) -> None:
         await self.get_user(guild_id, user_id)
         await self.execute(
-            "UPDATE users SET job = ? WHERE guild_id = ? AND user_id = ?",
-            job, guild_id, user_id,
+            "UPDATE users SET job = ?, last_job_switch = ? "
+            "WHERE guild_id = ? AND user_id = ?",
+            job, switched_at, guild_id, user_id,
         )
 
     async def set_daily(

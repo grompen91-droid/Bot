@@ -73,6 +73,9 @@ def level_yield_multiplier(level: int) -> float:
     return 1.0 + below * YIELD_PER_LEVEL + above * YIELD_PER_LEVEL_AFTER_CAP
 
 
+# Changing trades takes commitment: one switch per 5 minutes.
+JOB_SWITCH_COOLDOWN = 300
+
 # ══════════════════════════ work cooldowns ═════════════════════════════
 # Mastery makes you faster: -0.6% cooldown per level, capped at -30%.
 

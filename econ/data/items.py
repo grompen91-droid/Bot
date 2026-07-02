@@ -38,19 +38,19 @@ ITEMS = {
     "birch_log":      {"name": "Birch Log",         "emoji": "🪵", "value": 3,  "rarity": "common"},
     "oak_log":        {"name": "Oak Log",           "emoji": "🌳", "value": 5,  "rarity": "common"},
     "maple_log":      {"name": "Maple Log",         "emoji": "🍁", "value": 8,  "rarity": "uncommon"},
-    "heartwood":      {"name": "Ancient Heartwood", "emoji": "✨", "value": 40, "rarity": "epic"},
+    "heartwood":      {"name": "Elder Heartwood", "emoji": "✨", "value": 40, "rarity": "epic"},
     "elderbark":      {"name": "Elderbark",         "emoji": "🌲", "value": 85, "rarity": "legendary"},
     # ── Hunter ──────────────────────────────────────────────────────────
     "rabbit":         {"name": "Rabbit",            "emoji": "🐇", "value": 5,  "rarity": "common"},
     "pelt":           {"name": "Pelt",              "emoji": "🦫", "value": 8,  "rarity": "uncommon"},
     "venison":        {"name": "Venison",           "emoji": "🥩", "value": 10, "rarity": "uncommon"},
     "boar":           {"name": "Wild Boar",         "emoji": "🐗", "value": 22, "rarity": "rare"},
-    "white_stag":     {"name": "White Stag Antler", "emoji": "🦌", "value": 88, "rarity": "legendary"},
+    "white_stag":     {"name": "White Stag Horn", "emoji": "🦌", "value": 88, "rarity": "legendary"},
     # ── Baker ───────────────────────────────────────────────────────────
     "bread":          {"name": "Bread Loaf",        "emoji": "🍞", "value": 6,  "rarity": "common"},
     "meat_pie":       {"name": "Meat Pie",          "emoji": "🥧", "value": 10, "rarity": "uncommon"},
     "honey_cake":     {"name": "Honey Cake",        "emoji": "🍯", "value": 18, "rarity": "rare"},
-    "kings_feast":    {"name": "King's Feast Cake", "emoji": "👑", "value": 75, "rarity": "legendary"},
+    "kings_feast":    {"name": "King's Cake", "emoji": "👑", "value": 75, "rarity": "legendary"},
     # ── Brewer ──────────────────────────────────────────────────────────
     "ale":            {"name": "Ale",               "emoji": "🍺", "value": 7,  "rarity": "common"},
     "mead":           {"name": "Mead",              "emoji": "🍶", "value": 12, "rarity": "uncommon"},
@@ -60,7 +60,7 @@ ITEMS = {
     "herbs":          {"name": "Wild Herbs",        "emoji": "🌿", "value": 5,  "rarity": "common"},
     "minor_potion":   {"name": "Minor Potion",      "emoji": "🧪", "value": 16, "rarity": "uncommon"},
     "elixir":         {"name": "Golden Elixir",     "emoji": "⚗️", "value": 55, "rarity": "epic"},
-    "philosophers_dust": {"name": "Philosopher's Dust", "emoji": "💫", "value": 110, "rarity": "legendary"},
+    "philosophers_dust": {"name": "Philosopher Dust", "emoji": "💫", "value": 110, "rarity": "legendary"},
 }
 
 

@@ -14,9 +14,13 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
 
 ## The game
 
-- **8 trades**: 🌾 Farmer, ⛏️ Miner, 🎣 Fisherman, 🪓 Lumberjack, 🏹 Hunter,
-  plus 🍞 Baker, 🍺 Brewer, 🧪 Alchemist unlocked at 5 / 10 / 20 total skill
-  levels. Switch freely, skill per trade is never lost.
+- **8 trades**: 🌾 Farmer, ⛏️ Miner, 🎣 Fisherman start open; 🪓 Lumberjack,
+  🏹 Hunter, 🍞 Baker, 🍺 Brewer, 🧪 Alchemist unlock at 4 / 8 / 14 / 20 / 30
+  total skill levels. Skill per trade is never lost; switching has a
+  5-minute cooldown.
+- **Anti-bot guard**: each work has a 1-in-20 chance of a letter
+  challenge; commands and buttons stay locked (and the challenge
+  repeats) until the player types the letters back in chat.
 - **Working** (`.work`) rolls a weighted haul of trade goods plus a coin tip
   and XP. Skill and tools compound:
   - yields: **+3%/level** (soft-capped at 25, then +1%), tools up to **×1.85**
