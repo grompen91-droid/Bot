@@ -353,6 +353,69 @@ def roll_pickpocket(target_pocket: int, skill_level: int) -> tuple[bool, int]:
     return False, -fine
 
 
+# ═══════════════════════════ smuggling ═══════════════════════════════════
+# Sits between .pickpocket (petty, frequent, small) and .rob (huge,
+# rare, one mistake wipes your reputation): a solo, no-target crime
+# with a real chance of losing the goods, but never the full-wipe risk
+# .rob carries. Same access rule and skill scaling as pickpocketing.
+
+SMUGGLE_MIN_LEVEL_WITHOUT_JOB = 5   # same access rule as .brew
+SMUGGLE_COOLDOWN = 60 * 60          # 1 hour between runs
+
+SMUGGLE_SUCCESS_BASE = 0.45
+SMUGGLE_SUCCESS_PER_LEVEL = 0.003
+SMUGGLE_SUCCESS_CAP = 0.75
+
+SMUGGLE_GOLD_MIN, SMUGGLE_GOLD_MAX = 80, 200
+SMUGGLE_FAIL_FINE_MIN, SMUGGLE_FAIL_FINE_MAX = 20, 50
+
+SMUGGLE_INFAMY_MIN = 4   # a real haul, but still less notoriety than a
+SMUGGLE_INFAMY_MAX = 8   # successful bank job (see ROB_SUCCESS_INFAMY_*)
+
+
+def smuggle_success_chance(skill_level: int) -> float:
+    return min(
+        SMUGGLE_SUCCESS_CAP,
+        SMUGGLE_SUCCESS_BASE + SMUGGLE_SUCCESS_PER_LEVEL * max(0, skill_level - 1),
+    )
+
+
+def roll_smuggle(skill_level: int, infamy: int, total_level: int) -> tuple[bool, int]:
+    """Returns (success, gold_delta): positive gold smuggled through on
+    success, negative (goods confiscated, plus a fine) on failure."""
+    if random.random() < smuggle_success_chance(skill_level):
+        base = random.randint(SMUGGLE_GOLD_MIN, SMUGGLE_GOLD_MAX)
+        level_scale = 1.0 + TIP_PER_LEVEL * (skill_level - 1)
+        gold = round(base * level_scale * infamy_multiplier(infamy) * coin_multiplier(total_level))
+        return True, gold
+    fine = random.randint(SMUGGLE_FAIL_FINE_MIN, SMUGGLE_FAIL_FINE_MAX)
+    return False, -fine
+
+
+# ═══════════════════════════════ begging ═════════════════════════════════
+# The one command that needs nothing at all: no job, no skill, no
+# unlock. A tiny, reliable trickle of gold with a short cooldown, so
+# there's always *something* to do between other cooldowns. Costs a
+# little fame if you have any (a proud townsfolk begging is a small
+# public embarrassment), but never pushes you into infamy -- it stops
+# at neutral (0) if you're already there or already infamous.
+
+BEG_COOLDOWN = 8 * 60   # 8 minutes
+BEG_GOLD_MIN, BEG_GOLD_MAX = 5, 20
+BEG_REPUTATION_LOSS_MIN, BEG_REPUTATION_LOSS_MAX = 1, 3
+
+
+def roll_beg(reputation: int) -> tuple[int, int]:
+    """Returns (gold, reputation_delta). reputation_delta is 0 unless
+    you currently have fame (reputation > 0), in which case it's a
+    small negative nudge floored so it can never cross into infamy."""
+    gold = random.randint(BEG_GOLD_MIN, BEG_GOLD_MAX)
+    if reputation > 0:
+        loss = random.randint(BEG_REPUTATION_LOSS_MIN, BEG_REPUTATION_LOSS_MAX)
+        return gold, -min(loss, reputation)
+    return gold, 0
+
+
 # ═══════════════════════════ job minigames ══════════════════════════════
 # Shared reward curve for every per-job minigame (the cauldron brew,
 # and its siblings for the other trades). Each round has a base value

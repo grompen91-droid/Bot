@@ -15,9 +15,9 @@ HELP_SECTIONS = [
     ("🏪 Market", ".inventory · .market · .sell · .shop · .buy"),
     ("🛠️ Crafting", ".recipes · .craft"),
     ("🗺️ Venture", ".venture"),
-    ("💰 Gold", ".balance · .daily · .pay · .profile · .leaderboard"),
+    ("💰 Gold", ".balance · .daily · .beg · .pay · .profile · .leaderboard"),
     ("🏦 Bank", ".bank · .deposit · .withdraw"),
-    ("🗡️ Crime", ".pickpocket (needs Criminal, or lvl 5 in it)"),
+    ("🗡️ Crime", ".pickpocket · .smuggle (both need Criminal, or lvl 5 in it)"),
     # Every job-specific minigame lives in this one section, not a new
     # section per job, however many of these exist.
     (

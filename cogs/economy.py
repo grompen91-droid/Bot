@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from datetime import date, datetime, time as dtime, timedelta
 
 import discord
@@ -94,6 +95,40 @@ class Economy(commands.Cog):
         if extras:
             panel.text(" · ".join(extras))
         panel.footer(f"Purse: {balance:,} gold")
+        await ctx.send(view=panel)
+
+    @commands.hybrid_command(name="beg", description="Beg passersby for a few coins")
+    @commands.guild_only()
+    async def beg(self, ctx: commands.Context):
+        gid, uid = ctx.guild.id, ctx.author.id
+        user = await self.db.get_user(gid, uid)
+
+        now = time.time()
+        ready_at = await self.db.get_minigame_cooldown(gid, uid, "beg")
+        ready_at += formulas.BEG_COOLDOWN
+        if now < ready_at:
+            await ctx.send(
+                view=simple_panel(
+                    f"🥺 Folk are getting tired of you. Ready <t:{int(ready_at)}:R>.",
+                    accent=Palette.RED,
+                ),
+                ephemeral=True,
+            )
+            return
+
+        await self.db.set_minigame_cooldown(gid, uid, "beg", now)
+        gold, rep_delta = formulas.roll_beg(user["reputation"])
+        balance = await self.db.add_gold(gid, uid, gold)
+        if rep_delta:
+            await self.db.add_reputation(gid, uid, rep_delta)
+
+        panel = Panel(accent=Palette.GOLD, timeout=None)
+        panel.header("🥺 A Few Coins")
+        panel.text(f"A passing townsfolk takes pity and tosses you **{gold:,} 🪙**.")
+        footer = f"Purse: {balance:,} gold"
+        if rep_delta:
+            footer += f" · 🌟 {rep_delta} fame (a little beneath you)"
+        panel.footer(footer)
         await ctx.send(view=panel)
 
     @commands.hybrid_command(name="pay", description="Hand coin to another townsfolk")

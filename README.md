@@ -55,10 +55,20 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
 - **The bank** (`.bank`, `.deposit`, `.withdraw`): banked gold is safe
   from pickpocketing. Starts with a 5,000 gold capacity, upgradeable
   through 5 tiers up to 750,000. `.deposit all` / `.withdraw all` work.
-- **`.pickpocket`**: 30% chance to lift 25-75% of another player's
-  *pocket* gold only, never their bank. 20-minute cooldown per
-  attacker, and a successful victim is shielded from further attempts
-  for 10 minutes. Failing costs a small fine.
+- **`.pickpocket`**: lift a chunk of another player's *pocket* gold
+  only, never their bank. 20-minute cooldown per attacker, and a
+  successful victim is shielded from further attempts for 10 minutes.
+  Failing costs a small fine. Needs the Criminal trade (or Criminal
+  skill 5+); odds and steal size both scale with that skill level.
+- **`.smuggle`**: a solo crime sitting between pickpocket (petty,
+  frequent) and `.rob` (huge, rare, one mistake wipes your
+  reputation) -- a real payday on an hour cooldown, with a real chance
+  the shipment gets seized and you pay a fine, but never the full
+  reputation wipe a botched bank job carries.
+- **`.beg`**: needs no job, no skill, no unlock -- just an 8-minute
+  cooldown and a tiny, reliable trickle of gold. Costs a little fame
+  if you have any (never pushes you into infamy), and does nothing at
+  all if you're already neutral or infamous.
 - **Job minigames**: every trade has its own quick, timed challenge,
   the real hands-on way to earn beyond `.work`. All eight share one
   reward curve: pay scales with skill level (low at level 1, up to 6x
@@ -101,6 +111,8 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
 | `.balance` / `.daily` / `.pay` / `.profile` / `.leaderboard` | Gold |
 | `.bank` / `.deposit [amount\|all]` / `.withdraw [amount\|all]` | Bank |
 | `.pickpocket <member>` | Try to lift coin from their pocket |
+| `.smuggle` | Move contraband for a real payday, real risk of losing it |
+| `.beg` | A tiny, reliable trickle of gold, no job or skill needed |
 | `.harvest` / `.dig` / `.fish` / `.fell` / `.hunt` / `.bake` / `.tend` / `.brew` | Job minigames (current job, or lvl 5+ in it) |
 | `.harvesttest` / `.digtest` / `.fishtest` / `.felltest` / `.hunttest` / `.baketest` / `.tendtest` / `.brewtest [level]` | Admin-only: try any minigame with no job/cooldown/rewards |
 | `.help` / `.about` | Guidance |
