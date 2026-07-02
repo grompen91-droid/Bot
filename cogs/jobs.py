@@ -106,23 +106,21 @@ class Jobs(commands.Cog):
         panel.header(f"{info['emoji']} {info['name']} at Work")
         panel.text(f"*{random.choice(info['flavour'])}*")
         if crit:
-            panel.text("💥 **A masterful day's work — double haul!**")
+            panel.text("💥 **A masterful day's work. Double haul!**")
         panel.divider()
 
         haul_lines = [
-            f"{rarity_badge(item)} {item_label(item)} × **{qty}**"
+            f"{rarity_badge(item)}{item_label(item)} × **{qty}**"
             for item, qty in hauls
         ]
         if len(hauls) > 1:
-            haul_lines[-1] += "  *(lucky bonus find!)*"
-        haul_lines.append(f"💰 Tip: **{formulas.fmt_gold(tip)}**")
-        panel.field("Your haul", "\n".join(haul_lines))
+            haul_lines[-1] += " *(bonus find)*"
+        haul_lines.append(f"💰 **{formulas.fmt_gold(tip)}** tip")
+        panel.text("\n".join(haul_lines))
 
         if levels_gained:
-            panel.divider()
             panel.text(
-                f"⭐ **Level up!** Your {info['name']} skill is now level "
-                f"**{new_level}** *(yields ×{formulas.total_multiplier(new_level, tier):.2f})*"
+                f"⭐ **Level up!** {info['name']} is now level **{new_level}**"
             )
             newly_unlocked = self._newly_unlocked(
                 total_before, total_before + levels_gained
@@ -130,27 +128,21 @@ class Jobs(commands.Cog):
             for unlocked in newly_unlocked:
                 panel.text(
                     f"🔓 The **{unlocked['emoji']} {unlocked['name']}** trade "
-                    "is now open to you! *(`.job choose`)*"
+                    "is now open to you"
                 )
 
         needed = formulas.xp_to_next(new_level)
         ready = int(now + formulas.effective_cooldown(info["cooldown"], new_level))
         panel.footer(
-            f"+{xp_gain} XP · Lv. {new_level} "
-            f"`{formulas.progress_bar(new_xp, needed)}` {new_xp}/{needed} · "
-            f"🔧 {tool_name(job_key, tier)} · rested <t:{ready}:R>"
+            f"+{xp_gain} XP · Lv {new_level} "
+            f"`{formulas.progress_bar(new_xp, needed)}` · ready <t:{ready}:R>"
         )
 
         work_btn = ui.Button(
             label="Work Again", emoji="⚒️", style=discord.ButtonStyle.secondary
         )
         work_btn.callback = self._work_again
-        sell_hint = ui.Button(
-            label="Sell with .sell", emoji="🏪",
-            style=discord.ButtonStyle.grey, disabled=True,
-        )
-        panel.divider()
-        panel.buttons(work_btn, sell_hint)
+        panel.buttons(work_btn)
         return panel
 
     @staticmethod
@@ -193,24 +185,22 @@ class Jobs(commands.Cog):
         panel = Panel(author_id=ctx.author.id)
         panel.header("🪧 The Town Job Board")
         panel.text(
-            "Take up a trade and earn your keep with `.work`. Switch whenever "
-            "you like — **your skills are never forgotten.**"
+            "Take up a trade and earn your keep with `.work`. "
+            "Switch whenever you like, your skills are never forgotten."
         )
         panel.divider()
 
         lines = []
         for key, info in JOBS.items():
             req = info["unlock_total_level"]
-            lock = "" if total >= req else f" 🔒 *needs {req} total levels*"
-            current = " ← *your trade*" if user["job"] == key else ""
+            lock = "" if total >= req else f" 🔒 *needs {req} levels*"
+            current = " ← *you*" if user["job"] == key else ""
             lines.append(
-                f"{info['emoji']} **{info['name']}** — {info['description']}"
+                f"{info['emoji']} **{info['name']}** · {info['description']}"
                 f"{lock}{current}"
             )
         panel.text("\n".join(lines))
-        panel.footer(
-            f"Your total skill level: {total} · pick below or use .job choose <trade>"
-        )
+        panel.footer(f"Your total skill level: {total}")
 
         select = ui.Select(placeholder="⚒️ Take up a trade…")
         for key, info in JOBS.items():
@@ -227,7 +217,6 @@ class Jobs(commands.Cog):
                 ),
             )
         select.callback = self._board_select
-        panel.divider()
         panel.select(select)
         panel.message = await ctx.send(view=panel)
 
@@ -256,9 +245,9 @@ class Jobs(commands.Cog):
             return panel
         if total < info["unlock_total_level"]:
             panel = simple_panel(
-                f"🔒 The {info['emoji']} **{info['name']}**'s guild turns you away — "
-                f"they want **{info['unlock_total_level']} total skill levels** "
-                f"(you have {total}). Master your current trade first!",
+                f"🔒 The {info['emoji']} **{info['name']}**'s guild turns you away. "
+                f"They want **{info['unlock_total_level']} total skill levels** "
+                f"and you have {total}. Master your current trade first!",
                 accent=Palette.RED,
             )
             panel.accent_is_error = True
@@ -338,7 +327,7 @@ class Jobs(commands.Cog):
 
         total_weight = sum(w for *_rest, w in info["yields"])
         yield_lines = [
-            f"{rarity_badge(item)} {item_label(item)} — {lo}–{hi} "
+            f"{rarity_badge(item)}{item_label(item)} · {lo}-{hi} "
             f"*({w / total_weight:.0%})*"
             for item, lo, hi, w in info["yields"]
         ]
@@ -388,7 +377,7 @@ class Jobs(commands.Cog):
                     continue
                 needed = formulas.xp_to_next(row["level"])
                 lines.append(
-                    f"{info['emoji']} **{info['name']}** — Lv. **{row['level']}**\n"
+                    f"{info['emoji']} **{info['name']}** Lv **{row['level']}**\n"
                     f"`{formulas.progress_bar(row['xp'], needed)}` "
                     f"{row['xp']}/{needed} XP"
                 )

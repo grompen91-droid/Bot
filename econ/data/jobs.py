@@ -1,10 +1,10 @@
 """Job registry. Add a trade here (plus its items in items.py and tools in
-tools.py) and every command — job board, work, market, shop — picks it up.
+tools.py) and every command, job board, work, market, shop, picks it up.
 
 cooldown           = base seconds between works (skill reduces it, see formulas)
 tip                = (min, max) bonus coins per work before scaling
 unlock_total_level = sum of all skill levels required to take the trade
-yields             = (item_key, min_qty, max_qty, weight) — one is rolled
+yields             = (item_key, min_qty, max_qty, weight), one is rolled
                      per work, weighted; rare+ items get luckier with level
 """
 
@@ -127,7 +127,7 @@ JOBS = {
         "flavour": [
             "Strange vapours curl from your bubbling cauldron.",
             "You grind rare herbs by candlelight in the tower.",
-            "The mixture flashes green — a successful brew!",
+            "The mixture flashes green, a successful brew!",
             "You barter with a travelling herbalist for reagents.",
         ],
     },

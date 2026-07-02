@@ -70,4 +70,8 @@ def item_label(item_key: str) -> str:
 
 
 def rarity_badge(item_key: str) -> str:
-    return RARITIES[ITEMS[item_key]["rarity"]]["badge"]
+    """Badge prefix for special finds. Common goods stay clean."""
+    rarity = ITEMS[item_key]["rarity"]
+    if RARITIES[rarity]["order"] < 2:
+        return ""
+    return RARITIES[rarity]["badge"] + " "

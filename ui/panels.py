@@ -1,6 +1,6 @@
 """Components V2 building blocks with a medieval look.
 
-Every reply the bot sends is a `Panel` — a LayoutView wrapping one
+Every reply the bot sends is a `Panel`, a LayoutView wrapping one
 accent-coloured Container. The fluent builder keeps cogs short:
 
     panel = Panel(accent=Palette.GOLD)

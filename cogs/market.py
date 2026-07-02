@@ -59,13 +59,11 @@ class Market(commands.Cog):
                 worth = price * row["qty"]
                 total += worth
                 lines.append(
-                    f"{rarity_badge(row['item'])} {item_label(row['item'])} × "
-                    f"**{row['qty']}** — ~{formulas.fmt_gold(worth)}"
+                    f"{rarity_badge(row['item'])}{item_label(row['item'])} × "
+                    f"**{row['qty']}** · {formulas.fmt_gold(worth)}"
                 )
             panel.text("\n".join(lines))
-            panel.footer(
-                f"Worth {total:,} gold at today's prices · sell with .sell"
-            )
+            panel.footer(f"Worth {total:,} gold today · sell with .sell")
         await ctx.send(view=panel)
 
     # ══════════════════════════ the market ═════════════════════════════
@@ -75,19 +73,16 @@ class Market(commands.Cog):
     async def market(self, ctx: commands.Context):
         panel = Panel(timeout=None)
         panel.header("🏪 The Town Market")
-        panel.text(
-            "*Prices drift with the winds each day — sell high! "
-            "Every trader in the realm sees the same prices.*"
-        )
+        panel.text("*Prices drift each day. Sell high!*")
         panel.divider()
         for job_key, info in JOBS.items():
             lines = []
             for item, *_rest in info["yields"]:
                 base = ITEMS[item]["value"]
                 price = formulas.market_price(item, base)
-                arrow = "🟢▲" if price > base else ("🔴▼" if price < base else "⚪•")
-                lines.append(f"{item_label(item)} — **{formulas.fmt_gold(price)}** {arrow}")
-            panel.field(f"{info['emoji']} {info['name']}'s goods", "\n".join(lines))
+                arrow = " ▲" if price > base else (" ▼" if price < base else "")
+                lines.append(f"{item_label(item)} · **{formulas.fmt_gold(price)}**{arrow}")
+            panel.field(f"{info['emoji']} {info['name']}", "\n".join(lines))
         panel.footer("▲ above the usual rate · ▼ below · sell with .sell")
         await ctx.send(view=panel)
 
@@ -110,7 +105,7 @@ class Market(commands.Cog):
     @commands.hybrid_command(name="sell", description="Sell goods at the town market")
     @commands.guild_only()
     @app_commands.describe(
-        item="What to sell — or 'all' for everything (default)",
+        item="What to sell, or 'all' for everything (default)",
         amount="How many to sell (default: all of that item)",
     )
     @app_commands.autocomplete(item=_sell_item_autocomplete)
@@ -130,7 +125,7 @@ class Market(commands.Cog):
         if item_key is None:
             await ctx.send(
                 view=simple_panel(
-                    f"The merchants squint at **{item}** — no such goods "
+                    f"The merchants squint at **{item}**. No such goods "
                     "are traded here.",
                     accent=Palette.RED,
                 ),
@@ -158,7 +153,7 @@ class Market(commands.Cog):
         panel = Panel(accent=Palette.GREEN, timeout=None)
         panel.header("🏪 Sold!")
         panel.text(
-            f"{rarity_badge(item_key)} {item_label(item_key)} × **{qty}** at "
+            f"{rarity_badge(item_key)}{item_label(item_key)} × **{qty}** at "
             f"{formulas.fmt_gold(price)} each → **{formulas.fmt_gold(earned)}**"
         )
         panel.footer(f"Purse: {balance:,} gold")
@@ -192,7 +187,7 @@ class Market(commands.Cog):
         await self.db.incr_stat(gid, uid, "gold_from_sales", total)
 
         panel = Panel(accent=Palette.GREEN, timeout=None)
-        panel.header("🏪 Market Day — Everything Sold!")
+        panel.header("🏪 Everything Sold!")
         panel.text("\n".join(lines))
         panel.divider()
         panel.text(f"### Total: {formulas.fmt_gold(total)}")
@@ -221,10 +216,10 @@ class Market(commands.Cog):
         tier = await self.db.get_tool_tier(gid, uid, job_key)
 
         panel = Panel(accent=Palette.IRON, author_id=uid)
-        panel.header(f"⚒️ The Smithy — {info['emoji']} {info['name']}'s Tools")
+        panel.header(f"⚒️ The Smithy · {info['emoji']} {info['name']}")
         panel.text(
             f"You carry: **{tool_name(job_key, tier)}** "
-            f"*(yields ×{formulas.tool_multiplier(tier):.2f})*"
+            f"*(×{formulas.tool_multiplier(tier):.2f})*"
         )
         panel.divider()
         lines = []
@@ -232,24 +227,23 @@ class Market(commands.Cog):
             name = TOOLS[job_key][t - 1]
             mult = formulas.tool_multiplier(t)
             if t <= tier:
-                status = "✅ *owned*"
+                status = "✅"
             elif t == tier + 1:
-                status = f"**{formulas.fmt_gold(tool_price(t))}** — available now"
+                status = f"**{formulas.fmt_gold(tool_price(t))}**"
             else:
-                status = f"{formulas.fmt_gold(tool_price(t))} — 🔒 *buy the previous tier first*"
-            lines.append(f"**{t}. {name}** *(×{mult:.2f})* — {status}")
+                status = f"🔒 {formulas.fmt_gold(tool_price(t))}"
+            lines.append(f"**{name}** *(×{mult:.2f})* · {status}")
         panel.text("\n".join(lines))
-        panel.footer(f"Your purse: {user['gold']:,} gold · better tools also raise crit chance")
+        panel.footer(f"Your purse: {user['gold']:,} gold")
 
         if tier < MAX_TOOL_TIER:
             next_name = TOOLS[job_key][tier]
             buy_btn = ui.Button(
-                label=f"Buy {next_name} — {tool_price(tier + 1):,} gold",
+                label=f"Buy {next_name} ({tool_price(tier + 1):,} gold)",
                 emoji="⚒️",
                 style=discord.ButtonStyle.primary,
             )
             buy_btn.callback = self._buy_button
-            panel.divider()
             panel.buttons(buy_btn)
         panel.message = await ctx.send(view=panel)
 

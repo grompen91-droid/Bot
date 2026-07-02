@@ -65,19 +65,14 @@ class Economy(commands.Cog):
         panel = Panel(accent=Palette.GREEN, timeout=None)
         panel.header("🏛️ The Daily Stipend")
         panel.text(f"The town treasurer counts out **{formulas.fmt_gold(payout)}**.")
-        details = [f"📜 Base stipend: {formulas.fmt_gold(formulas.DAILY_BASE)}"]
+        details = []
         if streak_bonus:
-            details.append(
-                f"🔥 Streak — **{streak}** days: +{formulas.fmt_gold(streak_bonus)}"
-            )
+            details.append(f"🔥 **{streak}** day streak · +{formulas.fmt_gold(streak_bonus)}")
         if level_bonus:
-            details.append(
-                f"📖 Renowned worker (Lv. {total_level} total): "
-                f"+{formulas.fmt_gold(level_bonus)}"
-            )
-        panel.divider()
-        panel.text("\n".join(details))
-        panel.footer(f"Purse: {balance:,} gold · come back tomorrow to keep the streak")
+            details.append(f"📖 Skill bonus · +{formulas.fmt_gold(level_bonus)}")
+        if details:
+            panel.text("\n".join(details))
+        panel.footer(f"Purse: {balance:,} gold · return tomorrow to keep the streak")
         await ctx.send(view=panel)
 
     @commands.hybrid_command(name="pay", description="Hand coin to another townsfolk")
@@ -134,36 +129,29 @@ class Economy(commands.Cog):
             tier = await self.db.get_tool_tier(gid, target.id, user["job"])
             needed = formulas.xp_to_next(skill["level"])
             trade_lines = [
-                f"⚒️ **Trade:** {info['emoji']} {info['name']} — Lv. **{skill['level']}**",
-                f"🔧 **Tool:** {tool_name(user['job'], tier)} "
-                f"*(yields ×{formulas.total_multiplier(skill['level'], tier):.2f})*",
+                f"⚒️ {info['emoji']} **{info['name']}** Lv **{skill['level']}** · "
+                f"🔧 {tool_name(user['job'], tier)}",
                 f"`{formulas.progress_bar(skill['xp'], needed)}` "
                 f"{skill['xp']}/{needed} XP",
             ]
         else:
-            trade_lines = ["⚒️ **Trade:** *unemployed wanderer* — see `.job`"]
+            trade_lines = ["⚒️ *No trade yet. See* `.job`"]
 
         panel = Panel(timeout=None)
         panel.header(f"🏰 {target.display_name} of the Town")
         panel.section(
-            f"💰 **Purse:** {formulas.fmt_gold(user['gold'])}",
-            f"📖 **Total skill level:** {total_level}",
-            f"🎒 **Satchel:** {total_items:,} goods",
+            f"💰 **{formulas.fmt_gold(user['gold'])}**",
+            f"📖 Total skill **{total_level}** · 🎒 {total_items:,} goods",
             thumbnail=target.display_avatar.url,
         )
         panel.divider()
         panel.text("\n".join(trade_lines))
-        panel.divider()
-        panel.field(
-            "📜 Deeds",
-            f"Days worked: **{stats.get('works', 0):,}** · "
-            f"goods gathered: **{stats.get('items_gathered', 0):,}** · "
-            f"goods sold: **{stats.get('items_sold', 0):,}**\n"
-            f"Market earnings: **{formulas.fmt_gold(stats.get('gold_from_sales', 0))}** · "
-            f"gifted away: **{formulas.fmt_gold(stats.get('gold_gifted', 0))}**",
+        panel.footer(
+            f"worked {stats.get('works', 0):,} · gathered "
+            f"{stats.get('items_gathered', 0):,} · sold {stats.get('items_sold', 0):,} · "
+            f"earned {stats.get('gold_from_sales', 0):,} gold"
+            + (f" · 🔥 {user['daily_streak']} day streak" if user["daily_streak"] else "")
         )
-        if user["daily_streak"]:
-            panel.footer(f"🔥 Daily streak: {user['daily_streak']} days")
         await ctx.send(view=panel)
 
     @commands.hybrid_command(name="leaderboard", aliases=["lb", "top"], description="The wealthiest and most skilled in town")
@@ -182,15 +170,15 @@ class Economy(commands.Cog):
             rows = await self.db.top_skills(gid)
             title = "📖 The Most Skilled Townsfolk"
             lines = [
-                f"{medals[i] if i < 3 else f'**{i + 1}.**'} <@{row['user_id']}> — "
-                f"**{row['total_level']}** total levels *(best: {row['best_level']})*"
+                f"{medals[i] if i < 3 else f'**{i + 1}.**'} <@{row['user_id']}> · "
+                f"**{row['total_level']}** levels"
                 for i, row in enumerate(rows)
             ]
         else:
             rows = await self.db.top_gold(gid)
             title = "💰 The Richest Townsfolk"
             lines = [
-                f"{medals[i] if i < 3 else f'**{i + 1}.**'} <@{row['user_id']}> — "
+                f"{medals[i] if i < 3 else f'**{i + 1}.**'} <@{row['user_id']}> · "
                 f"**{formulas.fmt_gold(row['gold'])}**"
                 for i, row in enumerate(rows)
             ]

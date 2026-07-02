@@ -1,4 +1,4 @@
-"""Medieval town economy bot — entry point.
+"""Medieval town economy bot, entry point.
 
 Commands are hybrid: every one works both as `.command` (prefix) and
 `/command` (slash). Prefix commands require the Message Content intent,
@@ -34,7 +34,8 @@ class MedievalBot(commands.Bot):
             help_command=None,  # cogs/info.py provides .help
             case_insensitive=True,
             strip_after_prefix=True,
-            allowed_mentions=discord.AllowedMentions(everyone=False, roles=False),
+            # Mentions render as highlights but never ping anyone.
+            allowed_mentions=discord.AllowedMentions.none(),
         )
         self.db = Database(os.getenv("DB_PATH", "economy.db"))
 
@@ -72,7 +73,7 @@ class MedievalBot(commands.Bot):
             message = "🏰 The town only does business inside a server."
         elif isinstance(error, commands.MissingRequiredArgument):
             message = (
-                f"📜 Missing `{error.param.name}` — "
+                f"📜 Missing `{error.param.name}`, "
                 f"try `{PREFIX}help` for how each command is used."
             )
         elif isinstance(error, (commands.BadArgument, commands.RangeError)):

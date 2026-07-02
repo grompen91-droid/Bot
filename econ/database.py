@@ -1,6 +1,6 @@
 """Async SQLite persistence with versioned migrations.
 
-To evolve the schema, append a new SQL script to MIGRATIONS — it runs
+To evolve the schema, append a new SQL script to MIGRATIONS, it runs
 exactly once per database (tracked via PRAGMA user_version).
 All state is per-guild, so one bot process can serve many servers.
 """
@@ -10,7 +10,7 @@ import os
 import aiosqlite
 
 MIGRATIONS: list[str] = [
-    # v1 — initial schema
+    # v1, initial schema
     """
     CREATE TABLE users (
         guild_id     INTEGER NOT NULL,
