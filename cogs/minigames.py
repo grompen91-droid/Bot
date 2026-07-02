@@ -82,8 +82,9 @@ class BaseMinigameSession:
             "reward_tier_level", JOBS[self.job_key]["unlock_total_level"]
         )
         extra_mult = (
-            formulas.infamy_multiplier(user["infamy"]) if is_criminal
-            else formulas.fame_multiplier(user["fame"])
+            formulas.infamy_multiplier(formulas.reputation_infamy(user["reputation"]))
+            if is_criminal
+            else formulas.fame_multiplier(formulas.reputation_fame(user["reputation"]))
         )
         reward, perfect = formulas.roll_minigame_reward(
             self.correct, self.length, unlock, MAX_JOB_UNLOCK_LEVEL,
@@ -115,13 +116,15 @@ class BaseMinigameSession:
                     gained = random.randint(
                         formulas.ROB_SUCCESS_INFAMY_MIN, formulas.ROB_SUCCESS_INFAMY_MAX
                     )
-                    await self.db.add_infamy(self.gid, self.uid, gained)
-                    infamy_note = f"+{gained} infamy"
+                    new_rep = await self.db.add_reputation(self.gid, self.uid, -gained)
+                    infamy_note = (
+                        f"+{gained} infamy ({formulas.reputation_infamy(new_rep):,} total)"
+                    )
                 elif caught:
-                    await self.db.set_infamy(self.gid, self.uid, 0)
-                    infamy_note = "infamy reset to 0"
+                    await self.db.set_reputation(self.gid, self.uid, 0)
+                    infamy_note = "reputation reset to 0"
             elif outcome == "success":
-                await self.db.add_fame(self.gid, self.uid, formulas.MINIGAME_FAME_ON_SUCCESS)
+                await self.db.add_reputation(self.gid, self.uid, formulas.MINIGAME_FAME_ON_SUCCESS)
                 fame_gained = formulas.MINIGAME_FAME_ON_SUCCESS
 
         title = self.config["title"]

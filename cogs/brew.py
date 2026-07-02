@@ -127,7 +127,7 @@ class BrewSession:
         reward, perfect = formulas.roll_brew_reward(
             self.progress, self.length, self.level, total,
             JOBS["alchemist"]["unlock_total_level"], MAX_JOB_UNLOCK_LEVEL,
-            extra_multiplier=formulas.fame_multiplier(user["fame"]),
+            extra_multiplier=formulas.fame_multiplier(formulas.reputation_fame(user["reputation"])),
         )
         xp_gain = self.progress * formulas.BREW_XP_PER_SYMBOL
 
@@ -147,7 +147,7 @@ class BrewSession:
             if reward:
                 await self.db.incr_stat(self.gid, self.uid, "gold_from_brewing", reward)
             if success:
-                await self.db.add_fame(self.gid, self.uid, formulas.MINIGAME_FAME_ON_SUCCESS)
+                await self.db.add_reputation(self.gid, self.uid, formulas.MINIGAME_FAME_ON_SUCCESS)
                 fame_gained = formulas.MINIGAME_FAME_ON_SUCCESS
 
         panel = Panel(accent=Palette.GREEN if success else Palette.RED, timeout=None)

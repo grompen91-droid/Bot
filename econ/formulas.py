@@ -429,23 +429,30 @@ def minigame_cooldown(unlock_level: int, max_unlock_level: int) -> int:
 
 
 # ═══════════════════════════ infamy & fame ══════════════════════════════
-# Two independent, long-game reputation tracks that never touch each
-# other's realm:
-#   Infamy: built by playing the Criminal trade (.work, .pickpocket,
-#   and the .rob bank job). Boosts Criminal's own payouts, the more
-#   notorious you are the more a job is worth. A bank job gone wrong
-#   (getting caught in .rob) wipes it back to 0 -- the one real risk
-#   in the whole system.
-#   Fame: built by *succeeding* at any of the OTHER, legitimate
-#   minigames (.harvest, .dig, .fish, .fell, .hunt, .bake, .tend,
-#   .brew). Boosts those same minigames' payouts. Never resets; it's
-#   the honest counterpart to infamy.
+# One signed reputation counter, not two: crime (Criminal .work,
+# .pickpocket, the .rob bank job) pulls it down, succeeding at any of
+# the OTHER, legitimate minigames (.harvest, .dig, .fish, .fell,
+# .hunt, .bake, .tend, .brew) pulls it up. "Infamy" and "fame" are just
+# the two directions of the same number: infamy is how far negative it
+# is, fame how far positive. A bank job gone wrong (getting caught in
+# .rob) snaps it straight back to 0 -- the one real risk in the whole
+# system, and it costs whichever direction you'd built up.
 
 INFAMY_BONUS_PER_POINT = 0.006
 INFAMY_BONUS_CAP_POINTS = 300   # +180% at the cap, matching coin_multiplier's scale
 
 FAME_BONUS_PER_POINT = 0.006
 FAME_BONUS_CAP_POINTS = 300
+
+
+def reputation_infamy(reputation: int) -> int:
+    """How infamous: the magnitude of reputation below 0."""
+    return max(0, -reputation)
+
+
+def reputation_fame(reputation: int) -> int:
+    """How famous: the magnitude of reputation above 0."""
+    return max(0, reputation)
 
 
 def infamy_multiplier(infamy: int) -> float:
@@ -456,7 +463,7 @@ def fame_multiplier(fame: int) -> float:
     return 1.0 + FAME_BONUS_PER_POINT * min(max(fame, 0), FAME_BONUS_CAP_POINTS)
 
 
-MINIGAME_FAME_ON_SUCCESS = 1   # flat fame per successful legit minigame clear
+MINIGAME_FAME_ON_SUCCESS = 1   # flat reputation gain per successful legit minigame clear
 
 CRIMINAL_WORK_INFAMY_MIN = 2   # infamy earned per Criminal .work, win or lose
 CRIMINAL_WORK_INFAMY_MAX = 5

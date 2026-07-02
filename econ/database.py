@@ -88,10 +88,19 @@ MIGRATIONS: list[str] = [
     );
     """,
     # v7, infamy and fame: the Criminal trade's reputation, and the
-    # legit minigames' reputation, two independent long-game tracks
+    # legit minigames' reputation, two long-game tracks (superseded by
+    # v8's single signed reputation counter, kept here for history)
     """
     ALTER TABLE users ADD COLUMN infamy BIGINT NOT NULL DEFAULT 0;
     ALTER TABLE users ADD COLUMN fame BIGINT NOT NULL DEFAULT 0;
+    """,
+    # v8, collapse infamy and fame into one signed reputation counter:
+    # crime pulls it down, honest minigame success pulls it up
+    """
+    ALTER TABLE users ADD COLUMN reputation BIGINT NOT NULL DEFAULT 0;
+    UPDATE users SET reputation = fame - infamy;
+    ALTER TABLE users DROP COLUMN infamy;
+    ALTER TABLE users DROP COLUMN fame;
     """,
 ]
 
@@ -331,39 +340,30 @@ class Database:
             when, guild_id, user_id,
         )
 
-    # ── infamy & fame ───────────────────────────────────────────────────
+    # ── reputation (infamy pulls it down, fame pulls it up) ─────────────
 
-    async def add_infamy(self, guild_id: int, user_id: int, amount: int) -> int:
-        """Infamy only ever goes up through play; the one way down is
-        set_infamy(0) when a bank job goes wrong. Returns the new total."""
+    async def add_reputation(self, guild_id: int, user_id: int, delta: int) -> int:
+        """One signed counter for the whole reputation system: crime
+        (Criminal .work/.pickpocket/.rob) passes a negative delta,
+        succeeding at a legit minigame passes a positive one. The one
+        way it snaps back is set_reputation(0) when a bank job goes
+        wrong. Returns the new total."""
         await self.get_user(guild_id, user_id)
         await self.execute(
-            "UPDATE users SET infamy = infamy + ? WHERE guild_id = ? AND user_id = ?",
-            amount, guild_id, user_id,
+            "UPDATE users SET reputation = reputation + ? WHERE guild_id = ? AND user_id = ?",
+            delta, guild_id, user_id,
         )
         row = await self.fetchone(
-            "SELECT infamy FROM users WHERE guild_id = ? AND user_id = ?",
+            "SELECT reputation FROM users WHERE guild_id = ? AND user_id = ?",
             guild_id, user_id,
         )
-        return row["infamy"]
+        return row["reputation"]
 
-    async def set_infamy(self, guild_id: int, user_id: int, value: int) -> None:
+    async def set_reputation(self, guild_id: int, user_id: int, value: int) -> None:
         await self.execute(
-            "UPDATE users SET infamy = ? WHERE guild_id = ? AND user_id = ?",
+            "UPDATE users SET reputation = ? WHERE guild_id = ? AND user_id = ?",
             value, guild_id, user_id,
         )
-
-    async def add_fame(self, guild_id: int, user_id: int, amount: int) -> int:
-        await self.get_user(guild_id, user_id)
-        await self.execute(
-            "UPDATE users SET fame = fame + ? WHERE guild_id = ? AND user_id = ?",
-            amount, guild_id, user_id,
-        )
-        row = await self.fetchone(
-            "SELECT fame FROM users WHERE guild_id = ? AND user_id = ?",
-            guild_id, user_id,
-        )
-        return row["fame"]
 
     # ── the other per-job minigames ─────────────────────────────────────
 

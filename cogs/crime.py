@@ -107,7 +107,8 @@ class Crime(commands.Cog):
         infamy_gain = random.randint(
             formulas.PICKPOCKET_INFAMY_MIN, formulas.PICKPOCKET_INFAMY_MAX
         )
-        new_infamy = await self.db.add_infamy(gid, uid, infamy_gain)
+        new_rep = await self.db.add_reputation(gid, uid, -infamy_gain)
+        new_infamy = formulas.reputation_infamy(new_rep)
 
         if success:
             await self.db.add_gold(gid, member.id, -delta)

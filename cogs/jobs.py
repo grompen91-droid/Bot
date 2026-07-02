@@ -189,7 +189,7 @@ class Jobs(commands.Cog):
         user = await self.db.get_user(guild_id, member.id)
         tier = await self.db.get_tool_tier(guild_id, member.id, "criminal")
         total_before = await self.db.total_level(guild_id, member.id)
-        infamy = user["infamy"]
+        infamy = formulas.reputation_infamy(user["reputation"])
 
         gold = formulas.roll_criminal_work(level, tier, infamy, total_before)
         infamy_gain = random.randint(
@@ -200,7 +200,8 @@ class Jobs(commands.Cog):
         new_level, new_xp, levels_gained = formulas.apply_xp(level, skill["xp"], xp_gain)
         await self.db.update_skill(guild_id, member.id, "criminal", new_level, new_xp, now)
         await self.db.add_gold(guild_id, member.id, gold)
-        new_infamy = await self.db.add_infamy(guild_id, member.id, infamy_gain)
+        new_rep = await self.db.add_reputation(guild_id, member.id, -infamy_gain)
+        new_infamy = formulas.reputation_infamy(new_rep)
         await self.db.incr_stat(guild_id, member.id, "works")
         await self.db.incr_stat(guild_id, member.id, "gold_from_crime", gold)
 
@@ -280,7 +281,7 @@ class Jobs(commands.Cog):
         """Show the job board with a trade picker."""
         total = await self.db.total_level(ctx.guild.id, ctx.author.id)
         user = await self.db.get_user(ctx.guild.id, ctx.author.id)
-        infamy = user["infamy"]
+        infamy = formulas.reputation_infamy(user["reputation"])
 
         criminal_jobs = [(k, i) for k, i in JOBS.items() if i["category"] == "criminal"]
         starters = [
@@ -409,11 +410,12 @@ class Jobs(commands.Cog):
             panel.accent_is_error = True
             return panel
         max_infamy = info["max_infamy"]
-        if max_infamy is not None and user["infamy"] > max_infamy:
+        infamy = formulas.reputation_infamy(user["reputation"])
+        if max_infamy is not None and infamy > max_infamy:
             panel = simple_panel(
                 f"🚫 The {info['emoji']} **{info['name']}**'s guild wants nothing "
                 f"to do with someone of your reputation. They'll tolerate at "
-                f"most **{max_infamy} infamy** and you have {user['infamy']:,}.",
+                f"most **{max_infamy} infamy** and you have {infamy:,}.",
                 accent=Palette.RED,
             )
             panel.accent_is_error = True
