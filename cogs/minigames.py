@@ -22,21 +22,7 @@ from discord.ext import commands
 from econ import formulas
 from econ.data.jobs import JOBS, MAX_JOB_UNLOCK_LEVEL
 from econ.data.minigames import MINIGAMES
-from ui.panels import AMT_W, NAME_W, Palette, Panel, chip, simple_panel
-
-
-class RoundPanel(Panel):
-    """A Panel whose expiry resolves the owning minigame session as a
-    timeout failure, instead of the base Panel's disable-in-place."""
-
-    def __init__(self, session: "BaseMinigameSession", **kwargs):
-        super().__init__(**kwargs)
-        self.session = session
-
-    async def on_timeout(self) -> None:
-        message = getattr(self, "message", None)
-        if message is not None:
-            await self.session.on_round_timeout(message)
+from ui.panels import AMT_W, NAME_W, Palette, Panel, RoundPanel, chip, simple_panel
 
 
 class BaseMinigameSession:
@@ -146,6 +132,7 @@ class MatchSession(BaseMinigameSession):
         super().__init__(*args, **kwargs)
         self.target: str | None = None
         self.choices: list[str] = []
+        self.current_panel: RoundPanel | None = None
         self._roll_round()
 
     def _roll_round(self) -> None:
@@ -176,6 +163,7 @@ class MatchSession(BaseMinigameSession):
             panel.buttons(*buttons[i : i + 5])
         deadline = int(time.time()) + timeout
         panel.footer(self._footer_text(f"⏱️ act by <t:{deadline}:R>"))
+        self.current_panel = panel
         return panel
 
     def _make_handler(self, key: str):
@@ -187,6 +175,12 @@ class MatchSession(BaseMinigameSession):
         if self.done:
             await interaction.response.defer()
             return
+        # Discord.py refreshes a view's own timeout on every tap, so the
+        # view this button belongs to must be stopped explicitly here or
+        # its now-stale background timer can fire later and wrongly
+        # resolve a later round as a timeout, well after this one ended.
+        if self.current_panel is not None:
+            self.current_panel.stop()
         if key != self.target:
             self.done = True
             panel = await self._finish(outcome="fail")
@@ -295,6 +289,7 @@ class BakeSession(BaseMinigameSession):
         jitter = random.choice([-1, 0, 0, 1])
         self.target = max(2, self.length + jitter)
         self.scoops = 0
+        self.current_panel: RoundPanel | None = None
 
     def _hint(self) -> str:
         if self.scoops == 0:
@@ -319,12 +314,17 @@ class BakeSession(BaseMinigameSession):
         panel.buttons(add_btn, stop_btn)
         deadline = int(time.time()) + timeout
         panel.footer(self._footer_text(f"⏱️ decide by <t:{deadline}:R>"))
+        self.current_panel = panel
         return panel
 
     async def _on_add(self, interaction: discord.Interaction) -> None:
         if self.done:
             await interaction.response.defer()
             return
+        # See MatchSession.on_tap: stop the old view's background timer
+        # explicitly so it can't outlive this round and misfire later.
+        if self.current_panel is not None:
+            self.current_panel.stop()
         self.scoops += 1
         if self.scoops > self.target:
             self.done = True
@@ -346,6 +346,8 @@ class BakeSession(BaseMinigameSession):
         if self.done:
             await interaction.response.defer()
             return
+        if self.current_panel is not None:
+            self.current_panel.stop()
         self.done = True
         self.correct = self.scoops
         if self.scoops == 0:

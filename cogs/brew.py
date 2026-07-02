@@ -21,7 +21,7 @@ from discord.ext import commands
 
 from econ import formulas
 from econ.data.jobs import JOBS, MAX_JOB_UNLOCK_LEVEL
-from ui.panels import AMT_W, NAME_W, Palette, Panel, chip, simple_panel
+from ui.panels import AMT_W, NAME_W, Palette, Panel, RoundPanel, chip, simple_panel
 
 REAGENTS = {
     "herb": "🌿", "water": "💧", "fire": "🔥", "flask": "⚗️",
@@ -51,10 +51,11 @@ class BrewSession:
         self.sequence = [random.choice(REAGENT_KEYS) for _ in range(self.length)]
         self.progress = 0
         self.done = False
+        self.current_panel: RoundPanel | None = None
 
     def answer_panel(self) -> Panel:
         dots = "🟢" * self.progress + "⚪" * (self.length - self.progress)
-        panel = Panel(accent=Palette.GOLD, author_id=self.uid, timeout=ANSWER_TIMEOUT)
+        panel = RoundPanel(self, accent=Palette.GOLD, author_id=self.uid, timeout=ANSWER_TIMEOUT)
         panel.header("🧪 Repeat the Sequence!")
         panel.text(f"`{dots}`  ({self.progress}/{self.length})")
         buttons = []
@@ -67,6 +68,7 @@ class BrewSession:
             panel.buttons(*buttons[i : i + 5])
         deadline = int(time.time()) + ANSWER_TIMEOUT
         panel.footer(f"⏱️ answer by <t:{deadline}:R>")
+        self.current_panel = panel
         return panel
 
     def _make_handler(self, key: str):
@@ -78,28 +80,48 @@ class BrewSession:
         if self.done:
             await interaction.response.defer()
             return
+        # Discord.py refreshes a view's own timeout on every tap, so the
+        # view this button belongs to must be stopped explicitly here or
+        # its now-stale background timer can fire later and wrongly
+        # resolve a later round as a timeout, well after this one ended.
+        if self.current_panel is not None:
+            self.current_panel.stop()
         expected = self.sequence[self.progress]
         if key != expected:
             self.done = True
-            await self._finish(
-                interaction, success=False, wrong_key=key, expected_key=expected
+            panel = await self._result_panel(
+                success=False, wrong_key=key, expected_key=expected
             )
+            await interaction.response.edit_message(view=panel)
             return
         self.progress += 1
         if self.progress == self.length:
             self.done = True
-            await self._finish(interaction, success=True)
+            panel = await self._result_panel(success=True)
+            await interaction.response.edit_message(view=panel)
         else:
-            await interaction.response.edit_message(view=self.answer_panel())
+            next_panel = self.answer_panel()
+            next_panel.message = interaction.message
+            await interaction.response.edit_message(view=next_panel)
 
-    async def _finish(
+    async def on_round_timeout(self, message: discord.Message) -> None:
+        if self.done:
+            return
+        self.done = True
+        panel = await self._result_panel(success=False, timed_out=True)
+        try:
+            await message.edit(view=panel)
+        except discord.HTTPException:
+            pass
+
+    async def _result_panel(
         self,
-        interaction: discord.Interaction,
         *,
         success: bool,
         wrong_key: str | None = None,
         expected_key: str | None = None,
-    ) -> None:
+        timed_out: bool = False,
+    ) -> Panel:
         total = await self.db.total_level(self.gid, self.uid)
         reward, perfect = formulas.roll_brew_reward(
             self.progress, self.length, self.level, total,
@@ -130,6 +152,9 @@ class BrewSession:
                 if perfect else
                 "*You recall the sequence and the potion sets true.*"
             )
+        elif timed_out:
+            panel.header("🧪 The Brew Spoils")
+            panel.text("*You hesitate too long over the cauldron, and the brew spoils.*")
         else:
             panel.header("🧪 The Brew Spoils")
             panel.text(
@@ -151,7 +176,7 @@ class BrewSession:
         if self.dry_run:
             footer = "🧪 TEST MODE, nothing was actually awarded · " + footer
         panel.footer(footer)
-        await interaction.response.edit_message(view=panel)
+        return panel
 
 
 class Brew(commands.Cog):

@@ -133,6 +133,47 @@ class Panel(ui.LayoutView):
                 pass
 
 
+class RoundPanel(Panel):
+    """A Panel whose expiry resolves the owner as a timeout failure,
+    instead of the base Panel's disable-in-place. Used by any timed,
+    multi-step flow (the per-job minigames, the cauldron brew) where a
+    round that's replaced by a new one must have its own background
+    timeout task explicitly stopped, or a stale timer from an earlier
+    round can fire later and wrongly kill an attempt still in
+    progress (discord.py refreshes a view's own timeout on every tap,
+    but a NEW view sent via edit_message doesn't cancel the old one).
+
+        class MySession:
+            def __init__(self):
+                self.current_panel = None
+
+            def round_panel(self):
+                panel = RoundPanel(self, timeout=10)
+                ...
+                self.current_panel = panel
+                return panel
+
+            async def on_tap(self, interaction, ...):
+                if self.current_panel is not None:
+                    self.current_panel.stop()
+                ...  # build and send the next panel, or resolve
+
+            async def on_round_timeout(self, message):
+                ...  # resolve as a failure and message.edit(view=...)
+
+    `owner` needs an `on_round_timeout(message)` coroutine.
+    """
+
+    def __init__(self, owner, **kwargs):
+        super().__init__(**kwargs)
+        self.owner = owner
+
+    async def on_timeout(self) -> None:
+        message = getattr(self, "message", None)
+        if message is not None:
+            await self.owner.on_round_timeout(message)
+
+
 def simple_panel(body: str, *, accent: discord.Colour = Palette.GOLD) -> Panel:
     """A one-liner panel for short notices, with no interactive parts."""
     panel = Panel(accent=accent, timeout=None)
