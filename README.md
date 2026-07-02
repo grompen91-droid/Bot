@@ -74,6 +74,7 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
 | `.bank` / `.deposit [amount\|all]` / `.withdraw [amount\|all]` | Bank |
 | `.pickpocket <member>` | Try to lift coin from their pocket |
 | `.brew` | Cauldron memory minigame (Alchemist only, biggest payout) |
+| `.brewtest [level]` | Admin-only: try the minigame with no job/cooldown/rewards |
 | `.help` / `.about` | Guidance |
 
 ## Architecture (how to expand it)

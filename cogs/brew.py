@@ -13,7 +13,7 @@ import random
 import time
 
 import discord
-from discord import ui
+from discord import app_commands, ui
 from discord.ext import commands
 
 from econ import formulas
@@ -33,6 +33,7 @@ class BrewSession:
 
     def __init__(
         self, db, gid: int, uid: int, level: int, xp: int, last_work: float,
+        *, dry_run: bool = False,
     ):
         self.db = db
         self.gid = gid
@@ -40,6 +41,7 @@ class BrewSession:
         self.level = level
         self.xp = xp
         self.last_work = last_work
+        self.dry_run = dry_run
         self.length = formulas.brew_sequence_length(level)
         self.sequence = [random.choice(REAGENT_KEYS) for _ in range(self.length)]
         self.progress = 0
@@ -98,16 +100,17 @@ class BrewSession:
         new_level, new_xp, levels_gained = formulas.apply_xp(
             self.level, self.xp, xp_gain
         )
-        await self.db.update_skill(
-            self.gid, self.uid, "alchemist", new_level, new_xp, self.last_work
-        )
-        if reward:
-            await self.db.add_gold(self.gid, self.uid, reward)
-        await self.db.incr_stat(self.gid, self.uid, "brews_completed")
-        if perfect:
-            await self.db.incr_stat(self.gid, self.uid, "brews_perfect")
-        if reward:
-            await self.db.incr_stat(self.gid, self.uid, "gold_from_brewing", reward)
+        if not self.dry_run:
+            await self.db.update_skill(
+                self.gid, self.uid, "alchemist", new_level, new_xp, self.last_work
+            )
+            if reward:
+                await self.db.add_gold(self.gid, self.uid, reward)
+            await self.db.incr_stat(self.gid, self.uid, "brews_completed")
+            if perfect:
+                await self.db.incr_stat(self.gid, self.uid, "brews_perfect")
+            if reward:
+                await self.db.incr_stat(self.gid, self.uid, "gold_from_brewing", reward)
 
         panel = Panel(accent=Palette.GREEN if success else Palette.RED, timeout=None)
         if success:
@@ -126,10 +129,13 @@ class BrewSession:
         lines = [f"💰 **{reward:,} 🪙**" if reward else "💰 No gold this time."]
         if xp_gain:
             lines.append(f"+{xp_gain} XP")
-        if levels_gained:
+        if levels_gained and not self.dry_run:
             lines.append(f"⭐ Alchemist is now level **{new_level}**!")
         panel.text("\n".join(lines))
-        panel.footer(f"{self.progress}/{self.length} recalled correctly")
+        footer = f"{self.progress}/{self.length} recalled correctly"
+        if self.dry_run:
+            footer = "🧪 TEST MODE, nothing was actually awarded · " + footer
+        panel.footer(footer)
         await interaction.response.edit_message(view=panel)
 
 
@@ -182,10 +188,33 @@ class Brew(commands.Cog):
         session = BrewSession(
             self.db, gid, uid, skill["level"], skill["xp"], skill["last_work"]
         )
+        await self._run_brew(ctx, session)
 
+    @commands.hybrid_command(
+        name="brewtest",
+        description="[Admin] Try the cauldron minigame without a job, cooldown, or real rewards",
+    )
+    @commands.guild_only()
+    @commands.has_permissions(administrator=True)
+    @app_commands.describe(level="Alchemist level to simulate (default: 1)")
+    async def brewtest(
+        self, ctx: commands.Context, level: commands.Range[int, 1, formulas.MAX_LEVEL] = 1
+    ):
+        session = BrewSession(
+            self.db, ctx.guild.id, ctx.author.id, level, 0, 0, dry_run=True
+        )
+        await self._run_brew(ctx, session, test_mode=True)
+
+    async def _run_brew(
+        self, ctx: commands.Context, session: BrewSession, *, test_mode: bool = False
+    ) -> None:
+        """Shared reveal-then-answer flow for both .brew and .brewtest."""
         panel = Panel(accent=Palette.PURPLE, timeout=None)
         panel.header("🧪 The Cauldron Brew")
-        panel.text("👀 *Watch closely, and remember the order...*")
+        intro = "👀 *Watch closely, and remember the order...*"
+        if test_mode:
+            intro = "🧪 *TEST MODE, no job, cooldown, or rewards apply.*\n" + intro
+        panel.text(intro)
         message = await ctx.send(view=panel)
 
         for reagent in session.sequence:
