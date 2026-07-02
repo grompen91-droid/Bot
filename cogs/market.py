@@ -217,13 +217,7 @@ class Market(commands.Cog):
         gid, uid = ctx.guild.id, ctx.author.id
 
         if item is None or item.lower() in ("all", "everything"):
-            result = await self.build_sell_all_panel(gid, uid)
-            if isinstance(result, str):
-                await ctx.send(
-                    view=simple_panel(result, accent=Palette.RED), ephemeral=True
-                )
-            else:
-                await ctx.send(view=result)
+            await self._send_sell_all_confirm(ctx)
             return
 
         item_key = resolve_item(item)
@@ -264,9 +258,60 @@ class Market(commands.Cog):
         panel.footer(f"{price:,} gold each · Purse: {balance:,} gold")
         await ctx.send(view=panel)
 
+    async def _send_sell_all_confirm(self, ctx: commands.Context) -> None:
+        """.sell with no item is destructive (empties the whole satchel
+        at once), so it gets an "are you sure?" step first instead of
+        firing immediately."""
+        gid, uid = ctx.guild.id, ctx.author.id
+        rows = [r for r in await self.db.get_inventory(gid, uid) if r["item"] in ITEMS]
+        if not rows:
+            await ctx.send(
+                view=simple_panel(
+                    "You have nothing to sell. Go `.work` first!", accent=Palette.RED
+                ),
+                ephemeral=True,
+            )
+            return
+        count = sum(r["qty"] for r in rows)
+        total = sum(
+            formulas.market_price(r["item"], ITEMS[r["item"]]["value"]) * r["qty"]
+            for r in rows
+        )
+
+        panel = Panel(accent=Palette.GOLD, author_id=uid, timeout=30)
+        panel.header("🏪 Sell Everything?")
+        panel.text(
+            f"This sells your whole satchel, **{count:,}** items for "
+            f"roughly **{total:,} 🪙**. This can't be undone."
+        )
+        yes_btn = ui.Button(label="Sell Everything", emoji="🏪", style=discord.ButtonStyle.danger)
+        no_btn = ui.Button(label="Cancel", style=discord.ButtonStyle.secondary)
+
+        async def on_yes(interaction: discord.Interaction) -> None:
+            result = await self.build_sell_all_panel(interaction.guild_id, interaction.user.id)
+            if isinstance(result, str):
+                await interaction.response.edit_message(
+                    view=simple_panel(result, accent=Palette.RED)
+                )
+                return
+            await interaction.response.edit_message(view=result)
+
+        async def on_no(interaction: discord.Interaction) -> None:
+            await interaction.response.edit_message(
+                view=simple_panel(
+                    "Sale cancelled, your satchel is untouched.", accent=Palette.GOLD
+                )
+            )
+
+        yes_btn.callback = on_yes
+        no_btn.callback = on_no
+        panel.buttons(yes_btn, no_btn)
+        panel.message = await ctx.send(view=panel)
+
     async def build_sell_all_panel(self, gid: int, uid: int) -> Panel | str:
-        """Sell the whole satchel. Returns a result Panel, or an error string.
-        Also used by the Sell All button on work results."""
+        """Sell the whole satchel. Returns a result Panel, or an error
+        string. Gated behind a confirm step by .sell (_send_sell_all_confirm)
+        since it's a one-shot, irreversible action."""
         rows = [
             r for r in await self.db.get_inventory(gid, uid) if r["item"] in ITEMS
         ]

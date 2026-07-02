@@ -37,7 +37,10 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
   - rare+ goods get **luckier with level** (up to double drop weight)
 - **The market** (`.market`, `.sell`): deterministic daily prices, a 7-day
   sine wave per good (each on its own phase) times daily noise, so goods
-  peak on different days and every player sees the same market.
+  peak on different days and every player sees the same market. Selling
+  a single named item is instant; `.sell` with no item (or `all`) asks
+  "sell everything?" with Yes/No buttons first, since it's a one-shot,
+  irreversible action.
 - **The smithy** (`.shop`, `.buy`): five tool tiers per trade
   (300 → 30,000 gold), the main gold sink.
 - **Crafting** (`.recipes`, `.craft`): a standalone skill, not tied to
