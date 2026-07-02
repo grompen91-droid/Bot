@@ -154,12 +154,20 @@ class Economy(commands.Cog):
         panel.divider()
         panel.text("\n".join(trade_lines))
 
+        ventures = stats.get("ventures_won", 0) + stats.get("ventures_lost", 0)
         footer_lines = [
             f"worked {stats.get('works', 0):,} · gathered "
             f"{stats.get('items_gathered', 0):,} · sold {stats.get('items_sold', 0):,} · "
             f"earned {stats.get('gold_from_sales', 0):,} gold"
             + (f" · 🔥 {user['daily_streak']} day streak" if user["daily_streak"] else "")
         ]
+        if ventures:
+            footer_lines.append(
+                f"ventures: {stats.get('ventures_won', 0):,}W/"
+                f"{stats.get('ventures_lost', 0):,}L · "
+                f"earned {stats.get('gold_from_ventures', 0):,} gold"
+                + (f" · 🔥 {user['venture_streak']} streak" if user["venture_streak"] else "")
+            )
         next_rank = formulas.next_town_rank(total_level)
         if next_rank:
             next_title, need = next_rank

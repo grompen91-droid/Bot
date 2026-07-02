@@ -60,6 +60,11 @@ MIGRATIONS: list[str] = [
     """
     ALTER TABLE users ADD COLUMN last_job_switch DOUBLE PRECISION NOT NULL DEFAULT 0;
     """,
+    # v3, the venture minigame
+    """
+    ALTER TABLE users ADD COLUMN last_venture DOUBLE PRECISION NOT NULL DEFAULT 0;
+    ALTER TABLE users ADD COLUMN venture_streak BIGINT NOT NULL DEFAULT 0;
+    """,
 ]
 
 
@@ -215,6 +220,15 @@ class Database:
             "UPDATE users SET last_daily = ?, daily_streak = ? "
             "WHERE guild_id = ? AND user_id = ?",
             date_iso, streak, guild_id, user_id,
+        )
+
+    async def set_venture(
+        self, guild_id: int, user_id: int, when: float, streak: int
+    ) -> None:
+        await self.execute(
+            "UPDATE users SET last_venture = ?, venture_streak = ? "
+            "WHERE guild_id = ? AND user_id = ?",
+            when, streak, guild_id, user_id,
         )
 
     # ── skills ──────────────────────────────────────────────────────────

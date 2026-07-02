@@ -72,7 +72,9 @@ class Jobs(commands.Cog):
             return f"⏳ You are weary. You can work again <t:{int(ready_at)}:R>."
 
         tier = await self.db.get_tool_tier(guild_id, member.id, job_key)
-        multiplier = formulas.total_multiplier(level, tier)
+        total_before = await self.db.total_level(guild_id, member.id)
+        rank_mult = formulas.town_rank_multiplier(total_before)
+        multiplier = formulas.total_multiplier(level, tier) * rank_mult
 
         # Primary haul: one weighted roll, with luck favouring rare+ finds.
         entries = info["yields"]
@@ -97,9 +99,8 @@ class Jobs(commands.Cog):
                 (item, round(qty * formulas.CRIT_MULTIPLIER)) for item, qty in hauls
             ]
 
-        tip = formulas.roll_tip(*info["tip"], level, tier)
+        tip = round(formulas.roll_tip(*info["tip"], level, tier) * rank_mult)
         xp_gain = formulas.roll_work_xp(info["cooldown"])
-        total_before = await self.db.total_level(guild_id, member.id)
 
         new_level, new_xp, levels_gained = formulas.apply_xp(
             level, skill["xp"], xp_gain
@@ -218,34 +219,44 @@ class Jobs(commands.Cog):
         total = await self.db.total_level(ctx.guild.id, ctx.author.id)
         user = await self.db.get_user(ctx.guild.id, ctx.author.id)
 
-        starters = [i for i in JOBS.values() if i["unlock_total_level"] == 0]
+        starters = [
+            (k, i) for k, i in JOBS.items() if i["unlock_total_level"] == 0
+        ]
         guild_trades = sorted(
-            (i for i in JOBS.values() if i["unlock_total_level"] > 0),
-            key=lambda i: i["unlock_total_level"],
+            ((k, i) for k, i in JOBS.items() if i["unlock_total_level"] > 0),
+            key=lambda pair: pair[1]["unlock_total_level"],
         )
 
         panel = Panel(author_id=ctx.author.id)
         panel.header("🪧 The Town Job Board")
         panel.field(
             "Starter trades",
-            " · ".join(f"{i['emoji']} **{i['name']}**" for i in starters),
-        )
-        panel.field(
-            "Guild trades",
-            "\n".join(
-                f"{'🔓' if total >= i['unlock_total_level'] else '🔒'} "
-                f"{i['emoji']} **{i['name']}** · total level "
-                f"**{i['unlock_total_level']}**"
-                for i in guild_trades
+            " · ".join(
+                f"{i['emoji']} **{i['name']}**"
+                + (" 📍" if user["job"] == k else "")
+                for k, i in starters
             ),
         )
+        guild_lines = []
+        for key, i in guild_trades:
+            req = i["unlock_total_level"]
+            if user["job"] == key:
+                status = "📍 *your trade*"
+            elif total >= req:
+                status = "✅ unlocked"
+            else:
+                status = "🔒 locked"
+            guild_lines.append(
+                f"{i['emoji']} **{i['name']}** · needs **{req}** · {status}"
+            )
+        panel.field("Guild trades", "\n".join(guild_lines))
 
         rank_emoji, rank_title = formulas.town_rank(total)
         footer_lines = [f"{rank_emoji} {rank_title} · total level {total}"]
         if user["job"]:
             footer_lines[0] = f"trade: {JOBS[user['job']]['name']} · " + footer_lines[0]
         next_unlock = next(
-            (i for i in guild_trades if total < i["unlock_total_level"]), None
+            (i for _key, i in guild_trades if total < i["unlock_total_level"]), None
         )
         if next_unlock:
             need = next_unlock["unlock_total_level"]
@@ -398,10 +409,13 @@ class Jobs(commands.Cog):
             )
         panel.field("Possible hauls", "\n".join(yield_lines))
         panel.divider()
+        total = await self.db.total_level(ctx.guild.id, ctx.author.id)
+        rank_mult = formulas.town_rank_multiplier(total)
         panel.field(
             "Your standing",
             f"Skill: **Lv. {level}** · Tool: **{tool_name(job_key, tier)}**\n"
-            f"Yields ×{formulas.total_multiplier(level, tier):.2f} · "
+            f"Yields ×{formulas.total_multiplier(level, tier) * rank_mult:.2f} "
+            f"*(incl. ×{rank_mult:.2f} town rank)* · "
             f"work every {formulas.effective_cooldown(info['cooldown'], level):.0f}s · "
             f"crit {formulas.crit_chance(level, tier):.0%} · "
             f"bonus find {formulas.bonus_find_chance(level):.0%}",

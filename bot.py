@@ -23,7 +23,7 @@ load_dotenv()
 log = logging.getLogger("medieval-bot")
 
 PREFIX = os.getenv("PREFIX", ".")
-EXTENSIONS = ("cogs.jobs", "cogs.economy", "cogs.market", "cogs.info")
+EXTENSIONS = ("cogs.jobs", "cogs.economy", "cogs.market", "cogs.venture", "cogs.info")
 
 
 class GuardedTree(app_commands.CommandTree):

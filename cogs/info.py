@@ -30,6 +30,12 @@ HELP_SECTIONS = [
         ],
     ),
     (
+        "🗺️ Ventures",
+        [
+            ("`.venture`", "risk a journey beyond the walls, no trade needed"),
+        ],
+    ),
+    (
         "💰 Gold",
         [
             ("`.balance`", "coin in your purse"),

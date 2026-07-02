@@ -224,14 +224,17 @@ TOWN_RANKS = [
 ]
 
 
+def _town_rank_index(total_level: int) -> int:
+    idx = 0
+    for i, (threshold, _e, _t) in enumerate(TOWN_RANKS):
+        if total_level >= threshold:
+            idx = i
+    return idx
+
+
 def town_rank(total_level: int) -> tuple[str, str]:
     """Return (emoji, title) for a player's total skill level."""
-    emoji, title = TOWN_RANKS[0][1], TOWN_RANKS[0][2]
-    for threshold, e, t in TOWN_RANKS:
-        if total_level >= threshold:
-            emoji, title = e, t
-        else:
-            break
+    _threshold, emoji, title = TOWN_RANKS[_town_rank_index(total_level)]
     return emoji, title
 
 
@@ -241,6 +244,45 @@ def next_town_rank(total_level: int) -> tuple[str, int] | None:
         if total_level < threshold:
             return title, threshold
     return None
+
+
+# Town rank isn't just a title: each tier grants a small permanent bonus
+# to ALL gold and yields, town-wide, on top of individual skill/tool
+# bonuses. Levelling a second or third trade keeps paying off even after
+# your main trade is maxed out, real progression, not just flavour text.
+TOWN_RANK_BONUS_PER_TIER = 0.02  # +2% per tier, up to +16% at the top rank
+
+
+def town_rank_multiplier(total_level: int) -> float:
+    return 1.0 + _town_rank_index(total_level) * TOWN_RANK_BONUS_PER_TIER
+
+
+# ═══════════════════════════ ventures ══════════════════════════════════
+# A second, job-independent way to earn: pick a path, risk it, cash in.
+# Long cooldown, real choice, real risk, real reward. Town rank and the
+# adventurer's own venture streak both push the payout up over time.
+# Path content (names, odds, flavour) lives in econ/data/ventures.py.
+
+VENTURE_COOLDOWN = 2 * 60 * 60  # 2 hours
+VENTURE_STREAK_BONUS_PER_WIN = 0.04
+VENTURE_STREAK_CAP = 10
+
+
+def venture_multiplier(total_level: int, win_streak: int) -> float:
+    rank_bonus = town_rank_multiplier(total_level)
+    streak_bonus = 1.0 + VENTURE_STREAK_BONUS_PER_WIN * min(win_streak, VENTURE_STREAK_CAP)
+    return rank_bonus * streak_bonus
+
+
+def roll_venture(path: dict, total_level: int, win_streak: int) -> tuple[bool, int]:
+    """Returns (succeeded, gold_delta). gold_delta is positive on success,
+    negative (or zero) on failure."""
+    mult = venture_multiplier(total_level, win_streak)
+    if random.random() < path["success"]:
+        return True, round(random.randint(*path["reward"]) * mult)
+    loss_lo, loss_hi = path["loss"]
+    loss = round(random.randint(loss_lo, loss_hi) * mult) if loss_hi else 0
+    return False, -loss
 
 
 # ═══════════════════════════ progress bars ═════════════════════════════

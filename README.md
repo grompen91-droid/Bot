@@ -21,6 +21,13 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
 - **Anti-bot guard**: each work has a 1-in-20 chance of a letter
   challenge; commands and buttons stay locked (and the challenge
   repeats) until the player types the letters back in chat.
+- **Town ranks**: a 9-tier title ladder from total skill level
+  (Newcomer through Legendary Sovereign) that grants a real, permanent
+  +2%/tier bonus to all gold and yields, town-wide, not just flavour.
+- **`.venture`**: a second, job-independent way to earn. Pick one of
+  three routes (low/medium/high risk) on a 2-hour cooldown, real
+  choice, real risk. Payout scales with town rank and an ongoing win
+  streak (+4%/win, capped).
 - **Working** (`.work`) rolls a weighted haul of trade goods plus a coin tip
   and XP. Skill and tools compound:
   - yields: **+3%/level** (soft-capped at 25, then +1%), tools up to **×1.85**
@@ -49,6 +56,7 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
 | `.market` | Today's prices with ▲▼ trends |
 | `.sell [item] [amount]` | Sell goods (`.sell` alone sells everything) |
 | `.shop` / `.buy` | The smithy, tool tiers with a buy button |
+| `.venture` | Risk a journey beyond the walls, no trade needed |
 | `.balance` / `.daily` / `.pay` / `.profile` / `.leaderboard` | Gold |
 | `.help` / `.about` | Guidance |
 
