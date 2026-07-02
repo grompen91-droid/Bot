@@ -29,6 +29,21 @@ def resolve_item(query: str) -> str | None:
     return None
 
 
+def _market_categories() -> list[tuple[str, str, str, list[str]]]:
+    """One (key, emoji, name, item_keys) entry per trade with goods to
+    price, plus a Crafted Goods entry -- what .market's category picker
+    browses, one at a time instead of one giant wall of every trade."""
+    cats = []
+    for job_key, info in JOBS.items():
+        if not info["yields"]:
+            continue  # Criminal deals in gold only, no goods to price
+        item_keys = [item for item, *_rest in info["yields"]]
+        cats.append((job_key, info["emoji"], info["name"], item_keys))
+    craft_items = [r["output_item"] for r in RECIPES.values()]
+    cats.append(("crafted", "🛠️", "Crafted Goods", craft_items))
+    return cats
+
+
 class Market(commands.Cog):
     """Where goods become gold."""
 
@@ -71,38 +86,44 @@ class Market(commands.Cog):
 
     # ══════════════════════════ the market ═════════════════════════════
 
-    @commands.hybrid_command(name="market", aliases=["prices"], description="Today's prices at the town market")
-    @commands.guild_only()
-    async def market(self, ctx: commands.Context):
-        panel = Panel(timeout=None)
-        panel.header("🏪 The Town Market")
-        for job_key, info in JOBS.items():
-            if not info["yields"]:
-                continue  # Criminal deals in gold only, no goods to price
-            lines = []
-            for item, *_rest in info["yields"]:
-                base = ITEMS[item]["value"]
-                price = formulas.market_price(item, base)
-                arrow = " ▲" if price > base else (" ▼" if price < base else "")
-                lines.append(
-                    f"{ITEMS[item]['emoji']} "
-                    f"{chip((ITEMS[item]['name'], NAME_W), (f'{price:,}', -AMT_W))} 🪙{arrow}"
-                )
-            panel.field(f"{info['emoji']} {info['name']}", "\n".join(lines))
+    def _build_market_panel(self, category_key: str, author_id: int) -> Panel:
+        cats = _market_categories()
+        by_key = {key: (emoji, name, items) for key, emoji, name, items in cats}
+        emoji, name, item_keys = by_key[category_key]
 
-        craft_lines = []
-        for r in RECIPES.values():
-            item = r["output_item"]
+        panel = Panel(author_id=author_id, timeout=180)
+        panel.header(f"🏪 The Town Market · {emoji} {name}")
+        lines = []
+        for item in item_keys:
             base = ITEMS[item]["value"]
             price = formulas.market_price(item, base)
             arrow = " ▲" if price > base else (" ▼" if price < base else "")
-            craft_lines.append(
+            lines.append(
                 f"{ITEMS[item]['emoji']} "
                 f"{chip((ITEMS[item]['name'], NAME_W), (f'{price:,}', -AMT_W))} 🪙{arrow}"
             )
-        panel.field("🛠️ Crafted Goods", "\n".join(craft_lines))
+        panel.text("\n".join(lines))
         panel.footer("▲ above usual · ▼ below")
-        await ctx.send(view=panel)
+
+        select = ui.Select(placeholder="🏪 Browse a category…")
+        for key, e, n, _items in cats:
+            select.add_option(label=n, value=key, emoji=e, default=(key == category_key))
+        select.callback = self._market_select
+        panel.select(select)
+        return panel
+
+    @commands.hybrid_command(name="market", aliases=["prices"], description="Today's prices at the town market")
+    @commands.guild_only()
+    async def market(self, ctx: commands.Context):
+        default_key = _market_categories()[0][0]
+        panel = self._build_market_panel(default_key, ctx.author.id)
+        panel.message = await ctx.send(view=panel)
+
+    async def _market_select(self, interaction: discord.Interaction) -> None:
+        category_key = interaction.data["values"][0]
+        panel = self._build_market_panel(category_key, interaction.user.id)
+        panel.message = interaction.message
+        await interaction.response.edit_message(view=panel)
 
     async def _sell_item_autocomplete(
         self, interaction: discord.Interaction, current: str
