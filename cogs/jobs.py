@@ -249,7 +249,10 @@ class Jobs(commands.Cog):
                 status = "✅"
             else:
                 status = "🔒"
-            guild_lines.append(f"{i['emoji']} **{i['name']}** ({req}) {status}")
+            name_field = f"{i['name']} ({req})"
+            guild_lines.append(
+                f"{i['emoji']} {chip((name_field, NAME_W), (status, -4))}"
+            )
         panel.field("Guild", "\n".join(guild_lines))
 
         rank_emoji, rank_title = formulas.town_rank(total)
