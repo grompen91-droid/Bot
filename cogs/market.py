@@ -205,6 +205,48 @@ class Market(commands.Cog):
         panel.footer(f"Purse: {balance:,} gold")
         return panel
 
+    async def build_sell_items_panel(
+        self, gid: int, uid: int, items: list[tuple[str, int]]
+    ) -> Panel | str:
+        """Sell exactly the given (item, qty) pairs -- used by the Sell
+        Haul button on a .work result, so it only sells what that one
+        work just brought in, not the whole satchel. Capped at whatever
+        is still actually held, in case some was already sold or spent
+        by hand before the button was pressed."""
+        total, count, lines = 0, 0, []
+        for item, qty in items:
+            if item not in ITEMS:
+                continue
+            have = await self.db.get_item_qty(gid, uid, item)
+            sell_qty = min(qty, have)
+            if sell_qty <= 0:
+                continue
+            info_i = ITEMS[item]
+            price = formulas.market_price(item, info_i["value"])
+            earned = price * sell_qty
+            await self.db.remove_item(gid, uid, item, sell_qty)
+            total += earned
+            count += sell_qty
+            lines.append(
+                f"{info_i['emoji']} "
+                f"{chip((info_i['name'], NAME_W), (f'x{sell_qty}', QTY_W), (f'{earned:,}', -AMT_W))} 🪙"
+            )
+        if not lines:
+            return "That haul is already gone, nothing left of it to sell."
+        balance = await self.db.add_gold(gid, uid, total)
+        await self.db.incr_stat(gid, uid, "items_sold", count)
+        await self.db.incr_stat(gid, uid, "gold_from_sales", total)
+
+        panel = Panel(accent=Palette.GREEN, timeout=None)
+        panel.header("🏪 Haul Sold!")
+        panel.text("\n".join(lines))
+        panel.divider()
+        panel.text(
+            f"💰 {chip(('Total', NAME_W), ('', QTY_W), (f'{total:,}', -AMT_W))} 🪙"
+        )
+        panel.footer(f"Purse: {balance:,} gold")
+        return panel
+
     # ══════════════════════════ the smithy ═════════════════════════════
 
     @commands.hybrid_command(name="shop", aliases=["smithy"], description="Browse tools for your trade")
@@ -235,23 +277,21 @@ class Market(commands.Cog):
         lines = []
         for t in range(1, MAX_TOOL_TIER + 1):
             name = TOOLS[job_key][t - 1]
-            mult = f"×{formulas.tool_multiplier(t):.2f}"
             if t <= tier:
-                lines.append(
-                    f"✅ {chip((name, TOOL_W), (mult, 6), ('owned', -AMT_W))}"
-                )
+                lines.append(f"✅ {chip((name, TOOL_W), ('owned', -AMT_W))}")
             else:
                 icon = "⚒️" if t == tier + 1 else "🔒"
                 lines.append(
-                    f"{icon} {chip((name, TOOL_W), (mult, 6), (f'{tool_price(t):,}', -AMT_W))} 🪙"
+                    f"{icon} {chip((name, TOOL_W), (f'{tool_price(t):,}', -AMT_W))} 🪙"
                 )
         panel.text("\n".join(lines))
         panel.footer(f"Your purse: {user['gold']:,} gold")
 
         if tier < MAX_TOOL_TIER:
             next_name = TOOLS[job_key][tier]
+            next_mult = formulas.tool_multiplier(tier + 1)
             buy_btn = ui.Button(
-                label=f"Buy {next_name} · {tool_price(tier + 1):,} gold",
+                label=f"Buy {next_name} · ×{next_mult:.2f} · {tool_price(tier + 1):,} gold",
                 emoji="⚒️",
                 style=discord.ButtonStyle.primary,
             )

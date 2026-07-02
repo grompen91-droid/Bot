@@ -174,9 +174,9 @@ class Jobs(commands.Cog):
         )
         work_btn.callback = self._work_again
         sell_btn = ui.Button(
-            label="Sell All", emoji="🏪", style=discord.ButtonStyle.secondary
+            label="Sell Haul", emoji="🏪", style=discord.ButtonStyle.secondary
         )
-        sell_btn.callback = self._sell_all
+        sell_btn.callback = self._make_sell_haul_handler(hauls)
         panel.buttons(work_btn, sell_btn)
         return panel
 
@@ -263,15 +263,19 @@ class Jobs(commands.Cog):
         result.message = interaction.message
         await interaction.response.edit_message(view=result)
 
-    async def _sell_all(self, interaction: discord.Interaction) -> None:
-        market = self.bot.get_cog("Market")
-        result = await market.build_sell_all_panel(
-            interaction.guild_id, interaction.user.id
-        )
-        if isinstance(result, str):
-            await interaction.response.send_message(result, ephemeral=True)
-            return
-        await interaction.response.send_message(view=result)
+    def _make_sell_haul_handler(self, hauls: list[tuple[str, int]]):
+        """Binds the Sell Haul button to exactly the items this one
+        .work result produced, not the whole satchel."""
+        async def handler(interaction: discord.Interaction) -> None:
+            market = self.bot.get_cog("Market")
+            result = await market.build_sell_items_panel(
+                interaction.guild_id, interaction.user.id, hauls
+            )
+            if isinstance(result, str):
+                await interaction.response.send_message(result, ephemeral=True)
+                return
+            await interaction.response.send_message(view=result)
+        return handler
 
     # ══════════════════════════ job commands ═══════════════════════════
 
