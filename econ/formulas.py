@@ -207,6 +207,42 @@ def daily_payout(streak: int, total_level: int) -> tuple[int, int, int]:
     return DAILY_BASE + streak_bonus + level_bonus, streak_bonus, level_bonus
 
 
+# ══════════════════════════ town rank titles ═══════════════════════════
+# A flavour title from total skill level across all trades, a light
+# meta-progression layer on top of individual skills. Purely cosmetic.
+
+TOWN_RANKS = [
+    (0, "🌱", "Newcomer"),
+    (5, "🧺", "Apprentice"),
+    (15, "🔨", "Journeyman"),
+    (30, "⚒️", "Skilled Worker"),
+    (50, "🏅", "Master Craftsman"),
+    (80, "🏛️", "Guildmaster"),
+    (120, "👑", "Town Elder"),
+    (180, "🌟", "Living Legend"),
+    (250, "🐉", "Legendary Sovereign"),
+]
+
+
+def town_rank(total_level: int) -> tuple[str, str]:
+    """Return (emoji, title) for a player's total skill level."""
+    emoji, title = TOWN_RANKS[0][1], TOWN_RANKS[0][2]
+    for threshold, e, t in TOWN_RANKS:
+        if total_level >= threshold:
+            emoji, title = e, t
+        else:
+            break
+    return emoji, title
+
+
+def next_town_rank(total_level: int) -> tuple[str, int] | None:
+    """Return (title, levels needed) for the next rank, or None at the top."""
+    for threshold, _emoji, title in TOWN_RANKS:
+        if total_level < threshold:
+            return title, threshold
+    return None
+
+
 # ═══════════════════════════ progress bars ═════════════════════════════
 
 BAR_FILLED, BAR_EMPTY = "█", "░"

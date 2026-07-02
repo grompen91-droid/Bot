@@ -142,21 +142,32 @@ class Economy(commands.Cog):
         else:
             trade_lines = ["⚒️ *No trade yet. See* `.job`"]
 
+        rank_emoji, rank_title = formulas.town_rank(total_level)
         panel = Panel(timeout=None)
         panel.header(f"🏰 {target.display_name} of the Town")
         panel.section(
+            f"{rank_emoji} **{rank_title}**",
             f"💰 **{formulas.fmt_gold(user['gold'])}**",
             f"📖 Total skill **{total_level}** · 🎒 {total_items:,} goods",
             thumbnail=target.display_avatar.url,
         )
         panel.divider()
         panel.text("\n".join(trade_lines))
-        panel.footer(
+
+        footer_lines = [
             f"worked {stats.get('works', 0):,} · gathered "
             f"{stats.get('items_gathered', 0):,} · sold {stats.get('items_sold', 0):,} · "
             f"earned {stats.get('gold_from_sales', 0):,} gold"
             + (f" · 🔥 {user['daily_streak']} day streak" if user["daily_streak"] else "")
-        )
+        ]
+        next_rank = formulas.next_town_rank(total_level)
+        if next_rank:
+            next_title, need = next_rank
+            footer_lines.append(
+                f"`{formulas.progress_bar(total_level, need)}` {total_level}/{need} "
+                f"to {next_title}"
+            )
+        panel.footer("\n".join(footer_lines))
         await ctx.send(view=panel)
 
     @commands.hybrid_command(name="leaderboard", aliases=["lb", "top"], description="The wealthiest and most skilled in town")
@@ -174,11 +185,13 @@ class Economy(commands.Cog):
         if board.lower().startswith("skill"):
             rows = await self.db.top_skills(gid)
             title = "📖 The Most Skilled Townsfolk"
-            lines = [
-                f"{medals[i] if i < 3 else f'**{i + 1}.**'} <@{row['user_id']}> · "
-                f"**{row['total_level']}** levels"
-                for i, row in enumerate(rows)
-            ]
+            lines = []
+            for i, row in enumerate(rows):
+                emoji, _title = formulas.town_rank(row["total_level"])
+                lines.append(
+                    f"{medals[i] if i < 3 else f'**{i + 1}.**'} <@{row['user_id']}> · "
+                    f"**{row['total_level']}** levels {emoji}"
+                )
         else:
             rows = await self.db.top_gold(gid)
             title = "💰 The Richest Townsfolk"

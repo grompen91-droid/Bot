@@ -240,18 +240,20 @@ class Jobs(commands.Cog):
             ),
         )
 
-        footer = f"your total level: {total}"
+        rank_emoji, rank_title = formulas.town_rank(total)
+        footer_lines = [f"{rank_emoji} {rank_title} · total level {total}"]
         if user["job"]:
-            footer = f"your trade: {JOBS[user['job']]['name']} · " + footer
+            footer_lines[0] = f"trade: {JOBS[user['job']]['name']} · " + footer_lines[0]
         next_unlock = next(
             (i for i in guild_trades if total < i["unlock_total_level"]), None
         )
         if next_unlock:
-            footer += (
-                f" · next unlock: {next_unlock['name']} at "
-                f"{next_unlock['unlock_total_level']}"
+            need = next_unlock["unlock_total_level"]
+            footer_lines.append(
+                f"`{formulas.progress_bar(total, need)}` {total}/{need} "
+                f"to unlock {next_unlock['name']}"
             )
-        panel.footer(footer)
+        panel.footer("\n".join(footer_lines))
 
         select = ui.Select(placeholder="⚒️ Take up a trade…")
         for key, info in JOBS.items():
@@ -376,7 +378,7 @@ class Jobs(commands.Cog):
             )
             return
         info = JOBS[job_key]
-        skill = await self.db.get_skill(ctx.guild.id, ctx.author.id, job_key)
+        skill = await self.db.peek_skill(ctx.guild.id, ctx.author.id, job_key)
         tier = await self.db.get_tool_tier(ctx.guild.id, ctx.author.id, job_key)
         level = skill["level"]
 
@@ -445,7 +447,8 @@ class Jobs(commands.Cog):
                     f"{row['xp']}/{needed} XP"
                 )
             panel.text("\n\n".join(lines))
-        panel.footer(f"Total skill level: {total}")
+        rank_emoji, rank_title = formulas.town_rank(total)
+        panel.footer(f"{rank_emoji} {rank_title} · total skill level {total}")
         await ctx.send(view=panel)
 
 

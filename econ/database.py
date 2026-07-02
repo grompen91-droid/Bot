@@ -240,6 +240,17 @@ class Database:
             level, xp, last_work, guild_id, user_id, job,
         )
 
+    async def peek_skill(self, guild_id: int, user_id: int, job: str) -> dict:
+        """Read-only skill lookup that never creates a row. Used for
+        previews (e.g. `.job info`) so merely inspecting a trade can't
+        inflate total_level() with a phantom level-1 entry."""
+        row = await self.fetchone(
+            "SELECT level, xp, last_work FROM skills "
+            "WHERE guild_id = ? AND user_id = ? AND job = ?",
+            guild_id, user_id, job,
+        )
+        return dict(row) if row is not None else {"level": 1, "xp": 0, "last_work": 0}
+
     async def get_all_skills(self, guild_id: int, user_id: int) -> list:
         return await self.fetchall(
             "SELECT * FROM skills WHERE guild_id = ? AND user_id = ? "
