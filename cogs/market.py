@@ -7,6 +7,7 @@ from discord import app_commands, ui
 from discord.ext import commands
 
 from econ import formulas
+from econ.data.consumables import CONSUMABLES
 from econ.data.items import ITEMS, item_label
 from econ.data.jobs import JOBS
 from econ.data.recipes import RECIPES
@@ -44,6 +45,17 @@ def _market_categories() -> list[tuple[str, str, str, list[str]]]:
     return cats
 
 
+def _inventory_categories() -> list[tuple[str, str, str, list[str] | None]]:
+    """.inventory's category picker: everything you carry, a cross-cutting
+    view of just your usable consumables, then one trade at a time --
+    same shape as .market's picker so both feel familiar. `None` for
+    item_keys means "whatever you happen to own", not a fixed list."""
+    cats = [("all", "🎒", "All Items", None)]
+    cats.append(("consumables", "✨", "Consumables", list(CONSUMABLES.keys())))
+    cats.extend(_market_categories())
+    return cats
+
+
 class Market(commands.Cog):
     """Where goods become gold."""
 
@@ -56,33 +68,81 @@ class Market(commands.Cog):
 
     # ══════════════════════════ inventory ══════════════════════════════
 
+    def _build_inventory_panel(
+        self, category_key: str, owned: dict[str, int], display_name: str, author_id: int
+    ) -> Panel:
+        cats = _inventory_categories()
+        by_key = {key: (emoji, name, items) for key, emoji, name, items in cats}
+        emoji, name, fixed_items = by_key[category_key]
+
+        item_keys = list(owned.keys()) if fixed_items is None else [
+            i for i in fixed_items if owned.get(i, 0) > 0
+        ]
+        item_keys.sort(
+            key=lambda i: formulas.market_price(i, ITEMS[i]["value"]) * owned[i],
+            reverse=True,
+        )
+
+        panel = Panel(author_id=author_id, timeout=180)
+        panel.header(f"🎒 {display_name}'s Satchel · {emoji} {name}")
+        if not item_keys:
+            panel.text(
+                "*Nothing here yet.*" if category_key != "all"
+                else "*Empty as a beggar's bowl. Go `.work`!*"
+            )
+            panel.footer("Worth 0 gold today")
+        else:
+            total = 0
+            lines = []
+            for item in item_keys:
+                info_i = ITEMS[item]
+                price = formulas.market_price(item, info_i["value"])
+                qty = owned[item]
+                worth = price * qty
+                total += worth
+                buff = CONSUMABLES.get(item)
+                if category_key == "consumables" and buff:
+                    lines.append(
+                        f"{info_i['emoji']} "
+                        f"{chip((info_i['name'], NAME_W), (f'x{qty}', -QTY_W))}\n"
+                        f"　✨ {buff['description']}"
+                    )
+                else:
+                    tag = " ✨" if buff else ""
+                    lines.append(
+                        f"{info_i['emoji']} "
+                        f"{chip((info_i['name'], NAME_W), (f'x{qty}', QTY_W), (f'{worth:,}', -AMT_W))} 🪙{tag}"
+                    )
+            panel.text("\n".join(lines))
+            footer = f"Worth {total:,} gold today"
+            if category_key != "consumables":
+                footer += " · ✨ usable with `.use`"
+            panel.footer(footer)
+
+        select = ui.Select(placeholder="🎒 Browse a category…")
+        for key, e, n, _items in cats:
+            select.add_option(label=n, value=key, emoji=e, default=(key == category_key))
+        select.callback = self._inventory_select
+        panel.select(select)
+        return panel
+
     @commands.hybrid_command(name="inventory", aliases=["inv", "satchel"], description="Look inside your satchel")
     @commands.guild_only()
     async def inventory(self, ctx: commands.Context):
         rows = await self.db.get_inventory(ctx.guild.id, ctx.author.id)
-        rows = [r for r in rows if r["item"] in ITEMS]
+        owned = {r["item"]: r["qty"] for r in rows if r["item"] in ITEMS}
+        panel = self._build_inventory_panel("all", owned, ctx.author.display_name, ctx.author.id)
+        panel.message = await ctx.send(view=panel)
 
-        panel = Panel(timeout=None)
-        panel.header(f"🎒 {ctx.author.display_name}'s Satchel")
-        if not rows:
-            panel.text("*Empty as a beggar's bowl. Go `.work`!*")
-        else:
-            rows.sort(key=lambda r: formulas.market_price(r["item"], ITEMS[r["item"]]["value"]) * r["qty"], reverse=True)
-            total = 0
-            lines = []
-            for row in rows:
-                info_i = ITEMS[row["item"]]
-                price = formulas.market_price(row["item"], info_i["value"])
-                qty = row["qty"]
-                worth = price * qty
-                total += worth
-                lines.append(
-                    f"{info_i['emoji']} "
-                    f"{chip((info_i['name'], NAME_W), (f'x{qty}', QTY_W), (f'{worth:,}', -AMT_W))} 🪙"
-                )
-            panel.text("\n".join(lines))
-            panel.footer(f"Worth {total:,} gold today")
-        await ctx.send(view=panel)
+    async def _inventory_select(self, interaction: discord.Interaction) -> None:
+        category_key = interaction.data["values"][0]
+        rows = await self.db.get_inventory(interaction.guild_id, interaction.user.id)
+        owned = {r["item"]: r["qty"] for r in rows if r["item"] in ITEMS}
+        panel = self._build_inventory_panel(
+            category_key, owned, interaction.user.display_name, interaction.user.id
+        )
+        panel.message = interaction.message
+        await interaction.response.edit_message(view=panel)
 
     # ══════════════════════════ the market ═════════════════════════════
 

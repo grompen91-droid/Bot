@@ -102,6 +102,18 @@ MIGRATIONS: list[str] = [
     ALTER TABLE users DROP COLUMN infamy;
     ALTER TABLE users DROP COLUMN fame;
     """,
+    # v9, consumables: temporary buffs from potions/foods, .use'd from
+    # the satchel. Keyed by item (not a made-up buff id) so using the
+    # same item again just refreshes its own duration.
+    """
+    CREATE TABLE IF NOT EXISTS active_buffs (
+        guild_id   BIGINT NOT NULL,
+        user_id    BIGINT NOT NULL,
+        item       TEXT   NOT NULL,
+        expires_at DOUBLE PRECISION NOT NULL,
+        PRIMARY KEY (guild_id, user_id, item)
+    );
+    """,
 ]
 
 
@@ -363,6 +375,29 @@ class Database:
         await self.execute(
             "UPDATE users SET reputation = ? WHERE guild_id = ? AND user_id = ?",
             value, guild_id, user_id,
+        )
+
+    # ── consumables & active buffs ───────────────────────────────────────
+
+    async def add_buff(
+        self, guild_id: int, user_id: int, item: str, expires_at: float
+    ) -> None:
+        """Using an item already active refreshes its expiry rather
+        than stacking a second copy of the same buff."""
+        await self.execute(
+            "INSERT INTO active_buffs (guild_id, user_id, item, expires_at) "
+            "VALUES (?, ?, ?, ?) ON CONFLICT (guild_id, user_id, item) "
+            "DO UPDATE SET expires_at = excluded.expires_at",
+            guild_id, user_id, item, expires_at,
+        )
+
+    async def get_active_buffs(self, guild_id: int, user_id: int, now: float) -> list:
+        """Already-expired rows are simply excluded, not deleted here --
+        cheap and correct without a background sweep job."""
+        return await self.fetchall(
+            "SELECT item, expires_at FROM active_buffs "
+            "WHERE guild_id = ? AND user_id = ? AND expires_at > ?",
+            guild_id, user_id, now,
         )
 
     # ── the other per-job minigames ─────────────────────────────────────

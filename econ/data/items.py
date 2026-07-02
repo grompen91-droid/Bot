@@ -72,6 +72,13 @@ ITEMS = {
     "dragonforged_blade":     {"name": "Dragonforged Blade",      "emoji": "⚔️", "value": 7500,  "rarity": "legendary"},
     "krakens_bounty":         {"name": "Kraken's Bounty",         "emoji": "🌊", "value": 15000, "rarity": "legendary"},
     "philosophers_masterwork": {"name": "Philosopher's Masterwork", "emoji": "🌟", "value": 20000, "rarity": "legendary"},
+    # ── Consumables (see econ/data/consumables.py for their buffs) ─────────
+    "travelers_snack": {"name": "Traveler's Snack",  "emoji": "🥖", "value": 8,  "rarity": "common"},
+    "lucky_coin":      {"name": "Lucky Coin",        "emoji": "🍀", "value": 12, "rarity": "uncommon"},
+    "focus_draught":   {"name": "Focus Draught",     "emoji": "💧", "value": 10, "rarity": "common"},
+    "potion_of_haste":    {"name": "Potion of Haste",    "emoji": "⏳", "value": 40, "rarity": "uncommon"},
+    "potion_of_insight":  {"name": "Potion of Insight",  "emoji": "📖", "value": 45, "rarity": "uncommon"},
+    "potion_of_fortune":  {"name": "Potion of Fortune",  "emoji": "🍯", "value": 50, "rarity": "uncommon"},
 }
 
 

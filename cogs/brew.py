@@ -20,6 +20,8 @@ from discord import app_commands, ui
 from discord.ext import commands
 
 from econ import formulas
+from econ.data.consumables import BREW_POTION_CHANCE, BREW_POTIONS
+from econ.data.items import ITEMS
 from econ.data.jobs import JOBS, MAX_JOB_UNLOCK_LEVEL
 from ui.panels import AMT_W, NAME_W, Palette, Panel, RoundPanel, chip, simple_panel
 
@@ -135,6 +137,9 @@ class BrewSession:
             self.level, self.xp, xp_gain
         )
         fame_gained = 0
+        potion = None
+        if success and (perfect or random.random() < BREW_POTION_CHANCE):
+            potion = random.choice(BREW_POTIONS)
         if not self.dry_run:
             await self.db.update_skill(
                 self.gid, self.uid, "alchemist", new_level, new_xp, self.last_work
@@ -149,6 +154,8 @@ class BrewSession:
             if success:
                 await self.db.add_reputation(self.gid, self.uid, formulas.MINIGAME_FAME_ON_SUCCESS)
                 fame_gained = formulas.MINIGAME_FAME_ON_SUCCESS
+            if potion:
+                await self.db.add_item(self.gid, self.uid, potion, 1)
 
         panel = Panel(accent=Palette.GREEN if success else Palette.RED, timeout=None)
         if success:
@@ -173,6 +180,13 @@ class BrewSession:
             if reward else "💰 No gold this time."
         )
         panel.text(reward_line)
+
+        if potion:
+            potion_info = ITEMS[potion]
+            panel.text(
+                f"🧪 The cauldron also yields a **{potion_info['emoji']} {potion_info['name']}**! "
+                f"*(usable with `.use`)*"
+            )
 
         footer = f"{self.progress}/{self.length} recalled correctly"
         if xp_gain:

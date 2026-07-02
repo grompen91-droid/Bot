@@ -14,6 +14,7 @@ HELP_SECTIONS = [
     ("⚒️ Trade", ".job · .work · .skills"),
     ("🏪 Market", ".inventory · .market · .sell · .shop · .buy"),
     ("🛠️ Crafting", ".recipes · .craft"),
+    ("✨ Consumables", ".use · .buffs"),
     ("🗺️ Venture", ".venture"),
     ("💰 Gold", ".balance · .daily · .beg · .pay · .profile · .leaderboard"),
     ("🏦 Bank", ".bank · .deposit · .withdraw"),

@@ -10,6 +10,14 @@ from discord import app_commands, ui
 from discord.ext import commands
 
 from econ import captcha, formulas
+from econ.buffs import (
+    active_buff_summary,
+    active_buff_totals,
+    apply_cooldown_buff,
+    apply_gold_buff,
+    apply_xp_buff,
+)
+from econ.data.consumables import WORK_DROP_CHANCE, WORK_DROP_CONSUMABLES
 from econ.data.crime import crime_tier
 from econ.data.items import ITEMS, rarity_badge
 from econ.data.jobs import JOBS, resolve_job
@@ -72,16 +80,19 @@ class Jobs(commands.Cog):
         info = JOBS[job_key]
         skill = await self.db.get_skill(guild_id, member.id, job_key)
         level = skill["level"]
+        buffs = await active_buff_totals(self.db, guild_id, member.id)
 
         now = time.time()
-        cooldown = formulas.effective_cooldown(info["cooldown"], level)
+        cooldown = apply_cooldown_buff(
+            formulas.effective_cooldown(info["cooldown"], level), buffs
+        )
         ready_at = skill["last_work"] + cooldown
         if now < ready_at:
             return f"⏳ You are weary. You can work again <t:{int(ready_at)}:R>."
 
         if job_key == "criminal":
             return await self._build_criminal_work_panel(
-                guild_id, member, skill, level, now
+                guild_id, member, skill, level, now, buffs
             )
 
         tier = await self.db.get_tool_tier(guild_id, member.id, job_key)
@@ -115,8 +126,8 @@ class Jobs(commands.Cog):
                 (item, round(qty * formulas.CRIT_MULTIPLIER)) for item, qty in hauls
             ]
 
-        tip = round(formulas.roll_tip(*info["tip"], level, tier) * coin_mult)
-        xp_gain = formulas.roll_work_xp(info["cooldown"])
+        tip = round(apply_gold_buff(formulas.roll_tip(*info["tip"], level, tier) * coin_mult, buffs))
+        xp_gain = round(apply_xp_buff(formulas.roll_work_xp(info["cooldown"]), buffs))
 
         new_level, new_xp, levels_gained = formulas.apply_xp(
             level, skill["xp"], xp_gain
@@ -130,6 +141,13 @@ class Jobs(commands.Cog):
         await self.db.add_gold(guild_id, member.id, tip)
         await self.db.incr_stat(guild_id, member.id, "works")
         await self.db.incr_stat(guild_id, member.id, "gold_from_tips", tip)
+
+        # A rare bonus find, on top of the usual haul: a small
+        # consumable, regardless of trade.
+        found_consumable = None
+        if random.random() < WORK_DROP_CHANCE:
+            found_consumable = random.choice(WORK_DROP_CONSUMABLES)
+            await self.db.add_item(guild_id, member.id, found_consumable, 1)
 
         # ── build the result panel ──────────────────────────────────────
         accent = Palette.PURPLE if crit else Palette.GOLD
@@ -156,6 +174,13 @@ class Jobs(commands.Cog):
         )
         panel.text("\n".join(haul_lines))
 
+        if found_consumable:
+            found_info = ITEMS[found_consumable]
+            panel.text(
+                f"🎁 You also found a **{found_info['emoji']} {found_info['name']}**! "
+                f"*(usable with `.use`)*"
+            )
+
         if levels_gained:
             panel.text(
                 f"⭐ **Level up!** {info['name']} is now level **{new_level}**"
@@ -170,11 +195,19 @@ class Jobs(commands.Cog):
                 )
 
         needed = formulas.xp_to_next(new_level)
-        ready = int(now + formulas.effective_cooldown(info["cooldown"], new_level))
-        panel.footer(
+        ready = int(
+            now + apply_cooldown_buff(
+                formulas.effective_cooldown(info["cooldown"], new_level), buffs
+            )
+        )
+        footer = (
             f"+{xp_gain} XP · Lv {new_level} `{formulas.progress_bar(new_xp, needed)}` "
             f"{new_xp}/{needed}\nready <t:{ready}:R>"
         )
+        buff_line = active_buff_summary(buffs)
+        if buff_line:
+            footer += f"\n✨ active: {buff_line}"
+        panel.footer(footer)
 
         work_btn = ui.Button(
             label="Work Again", emoji="⚒️", style=discord.ButtonStyle.secondary
@@ -189,6 +222,7 @@ class Jobs(commands.Cog):
 
     async def _build_criminal_work_panel(
         self, guild_id: int, member: discord.abc.User, skill, level: int, now: float,
+        buffs: dict[str, float],
     ) -> Panel:
         """Criminal has no goods to gather, only gold and infamy. Both
         the payout and the flavour of the crime scale with how
@@ -198,11 +232,13 @@ class Jobs(commands.Cog):
         total_before = await self.db.total_level(guild_id, member.id)
         infamy = formulas.reputation_infamy(user["reputation"])
 
-        gold = formulas.roll_criminal_work(level, tier, infamy, total_before)
+        gold = round(
+            apply_gold_buff(formulas.roll_criminal_work(level, tier, infamy, total_before), buffs)
+        )
         infamy_gain = random.randint(
             formulas.CRIMINAL_WORK_INFAMY_MIN, formulas.CRIMINAL_WORK_INFAMY_MAX
         )
-        xp_gain = formulas.roll_work_xp(JOBS["criminal"]["cooldown"])
+        xp_gain = round(apply_xp_buff(formulas.roll_work_xp(JOBS["criminal"]["cooldown"]), buffs))
 
         new_level, new_xp, levels_gained = formulas.apply_xp(level, skill["xp"], xp_gain)
         await self.db.update_skill(guild_id, member.id, "criminal", new_level, new_xp, now)
@@ -211,6 +247,11 @@ class Jobs(commands.Cog):
         new_infamy = formulas.reputation_infamy(new_rep)
         await self.db.incr_stat(guild_id, member.id, "works")
         await self.db.incr_stat(guild_id, member.id, "gold_from_crime", gold)
+
+        found_consumable = None
+        if random.random() < WORK_DROP_CHANCE:
+            found_consumable = random.choice(WORK_DROP_CONSUMABLES)
+            await self.db.add_item(guild_id, member.id, found_consumable, 1)
 
         _threshold, crime_title, flavour_lines = crime_tier(infamy)
         panel = Panel(accent=Palette.RED, author_id=member.id)
@@ -222,17 +263,30 @@ class Jobs(commands.Cog):
             f"({new_infamy:,} total)"
         )
 
+        if found_consumable:
+            found_info = ITEMS[found_consumable]
+            panel.text(
+                f"🎁 You also found a **{found_info['emoji']} {found_info['name']}**! "
+                f"*(usable with `.use`)*"
+            )
+
         if levels_gained:
             panel.text(f"⭐ **Level up!** Criminal is now level **{new_level}**")
 
         needed = formulas.xp_to_next(new_level)
         ready = int(
-            now + formulas.effective_cooldown(JOBS["criminal"]["cooldown"], new_level)
+            now + apply_cooldown_buff(
+                formulas.effective_cooldown(JOBS["criminal"]["cooldown"], new_level), buffs
+            )
         )
-        panel.footer(
+        footer = (
             f"+{xp_gain} XP · Lv {new_level} `{formulas.progress_bar(new_xp, needed)}` "
             f"{new_xp}/{needed}\nready <t:{ready}:R>"
         )
+        buff_line = active_buff_summary(buffs)
+        if buff_line:
+            footer += f"\n✨ active: {buff_line}"
+        panel.footer(footer)
 
         work_btn = ui.Button(
             label="Work Again", emoji="⚒️", style=discord.ButtonStyle.secondary

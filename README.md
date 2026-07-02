@@ -44,10 +44,21 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
   any trade, anyone can craft regardless of their current job. Combine
   gathered goods from across multiple trades into one higher-value
   crafted item, gated by Crafting skill level (10 recipes across 5
-  tiers). Every recipe prices its output at roughly 2.4-2.7x the
-  combined market value of its ingredients, so it's always worth doing
-  once you've got the level and the goods. Crafting itself levels the
-  skill and counts toward total skill level like any trade.
+  tiers). Every recipe mints the item itself, not gold, priced at
+  roughly 18x-49x the combined market value of its ingredients (the
+  market still lists what it's worth if you'd rather sell it). Crafting
+  itself levels the skill and counts toward total skill level like any
+  trade.
+- **Consumables** (`.use`, `.buffs`): potions and foods that grant a
+  temporary buff, either -cooldown, +XP, or +gold, for a set duration.
+  A small chance drops from ordinary `.work` regardless of trade,
+  Alchemists can also brew potions with `.brew` (guaranteed on a
+  flawless brew), and 6 of the 10 crafting recipes yield a buff food
+  instead of a sellable good. `.use <item>` drinks/eats it and refreshes
+  the duration if it's already active; two different buffs of the same
+  kind stack additively while both are up. `.inventory` has a category
+  dropdown (like `.market`) so it's obvious at a glance what's usable
+  and what it does.
 - **Daily stipend** (`.daily`): base + streak bonus + a bonus for total
   skill level across every trade, capped at 1,000 gold a day. `.pay`,
   `.profile` (with lifetime deed stats), `.leaderboard` for gold and
@@ -102,11 +113,12 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
 | `.job choose <trade>` / `.job quit` / `.job info <trade>` | Manage your trade |
 | `.work` | Labour for goods, coin, and XP (⚒️ Work Again button) |
 | `.skills [member]` | Skill levels in every trade |
-| `.inventory` | Your satchel and today's worth |
-| `.market` | Today's prices with ▲▼ trends |
+| `.inventory` | Your satchel with a category dropdown (All / Consumables / per-trade) |
+| `.market` | Today's prices with ▲▼ trends, one category at a time via dropdown |
 | `.sell [item] [amount]` | Sell goods (`.sell` alone sells everything) |
 | `.shop` / `.buy` | The smithy, tool tiers with a buy button |
 | `.recipes` / `.craft <recipe>` | Crafting: browse and craft, no trade required |
+| `.use <item>` / `.buffs` | Drink/eat a consumable for its buff, or check what's active |
 | `.venture` | Risk a journey beyond the walls, no trade needed |
 | `.balance` / `.daily` / `.pay` / `.profile` / `.leaderboard` | Gold |
 | `.bank` / `.deposit [amount\|all]` / `.withdraw [amount\|all]` | Bank |
@@ -126,6 +138,8 @@ econ/
   database.py        SQLite/Postgres with versioned migrations (append to
                      MIGRATIONS to evolve the schema safely)
   captcha.py         anti-bot letter-challenge state
+  buffs.py           reads active_buffs and turns them into ready-to-use
+                     cooldown/XP/gold multipliers for .work/.craft/etc.
   data/
     items.py         item registry (name, emoji, value, rarity)
     jobs.py          job registry (yields, cooldown, unlock, flavour)
@@ -134,6 +148,8 @@ econ/
     bank.py          bank tier capacities and upgrade costs
     minigames.py     per-job minigame content (options, flavour, timing)
     recipes.py       crafting recipe registry (ingredients, output, unlock)
+    consumables.py   which items are usable, their buff + duration, and
+                     the work-drop / brew-potion pool odds
 ui/
   panels.py          Components V2 medieval panel builder (fluent API)
 cogs/
@@ -141,11 +157,12 @@ cogs/
   market.py          inventory, market, sell, smithy
   economy.py         balance, daily, pay, profile, leaderboards, bank
   venture.py         the .venture minigame
-  crime.py           pickpocketing
+  crime.py           pickpocketing, smuggling
   brew.py            the .brew cauldron memory minigame
   minigames.py       the other 7 per-job minigames (harvest/dig/fish/
                      fell/hunt/bake/tend) + their *test admin twins
   craft.py           .recipes / .craft, the standalone Crafting skill
+  consumables.py     .use / .buffs
   info.py            help, about
 ```
 

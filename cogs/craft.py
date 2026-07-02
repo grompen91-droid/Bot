@@ -13,6 +13,13 @@ from discord import app_commands
 from discord.ext import commands
 
 from econ import formulas
+from econ.buffs import (
+    active_buff_summary,
+    active_buff_totals,
+    apply_cooldown_buff,
+    apply_xp_buff,
+)
+from econ.data.consumables import CONSUMABLES
 from econ.data.items import ITEMS
 from econ.data.recipes import RECIPES, resolve_recipe
 from ui.panels import AMT_W, NAME_W, QTY_W, Palette, Panel, chip, simple_panel
@@ -55,9 +62,15 @@ class Craft(commands.Cog):
             ing_text = " · ".join(
                 f"{ITEMS[i]['emoji']} x{q}" for i, q in r["ingredients"]
             )
+            buff = CONSUMABLES.get(r["output_item"])
+            yield_text = (
+                f"✨ {buff['description']}"
+                if buff
+                else f"worth ~{formulas.fmt_gold(out['value'])}"
+            )
             lines.append(
                 f"{status} {out['emoji']} **{r['name']}** (Lv {r['unlock_level']})\n"
-                f"　needs {ing_text} · yields the item, worth ~{formulas.fmt_gold(out['value'])}"
+                f"　needs {ing_text} · yields the item · {yield_text}"
             )
         panel.text("\n\n".join(lines))
         panel.footer(
@@ -87,6 +100,7 @@ class Craft(commands.Cog):
         r = RECIPES[recipe_key]
 
         skill = await self.db.peek_skill(gid, uid, CRAFTING_SKILL)
+        buffs = await active_buff_totals(self.db, gid, uid)
         if skill["level"] < r["unlock_level"]:
             await ctx.send(
                 view=simple_panel(
@@ -100,7 +114,9 @@ class Craft(commands.Cog):
             return
 
         now = time.time()
-        cooldown = formulas.effective_cooldown(formulas.CRAFTING_COOLDOWN, skill["level"])
+        cooldown = apply_cooldown_buff(
+            formulas.effective_cooldown(formulas.CRAFTING_COOLDOWN, skill["level"]), buffs
+        )
         ready_at = skill["last_work"] + cooldown
         if now < ready_at:
             await ctx.send(
@@ -132,7 +148,7 @@ class Craft(commands.Cog):
         # Only now do we persist a real skill row -- a rejected attempt
         # above must never inflate total_level with a phantom row.
         await self.db.get_skill(gid, uid, CRAFTING_SKILL)
-        xp_gain = formulas.roll_work_xp(formulas.CRAFTING_COOLDOWN)
+        xp_gain = round(apply_xp_buff(formulas.roll_work_xp(formulas.CRAFTING_COOLDOWN), buffs))
         new_level, new_xp, levels_gained = formulas.apply_xp(
             skill["level"], skill["xp"], xp_gain
         )
@@ -148,20 +164,31 @@ class Craft(commands.Cog):
             for i, q in r["ingredients"]
         )
         panel.text(ing_lines)
+        buff = CONSUMABLES.get(r["output_item"])
+        flavour = f"✨ {buff['description']}" if buff else f"worth ~{formulas.fmt_gold(out['value'])}"
         panel.text(
-            f"{out['emoji']} {chip((out['name'], NAME_W), ('+1', -QTY_W))} "
-            f"*(worth ~{formulas.fmt_gold(out['value'])})*"
+            f"{out['emoji']} {chip((out['name'], NAME_W), ('+1', -QTY_W))} *({flavour})*"
         )
+        if buff:
+            panel.text("*usable with `.use`*")
 
         if levels_gained:
             panel.text(f"⭐ **Level up!** Crafting is now level **{new_level}**")
 
         needed = formulas.xp_to_next(new_level)
-        ready = int(now + formulas.effective_cooldown(formulas.CRAFTING_COOLDOWN, new_level))
-        panel.footer(
+        ready = int(
+            now + apply_cooldown_buff(
+                formulas.effective_cooldown(formulas.CRAFTING_COOLDOWN, new_level), buffs
+            )
+        )
+        footer = (
             f"+{xp_gain} XP · Lv {new_level} `{formulas.progress_bar(new_xp, needed)}` "
             f"{new_xp}/{needed}\nready <t:{ready}:R>"
         )
+        buff_line = active_buff_summary(buffs)
+        if buff_line:
+            footer += f"\n✨ active: {buff_line}"
+        panel.footer(footer)
         await ctx.send(view=panel)
 
 
