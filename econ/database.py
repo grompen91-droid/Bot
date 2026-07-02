@@ -344,12 +344,17 @@ class Database:
         )
 
     async def total_level(self, guild_id: int, user_id: int) -> int:
+        # Postgres promotes SUM() over a BIGINT column to NUMERIC (Decimal
+        # in Python) for overflow safety; cast back to a plain int so it
+        # behaves identically to SQLite and doesn't break float math
+        # downstream (formulas.py does 1.0 + rate * total_level, which
+        # raises TypeError for float * Decimal).
         row = await self.fetchone(
-            "SELECT COALESCE(SUM(level), 0) AS total FROM skills "
+            "SELECT COALESCE(CAST(SUM(level) AS BIGINT), 0) AS total FROM skills "
             "WHERE guild_id = ? AND user_id = ?",
             guild_id, user_id,
         )
-        return row["total"]
+        return int(row["total"])
 
     # ── inventory ───────────────────────────────────────────────────────
 
@@ -443,7 +448,8 @@ class Database:
 
     async def top_skills(self, guild_id: int, limit: int = 10) -> list:
         return await self.fetchall(
-            "SELECT user_id, SUM(level) AS total_level, MAX(level) AS best_level "
+            "SELECT user_id, CAST(SUM(level) AS BIGINT) AS total_level, "
+            "MAX(level) AS best_level "
             "FROM skills WHERE guild_id = ? GROUP BY user_id "
             "ORDER BY total_level DESC LIMIT ?",
             guild_id, limit,
