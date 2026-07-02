@@ -1,44 +1,56 @@
-"""SQLite persistence layer (per-guild economy)."""
+"""Async SQLite persistence with versioned migrations.
+
+To evolve the schema, append a new SQL script to MIGRATIONS — it runs
+exactly once per database (tracked via PRAGMA user_version).
+All state is per-guild, so one bot process can serve many servers.
+"""
 
 import aiosqlite
 
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS users (
-    guild_id     INTEGER NOT NULL,
-    user_id      INTEGER NOT NULL,
-    gold         INTEGER NOT NULL DEFAULT 0,
-    job          TEXT,
-    last_daily   TEXT,
-    daily_streak INTEGER NOT NULL DEFAULT 0,
-    PRIMARY KEY (guild_id, user_id)
-);
-
-CREATE TABLE IF NOT EXISTS skills (
-    guild_id  INTEGER NOT NULL,
-    user_id   INTEGER NOT NULL,
-    job       TEXT    NOT NULL,
-    level     INTEGER NOT NULL DEFAULT 1,
-    xp        INTEGER NOT NULL DEFAULT 0,
-    last_work REAL    NOT NULL DEFAULT 0,
-    PRIMARY KEY (guild_id, user_id, job)
-);
-
-CREATE TABLE IF NOT EXISTS inventory (
-    guild_id INTEGER NOT NULL,
-    user_id  INTEGER NOT NULL,
-    item     TEXT    NOT NULL,
-    qty      INTEGER NOT NULL DEFAULT 0,
-    PRIMARY KEY (guild_id, user_id, item)
-);
-
-CREATE TABLE IF NOT EXISTS tools (
-    guild_id INTEGER NOT NULL,
-    user_id  INTEGER NOT NULL,
-    job      TEXT    NOT NULL,
-    tier     INTEGER NOT NULL DEFAULT 0,
-    PRIMARY KEY (guild_id, user_id, job)
-);
-"""
+MIGRATIONS: list[str] = [
+    # v1 — initial schema
+    """
+    CREATE TABLE users (
+        guild_id     INTEGER NOT NULL,
+        user_id      INTEGER NOT NULL,
+        gold         INTEGER NOT NULL DEFAULT 0,
+        job          TEXT,
+        last_daily   TEXT,
+        daily_streak INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (guild_id, user_id)
+    );
+    CREATE TABLE skills (
+        guild_id  INTEGER NOT NULL,
+        user_id   INTEGER NOT NULL,
+        job       TEXT    NOT NULL,
+        level     INTEGER NOT NULL DEFAULT 1,
+        xp        INTEGER NOT NULL DEFAULT 0,
+        last_work REAL    NOT NULL DEFAULT 0,
+        PRIMARY KEY (guild_id, user_id, job)
+    );
+    CREATE TABLE inventory (
+        guild_id INTEGER NOT NULL,
+        user_id  INTEGER NOT NULL,
+        item     TEXT    NOT NULL,
+        qty      INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (guild_id, user_id, item)
+    );
+    CREATE TABLE tools (
+        guild_id INTEGER NOT NULL,
+        user_id  INTEGER NOT NULL,
+        job      TEXT    NOT NULL,
+        tier     INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (guild_id, user_id, job)
+    );
+    CREATE TABLE stats (
+        guild_id INTEGER NOT NULL,
+        user_id  INTEGER NOT NULL,
+        key      TEXT    NOT NULL,
+        value    INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (guild_id, user_id, key)
+    );
+    """,
+]
 
 
 class Database:
@@ -49,15 +61,23 @@ class Database:
     async def connect(self) -> None:
         self.conn = await aiosqlite.connect(self.path)
         self.conn.row_factory = aiosqlite.Row
-        await self.conn.executescript(SCHEMA)
-        await self.conn.commit()
+        await self.conn.execute("PRAGMA journal_mode = WAL")
+        await self._migrate()
+
+    async def _migrate(self) -> None:
+        cur = await self.conn.execute("PRAGMA user_version")
+        version = (await cur.fetchone())[0]
+        for target, script in enumerate(MIGRATIONS[version:], start=version + 1):
+            await self.conn.executescript(script)
+            await self.conn.execute(f"PRAGMA user_version = {target}")
+            await self.conn.commit()
 
     async def close(self) -> None:
         if self.conn is not None:
             await self.conn.close()
             self.conn = None
 
-    # -- users -------------------------------------------------------------
+    # ── users ───────────────────────────────────────────────────────────
 
     async def get_user(self, guild_id: int, user_id: int) -> aiosqlite.Row:
         await self.conn.execute(
@@ -72,7 +92,7 @@ class Database:
         return await cur.fetchone()
 
     async def add_gold(self, guild_id: int, user_id: int, amount: int) -> int:
-        """Add (or subtract) gold and return the new balance."""
+        """Add (or subtract) gold; returns the new balance."""
         await self.get_user(guild_id, user_id)
         await self.conn.execute(
             "UPDATE users SET gold = gold + ? WHERE guild_id = ? AND user_id = ?",
@@ -88,7 +108,7 @@ class Database:
     async def transfer_gold(
         self, guild_id: int, from_id: int, to_id: int, amount: int
     ) -> bool:
-        """Move gold between users atomically. Returns False if sender is short."""
+        """Move gold between users atomically; False if the sender is short."""
         sender = await self.get_user(guild_id, from_id)
         if sender["gold"] < amount:
             return False
@@ -122,7 +142,7 @@ class Database:
         )
         await self.conn.commit()
 
-    # -- skills ------------------------------------------------------------
+    # ── skills ──────────────────────────────────────────────────────────
 
     async def get_skill(self, guild_id: int, user_id: int, job: str) -> aiosqlite.Row:
         await self.conn.execute(
@@ -155,7 +175,15 @@ class Database:
         )
         return await cur.fetchall()
 
-    # -- inventory ---------------------------------------------------------
+    async def total_level(self, guild_id: int, user_id: int) -> int:
+        cur = await self.conn.execute(
+            "SELECT COALESCE(SUM(level), 0) AS total FROM skills "
+            "WHERE guild_id = ? AND user_id = ?",
+            (guild_id, user_id),
+        )
+        return (await cur.fetchone())["total"]
+
+    # ── inventory ───────────────────────────────────────────────────────
 
     async def add_item(self, guild_id: int, user_id: int, item: str, qty: int) -> None:
         await self.conn.execute(
@@ -184,7 +212,7 @@ class Database:
     async def remove_item(
         self, guild_id: int, user_id: int, item: str, qty: int
     ) -> bool:
-        """Remove qty of item. Returns False if the user doesn't have enough."""
+        """Remove qty of an item; False if the user doesn't hold enough."""
         if await self.get_item_qty(guild_id, user_id, item) < qty:
             return False
         await self.conn.execute(
@@ -200,7 +228,7 @@ class Database:
         await self.conn.commit()
         return True
 
-    # -- tools ---------------------------------------------------------------
+    # ── tools ───────────────────────────────────────────────────────────
 
     async def get_tool_tier(self, guild_id: int, user_id: int, job: str) -> int:
         cur = await self.conn.execute(
@@ -220,7 +248,26 @@ class Database:
         )
         await self.conn.commit()
 
-    # -- leaderboards --------------------------------------------------------
+    # ── stats (lifetime counters: achievements, richer profiles, …) ─────
+
+    async def incr_stat(
+        self, guild_id: int, user_id: int, key: str, amount: int = 1
+    ) -> None:
+        await self.conn.execute(
+            "INSERT INTO stats (guild_id, user_id, key, value) VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(guild_id, user_id, key) DO UPDATE SET value = value + ?",
+            (guild_id, user_id, key, amount, amount),
+        )
+        await self.conn.commit()
+
+    async def get_stats(self, guild_id: int, user_id: int) -> dict[str, int]:
+        cur = await self.conn.execute(
+            "SELECT key, value FROM stats WHERE guild_id = ? AND user_id = ?",
+            (guild_id, user_id),
+        )
+        return {row["key"]: row["value"] for row in await cur.fetchall()}
+
+    # ── leaderboards ────────────────────────────────────────────────────
 
     async def top_gold(self, guild_id: int, limit: int = 10) -> list[aiosqlite.Row]:
         cur = await self.conn.execute(
@@ -232,8 +279,8 @@ class Database:
 
     async def top_skills(self, guild_id: int, limit: int = 10) -> list[aiosqlite.Row]:
         cur = await self.conn.execute(
-            "SELECT user_id, SUM(level) AS total_level FROM skills "
-            "WHERE guild_id = ? GROUP BY user_id "
+            "SELECT user_id, SUM(level) AS total_level, MAX(level) AS best_level "
+            "FROM skills WHERE guild_id = ? GROUP BY user_id "
             "ORDER BY total_level DESC LIMIT ?",
             (guild_id, limit),
         )

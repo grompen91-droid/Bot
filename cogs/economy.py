@@ -1,20 +1,22 @@
 """Coin purse: balance, daily stipend, payments, profile, leaderboards."""
 
+from __future__ import annotations
+
 from datetime import date, timedelta
 
 import discord
 from discord import app_commands
 from discord.ext import commands
 
-from econ.jobs import JOBS, tool_name
-from econ.utils import fmt_gold, progress_bar, xp_needed
-
-DAILY_BASE = 100
-DAILY_STREAK_BONUS = 10
-DAILY_STREAK_CAP = 10
+from econ import formulas
+from econ.data.jobs import JOBS
+from econ.data.tools import tool_name
+from ui.panels import Palette, Panel, simple_panel
 
 
 class Economy(commands.Cog):
+    """Gold in, gold out."""
+
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
@@ -22,131 +24,150 @@ class Economy(commands.Cog):
     def db(self):
         return self.bot.db
 
-    @app_commands.command(name="balance", description="Count the coin in your purse")
-    @app_commands.guild_only()
+    @commands.hybrid_command(name="balance", aliases=["bal", "gold"], description="Count the coin in a purse")
+    @commands.guild_only()
     @app_commands.describe(member="Whose purse to peek at (default: you)")
     async def balance(
-        self, interaction: discord.Interaction, member: discord.Member | None = None
+        self, ctx: commands.Context, member: discord.Member | None = None
     ):
-        target = member or interaction.user
-        user = await self.db.get_user(interaction.guild_id, target.id)
-        embed = discord.Embed(
-            title=f"💰 {target.display_name}'s Purse",
-            description=f"**{fmt_gold(user['gold'])}**",
-            colour=discord.Colour.gold(),
-        )
-        await interaction.response.send_message(embed=embed)
+        target = member or ctx.author
+        user = await self.db.get_user(ctx.guild.id, target.id)
+        panel = Panel(timeout=None)
+        panel.header(f"💰 {target.display_name}'s Purse")
+        panel.text(f"# {formulas.fmt_gold(user['gold'])}")
+        await ctx.send(view=panel)
 
-    @app_commands.command(name="daily", description="Collect your daily stipend from the town coffers")
-    @app_commands.guild_only()
-    async def daily(self, interaction: discord.Interaction):
-        gid, uid = interaction.guild_id, interaction.user.id
+    @commands.hybrid_command(name="daily", description="Collect your daily stipend from the town coffers")
+    @commands.guild_only()
+    async def daily(self, ctx: commands.Context):
+        gid, uid = ctx.guild.id, ctx.author.id
         user = await self.db.get_user(gid, uid)
         today = date.today()
 
         if user["last_daily"] == today.isoformat():
-            await interaction.response.send_message(
-                "🕯️ The coffers open but once a day. Return on the morrow!",
+            await ctx.send(
+                view=simple_panel(
+                    "🕯️ The coffers open but once a day. Return on the morrow!",
+                    accent=Palette.RED,
+                ),
                 ephemeral=True,
             )
             return
 
         yesterday = (today - timedelta(days=1)).isoformat()
         streak = user["daily_streak"] + 1 if user["last_daily"] == yesterday else 1
-        bonus = min(streak - 1, DAILY_STREAK_CAP) * DAILY_STREAK_BONUS
-        payout = DAILY_BASE + bonus
+        total_level = await self.db.total_level(gid, uid)
+        payout, streak_bonus, level_bonus = formulas.daily_payout(streak, total_level)
 
         await self.db.set_daily(gid, uid, today.isoformat(), streak)
         balance = await self.db.add_gold(gid, uid, payout)
 
-        embed = discord.Embed(
-            title="🏛️ Daily Stipend",
-            description=(
-                f"The town treasurer hands you **{fmt_gold(payout)}**."
-                + (f"\n🔥 Streak: **{streak}** days (+{fmt_gold(bonus)})" if bonus else "")
-            ),
-            colour=discord.Colour.gold(),
-        )
-        embed.set_footer(text=f"Purse: {balance:,} gold")
-        await interaction.response.send_message(embed=embed)
+        panel = Panel(accent=Palette.GREEN, timeout=None)
+        panel.header("🏛️ The Daily Stipend")
+        panel.text(f"The town treasurer counts out **{formulas.fmt_gold(payout)}**.")
+        details = [f"📜 Base stipend: {formulas.fmt_gold(formulas.DAILY_BASE)}"]
+        if streak_bonus:
+            details.append(
+                f"🔥 Streak — **{streak}** days: +{formulas.fmt_gold(streak_bonus)}"
+            )
+        if level_bonus:
+            details.append(
+                f"📖 Renowned worker (Lv. {total_level} total): "
+                f"+{formulas.fmt_gold(level_bonus)}"
+            )
+        panel.divider()
+        panel.text("\n".join(details))
+        panel.footer(f"Purse: {balance:,} gold · come back tomorrow to keep the streak")
+        await ctx.send(view=panel)
 
-    @app_commands.command(name="pay", description="Hand coin to another townsfolk")
-    @app_commands.guild_only()
+    @commands.hybrid_command(name="pay", description="Hand coin to another townsfolk")
+    @commands.guild_only()
     @app_commands.describe(member="Who receives the coin", amount="How much gold to give")
     async def pay(
         self,
-        interaction: discord.Interaction,
+        ctx: commands.Context,
         member: discord.Member,
-        amount: app_commands.Range[int, 1],
+        amount: commands.Range[int, 1],
     ):
-        if member.bot or member.id == interaction.user.id:
-            await interaction.response.send_message(
-                "You cannot pay yourself or a construct of gears and magic.",
+        if member.bot or member.id == ctx.author.id:
+            await ctx.send(
+                view=simple_panel(
+                    "You cannot pay yourself, nor a construct of gears and magic.",
+                    accent=Palette.RED,
+                ),
                 ephemeral=True,
             )
             return
-        ok = await self.db.transfer_gold(
-            interaction.guild_id, interaction.user.id, member.id, amount
-        )
+        ok = await self.db.transfer_gold(ctx.guild.id, ctx.author.id, member.id, amount)
         if not ok:
-            await interaction.response.send_message(
-                "Your purse is too light for that.", ephemeral=True
+            await ctx.send(
+                view=simple_panel("Your purse is too light for that.", accent=Palette.RED),
+                ephemeral=True,
             )
             return
-        await interaction.response.send_message(
-            f"🤝 {interaction.user.mention} hands **{fmt_gold(amount)}** "
-            f"to {member.mention}."
+        await self.db.incr_stat(ctx.guild.id, ctx.author.id, "gold_gifted", amount)
+        await ctx.send(
+            view=simple_panel(
+                f"🤝 {ctx.author.mention} hands **{formulas.fmt_gold(amount)}** "
+                f"to {member.mention}.",
+                accent=Palette.GREEN,
+            )
         )
 
-    @app_commands.command(name="profile", description="Your standing in the town")
-    @app_commands.guild_only()
+    @commands.hybrid_command(name="profile", description="Your standing in the town")
+    @commands.guild_only()
     @app_commands.describe(member="Whose profile to view (default: you)")
     async def profile(
-        self, interaction: discord.Interaction, member: discord.Member | None = None
+        self, ctx: commands.Context, member: discord.Member | None = None
     ):
-        target = member or interaction.user
-        gid = interaction.guild_id
+        target = member or ctx.author
+        gid = ctx.guild.id
         user = await self.db.get_user(gid, target.id)
         inventory = await self.db.get_inventory(gid, target.id)
+        stats = await self.db.get_stats(gid, target.id)
+        total_level = await self.db.total_level(gid, target.id)
         total_items = sum(row["qty"] for row in inventory)
-
-        embed = discord.Embed(
-            title=f"🏰 {target.display_name} of the Town",
-            colour=discord.Colour.dark_gold(),
-        )
-        embed.set_thumbnail(url=target.display_avatar.url)
-        embed.add_field(name="💰 Purse", value=fmt_gold(user["gold"]), inline=True)
 
         if user["job"]:
             info = JOBS[user["job"]]
             skill = await self.db.get_skill(gid, target.id, user["job"])
             tier = await self.db.get_tool_tier(gid, target.id, user["job"])
-            needed = xp_needed(skill["level"])
-            embed.add_field(
-                name="⚒️ Trade",
-                value=f"{info['emoji']} {info['name']} — Lv. **{skill['level']}**",
-                inline=True,
-            )
-            embed.add_field(name="🔧 Tool", value=tool_name(user["job"], tier), inline=True)
-            embed.add_field(
-                name="📈 Progress",
-                value=f"`{progress_bar(skill['xp'], needed)}` {skill['xp']}/{needed} XP",
-                inline=False,
-            )
+            needed = formulas.xp_to_next(skill["level"])
+            trade_lines = [
+                f"⚒️ **Trade:** {info['emoji']} {info['name']} — Lv. **{skill['level']}**",
+                f"🔧 **Tool:** {tool_name(user['job'], tier)} "
+                f"*(yields ×{formulas.total_multiplier(skill['level'], tier):.2f})*",
+                f"`{formulas.progress_bar(skill['xp'], needed)}` "
+                f"{skill['xp']}/{needed} XP",
+            ]
         else:
-            embed.add_field(name="⚒️ Trade", value="*Unemployed wanderer*", inline=True)
+            trade_lines = ["⚒️ **Trade:** *unemployed wanderer* — see `.job`"]
 
-        embed.add_field(
-            name="🎒 Satchel", value=f"{total_items:,} goods", inline=True
+        panel = Panel(timeout=None)
+        panel.header(f"🏰 {target.display_name} of the Town")
+        panel.section(
+            f"💰 **Purse:** {formulas.fmt_gold(user['gold'])}",
+            f"📖 **Total skill level:** {total_level}",
+            f"🎒 **Satchel:** {total_items:,} goods",
+            thumbnail=target.display_avatar.url,
+        )
+        panel.divider()
+        panel.text("\n".join(trade_lines))
+        panel.divider()
+        panel.field(
+            "📜 Deeds",
+            f"Days worked: **{stats.get('works', 0):,}** · "
+            f"goods gathered: **{stats.get('items_gathered', 0):,}** · "
+            f"goods sold: **{stats.get('items_sold', 0):,}**\n"
+            f"Market earnings: **{formulas.fmt_gold(stats.get('gold_from_sales', 0))}** · "
+            f"gifted away: **{formulas.fmt_gold(stats.get('gold_gifted', 0))}**",
         )
         if user["daily_streak"]:
-            embed.add_field(
-                name="🔥 Daily streak", value=f"{user['daily_streak']} days", inline=True
-            )
-        await interaction.response.send_message(embed=embed)
+            panel.footer(f"🔥 Daily streak: {user['daily_streak']} days")
+        await ctx.send(view=panel)
 
-    @app_commands.command(name="leaderboard", description="The wealthiest and most skilled in town")
-    @app_commands.guild_only()
+    @commands.hybrid_command(name="leaderboard", aliases=["lb", "top"], description="The wealthiest and most skilled in town")
+    @commands.guild_only()
     @app_commands.describe(board="Which ranking to view")
     @app_commands.choices(
         board=[
@@ -154,30 +175,30 @@ class Economy(commands.Cog):
             app_commands.Choice(name="📖 Most skilled", value="skills"),
         ]
     )
-    async def leaderboard(
-        self, interaction: discord.Interaction, board: str = "gold"
-    ):
-        gid = interaction.guild_id
-        if board == "skills":
+    async def leaderboard(self, ctx: commands.Context, board: str = "gold"):
+        gid = ctx.guild.id
+        medals = ["🥇", "🥈", "🥉"]
+        if board.lower().startswith("skill"):
             rows = await self.db.top_skills(gid)
-            title = "📖 Most Skilled Townsfolk"
+            title = "📖 The Most Skilled Townsfolk"
             lines = [
-                f"**{i}.** <@{row['user_id']}> — {row['total_level']} total levels"
-                for i, row in enumerate(rows, 1)
+                f"{medals[i] if i < 3 else f'**{i + 1}.**'} <@{row['user_id']}> — "
+                f"**{row['total_level']}** total levels *(best: {row['best_level']})*"
+                for i, row in enumerate(rows)
             ]
         else:
             rows = await self.db.top_gold(gid)
-            title = "💰 Richest Townsfolk"
+            title = "💰 The Richest Townsfolk"
             lines = [
-                f"**{i}.** <@{row['user_id']}> — {fmt_gold(row['gold'])}"
-                for i, row in enumerate(rows, 1)
+                f"{medals[i] if i < 3 else f'**{i + 1}.**'} <@{row['user_id']}> — "
+                f"**{formulas.fmt_gold(row['gold'])}**"
+                for i, row in enumerate(rows)
             ]
-        embed = discord.Embed(
-            title=title,
-            description="\n".join(lines) or "*The town ledger is empty.*",
-            colour=discord.Colour.gold(),
-        )
-        await interaction.response.send_message(embed=embed)
+        panel = Panel(timeout=None)
+        panel.header(title)
+        panel.text("\n".join(lines) or "*The town ledger is empty.*")
+        panel.footer("try .leaderboard skills / .leaderboard gold")
+        await ctx.send(view=panel)
 
 
 async def setup(bot: commands.Bot):

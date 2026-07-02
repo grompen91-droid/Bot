@@ -1,0 +1,214 @@
+"""Every tunable number and curve in the economy lives here.
+
+Balance the whole game from this one file: XP pacing, yield scaling,
+crit/luck odds, cooldowns, market drift, daily payouts, tool power.
+All functions are pure (given the same inputs they return the same
+outputs) except the ones that explicitly take/roll randomness.
+"""
+
+from __future__ import annotations
+
+import math
+import random
+import zlib
+from datetime import datetime, timezone
+
+# ══════════════════════════════ currency ═══════════════════════════════
+
+CURRENCY = "🪙"
+STARTING_GOLD = 0
+
+
+def fmt_gold(amount: int) -> str:
+    return f"{amount:,} {CURRENCY}"
+
+
+# ═══════════════════════════ skill XP curve ════════════════════════════
+# Polynomial curve: cheap early levels, steadily steeper. At ~12 XP per
+# work: level 2 in ~5 works, level 10 in ~45, level 25 in ~250.
+
+XP_BASE = 60
+XP_EXPONENT = 1.35
+MAX_LEVEL = 100
+
+
+def xp_to_next(level: int) -> int:
+    """XP required to advance from `level` to `level + 1`."""
+    return round(XP_BASE * level**XP_EXPONENT)
+
+
+def apply_xp(level: int, xp: int, gained: int) -> tuple[int, int, int]:
+    """Return (new_level, new_xp, levels_gained) after adding XP."""
+    xp += gained
+    start = level
+    while level < MAX_LEVEL and xp >= xp_to_next(level):
+        xp -= xp_to_next(level)
+        level += 1
+    if level >= MAX_LEVEL:
+        xp = min(xp, xp_to_next(MAX_LEVEL))
+    return level, xp, level - start
+
+
+WORK_XP_MIN, WORK_XP_MAX = 9, 15
+
+
+def roll_work_xp(cooldown: int) -> int:
+    """XP per work. Slower trades pay more XP so all trades level fairly."""
+    scale = (cooldown / 60) ** 0.75
+    return max(1, round(random.randint(WORK_XP_MIN, WORK_XP_MAX) * scale))
+
+
+# ═══════════════════════ yield & level scaling ═════════════════════════
+# +3% yield per level up to the soft cap, +1% per level beyond it.
+# Keeps early progress snappy without runaway inflation at high level.
+
+YIELD_PER_LEVEL = 0.03
+YIELD_SOFT_CAP = 25
+YIELD_PER_LEVEL_AFTER_CAP = 0.01
+
+
+def level_yield_multiplier(level: int) -> float:
+    below = min(level - 1, YIELD_SOFT_CAP - 1)
+    above = max(level - YIELD_SOFT_CAP, 0)
+    return 1.0 + below * YIELD_PER_LEVEL + above * YIELD_PER_LEVEL_AFTER_CAP
+
+
+# ══════════════════════════ work cooldowns ═════════════════════════════
+# Mastery makes you faster: -0.6% cooldown per level, capped at -30%.
+
+COOLDOWN_REDUCTION_PER_LEVEL = 0.006
+COOLDOWN_REDUCTION_CAP = 0.30
+
+
+def effective_cooldown(base_seconds: int, level: int) -> float:
+    reduction = min(COOLDOWN_REDUCTION_CAP, COOLDOWN_REDUCTION_PER_LEVEL * (level - 1))
+    return base_seconds * (1.0 - reduction)
+
+
+# ═══════════════════════ crits, luck & bonus finds ═════════════════════
+
+CRIT_BASE = 0.04
+CRIT_PER_TOOL_TIER = 0.015
+CRIT_PER_LEVEL = 0.002
+CRIT_CAP = 0.25
+CRIT_MULTIPLIER = 2.0  # a critical work doubles the haul
+
+
+def crit_chance(level: int, tool_tier: int) -> float:
+    return min(
+        CRIT_CAP,
+        CRIT_BASE + CRIT_PER_TOOL_TIER * tool_tier + CRIT_PER_LEVEL * (level - 1),
+    )
+
+
+BONUS_FIND_BASE = 0.06
+BONUS_FIND_PER_LEVEL = 0.008
+BONUS_FIND_CAP = 0.30
+BONUS_FIND_YIELD_FACTOR = 0.5  # bonus finds are half-size hauls
+
+
+def bonus_find_chance(level: int) -> float:
+    return min(BONUS_FIND_CAP, BONUS_FIND_BASE + BONUS_FIND_PER_LEVEL * (level - 1))
+
+
+# Rare+ drops get more likely as you level: their roll weight grows
+# +2%/level, up to double the listed weight.
+LUCKY_RARITIES = {"rare", "epic", "legendary"}
+LUCK_PER_LEVEL = 0.02
+LUCK_WEIGHT_CAP = 2.0
+
+
+def effective_weight(weight: float, rarity: str, level: int) -> float:
+    if rarity not in LUCKY_RARITIES:
+        return weight
+    return weight * min(LUCK_WEIGHT_CAP, 1.0 + LUCK_PER_LEVEL * (level - 1))
+
+
+# ═══════════════════════════════ tips ══════════════════════════════════
+# The coin tip earned on top of goods, scaled by skill and tool.
+
+TIP_PER_LEVEL = 0.03
+TIP_PER_TOOL_TIER = 0.05
+
+
+def roll_tip(lo: int, hi: int, level: int, tool_tier: int) -> int:
+    base = random.randint(lo, hi)
+    scale = (1.0 + TIP_PER_LEVEL * (level - 1)) * (1.0 + TIP_PER_TOOL_TIER * tool_tier)
+    return max(1, round(base * scale))
+
+
+# ═══════════════════════════════ tools ═════════════════════════════════
+# Yield multiplier by tool tier (tier 0 = the battered starter tool).
+# Names and prices live in econ/data/tools.py; the power curve lives here.
+
+TOOL_MULTIPLIERS = [1.0, 1.12, 1.25, 1.40, 1.60, 1.85]
+
+
+def tool_multiplier(tier: int) -> float:
+    tier = max(0, min(tier, len(TOOL_MULTIPLIERS) - 1))
+    return TOOL_MULTIPLIERS[tier]
+
+
+def total_multiplier(level: int, tool_tier: int) -> float:
+    return level_yield_multiplier(level) * tool_multiplier(tool_tier)
+
+
+# ═══════════════════════════ market prices ═════════════════════════════
+# Deterministic per (item, UTC day) so every player sees the same market.
+# Two layers: a slow 7-day sine wave (each item on its own phase, so goods
+# peak on different days) plus daily seeded noise. Clamped to sane bounds.
+
+MARKET_WAVE_AMPLITUDE = 0.10
+MARKET_WAVE_PERIOD_DAYS = 7
+MARKET_NOISE_LOW, MARKET_NOISE_HIGH = 0.92, 1.08
+MARKET_FACTOR_MIN, MARKET_FACTOR_MAX = 0.75, 1.35
+
+
+def utc_day() -> int:
+    return datetime.now(timezone.utc).date().toordinal()
+
+
+def _item_phase(item_key: str) -> float:
+    """Stable per-item offset into the price wave (hash-randomisation safe)."""
+    return (zlib.crc32(item_key.encode()) % 1000) / 1000 * MARKET_WAVE_PERIOD_DAYS
+
+
+def market_factor(item_key: str, day: int | None = None) -> float:
+    day = utc_day() if day is None else day
+    wave = 1.0 + MARKET_WAVE_AMPLITUDE * math.sin(
+        2 * math.pi * (day + _item_phase(item_key)) / MARKET_WAVE_PERIOD_DAYS
+    )
+    noise = random.Random(f"{day}:{item_key}").uniform(
+        MARKET_NOISE_LOW, MARKET_NOISE_HIGH
+    )
+    return max(MARKET_FACTOR_MIN, min(MARKET_FACTOR_MAX, wave * noise))
+
+
+def market_price(item_key: str, base_value: int, day: int | None = None) -> int:
+    return max(1, round(base_value * market_factor(item_key, day)))
+
+
+# ═══════════════════════════ daily stipend ═════════════════════════════
+
+DAILY_BASE = 100
+DAILY_STREAK_BONUS = 8
+DAILY_STREAK_CAP = 30
+DAILY_LEVEL_BONUS = 2
+DAILY_LEVEL_BONUS_CAP = 150
+
+
+def daily_payout(streak: int, total_level: int) -> tuple[int, int, int]:
+    """Return (total, streak_bonus, level_bonus) for a daily claim."""
+    streak_bonus = DAILY_STREAK_BONUS * min(max(streak - 1, 0), DAILY_STREAK_CAP)
+    level_bonus = min(DAILY_LEVEL_BONUS_CAP, DAILY_LEVEL_BONUS * total_level)
+    return DAILY_BASE + streak_bonus + level_bonus, streak_bonus, level_bonus
+
+
+# ═══════════════════════════ progress bars ═════════════════════════════
+
+BAR_FILLED, BAR_EMPTY = "█", "░"
+
+
+def progress_bar(current: int, needed: int, width: int = 12) -> str:
+    filled = int(width * min(current / needed, 1.0)) if needed else width
+    return BAR_FILLED * filled + BAR_EMPTY * (width - filled)

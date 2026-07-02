@@ -1,14 +1,36 @@
-"""Inventory, the town market (selling), and the tool shop."""
+"""The satchel, the town market (selling), and the smithy (tools)."""
+
+from __future__ import annotations
 
 import discord
-from discord import app_commands
+from discord import app_commands, ui
 from discord.ext import commands
 
-from econ.jobs import ITEMS, JOBS, TOOLS, tool_multiplier, tool_name
-from econ.utils import fmt_gold, item_label, market_price
+from econ import formulas
+from econ.data.items import ITEMS, item_label, rarity_badge
+from econ.data.jobs import JOBS
+from econ.data.tools import MAX_TOOL_TIER, TOOLS, tool_name, tool_price
+from ui.panels import Palette, Panel, simple_panel
+
+
+def resolve_item(query: str) -> str | None:
+    """Fuzzy-match a user-typed item name ('wheat', 'Iron Ore', 'iron')."""
+    q = query.strip().lower().replace(" ", "_")
+    if q in ITEMS:
+        return q
+    q = query.strip().lower()
+    for key, info in ITEMS.items():
+        if info["name"].lower() == q:
+            return key
+    for key, info in ITEMS.items():
+        if info["name"].lower().startswith(q) or key.startswith(q.replace(" ", "_")):
+            return key
+    return None
 
 
 class Market(commands.Cog):
+    """Where goods become gold."""
+
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
@@ -16,145 +38,181 @@ class Market(commands.Cog):
     def db(self):
         return self.bot.db
 
-    @app_commands.command(name="inventory", description="Look inside your satchel")
-    @app_commands.guild_only()
-    async def inventory(self, interaction: discord.Interaction):
-        rows = await self.db.get_inventory(interaction.guild_id, interaction.user.id)
-        embed = discord.Embed(
-            title=f"🎒 {interaction.user.display_name}'s Satchel",
-            colour=discord.Colour.dark_teal(),
-        )
+    # ══════════════════════════ inventory ══════════════════════════════
+
+    @commands.hybrid_command(name="inventory", aliases=["inv", "satchel"], description="Look inside your satchel")
+    @commands.guild_only()
+    async def inventory(self, ctx: commands.Context):
+        rows = await self.db.get_inventory(ctx.guild.id, ctx.author.id)
+        rows = [r for r in rows if r["item"] in ITEMS]
+
+        panel = Panel(timeout=None)
+        panel.header(f"🎒 {ctx.author.display_name}'s Satchel")
         if not rows:
-            embed.description = "Empty as a beggar's bowl. Go `/work`!"
+            panel.text("*Empty as a beggar's bowl. Go `.work`!*")
         else:
-            lines, total = [], 0
+            rows.sort(key=lambda r: formulas.market_price(r["item"], ITEMS[r["item"]]["value"]) * r["qty"], reverse=True)
+            total = 0
+            lines = []
             for row in rows:
-                if row["item"] not in ITEMS:
-                    continue
-                price = market_price(row["item"])
+                price = formulas.market_price(row["item"], ITEMS[row["item"]]["value"])
                 worth = price * row["qty"]
                 total += worth
                 lines.append(
-                    f"{item_label(row['item'])} × **{row['qty']}** "
-                    f"(worth ~{fmt_gold(worth)})"
+                    f"{rarity_badge(row['item'])} {item_label(row['item'])} × "
+                    f"**{row['qty']}** — ~{formulas.fmt_gold(worth)}"
                 )
-            embed.description = "\n".join(lines)
-            embed.set_footer(text=f"Total market value today: {total:,} gold")
-        await interaction.response.send_message(embed=embed)
+            panel.text("\n".join(lines))
+            panel.footer(
+                f"Worth {total:,} gold at today's prices · sell with .sell"
+            )
+        await ctx.send(view=panel)
 
-    @app_commands.command(name="market", description="Today's prices at the town market")
-    @app_commands.guild_only()
-    async def market(self, interaction: discord.Interaction):
-        embed = discord.Embed(
-            title="🏪 The Town Market",
-            description="Prices shift with the winds each day. Sell with `/sell`.",
-            colour=discord.Colour.dark_gold(),
+    # ══════════════════════════ the market ═════════════════════════════
+
+    @commands.hybrid_command(name="market", aliases=["prices"], description="Today's prices at the town market")
+    @commands.guild_only()
+    async def market(self, ctx: commands.Context):
+        panel = Panel(timeout=None)
+        panel.header("🏪 The Town Market")
+        panel.text(
+            "*Prices drift with the winds each day — sell high! "
+            "Every trader in the realm sees the same prices.*"
         )
+        panel.divider()
         for job_key, info in JOBS.items():
             lines = []
-            for item, *_ in info["yields"]:
-                price = market_price(item)
+            for item, *_rest in info["yields"]:
                 base = ITEMS[item]["value"]
-                arrow = "▲" if price > base else ("▼" if price < base else "•")
-                lines.append(f"{item_label(item)} — {fmt_gold(price)} {arrow}")
-            embed.add_field(
-                name=f"{info['emoji']} {info['name']}'s goods",
-                value="\n".join(lines),
-                inline=True,
-            )
-        await interaction.response.send_message(embed=embed)
+                price = formulas.market_price(item, base)
+                arrow = "🟢▲" if price > base else ("🔴▼" if price < base else "⚪•")
+                lines.append(f"{item_label(item)} — **{formulas.fmt_gold(price)}** {arrow}")
+            panel.field(f"{info['emoji']} {info['name']}'s goods", "\n".join(lines))
+        panel.footer("▲ above the usual rate · ▼ below · sell with .sell")
+        await ctx.send(view=panel)
 
     async def _sell_item_autocomplete(
         self, interaction: discord.Interaction, current: str
     ) -> list[app_commands.Choice[str]]:
         rows = await self.db.get_inventory(interaction.guild_id, interaction.user.id)
-        current = current.lower()
+        q = current.lower()
         choices = [
             app_commands.Choice(
                 name=f"{ITEMS[row['item']]['name']} ({row['qty']})", value=row["item"]
             )
             for row in rows
-            if row["item"] in ITEMS and current in ITEMS[row["item"]]["name"].lower()
+            if row["item"] in ITEMS and q in ITEMS[row["item"]]["name"].lower()
         ]
+        if not current:
+            choices.insert(0, app_commands.Choice(name="✨ Everything", value="all"))
         return choices[:25]
 
-    @app_commands.command(name="sell", description="Sell goods at the town market")
-    @app_commands.guild_only()
+    @commands.hybrid_command(name="sell", description="Sell goods at the town market")
+    @commands.guild_only()
     @app_commands.describe(
-        item="What to sell (leave empty to sell everything)",
+        item="What to sell — or 'all' for everything (default)",
         amount="How many to sell (default: all of that item)",
     )
     @app_commands.autocomplete(item=_sell_item_autocomplete)
     async def sell(
         self,
-        interaction: discord.Interaction,
+        ctx: commands.Context,
         item: str | None = None,
-        amount: app_commands.Range[int, 1] | None = None,
+        amount: commands.Range[int, 1] | None = None,
     ):
-        gid, uid = interaction.guild_id, interaction.user.id
+        gid, uid = ctx.guild.id, ctx.author.id
 
-        if item is None:
-            rows = await self.db.get_inventory(gid, uid)
-            rows = [r for r in rows if r["item"] in ITEMS]
-            if not rows:
-                await interaction.response.send_message(
-                    "You have nothing to sell. Go `/work` first!", ephemeral=True
-                )
-                return
-            total, lines = 0, []
-            for row in rows:
-                price = market_price(row["item"])
-                earned = price * row["qty"]
-                await self.db.remove_item(gid, uid, row["item"], row["qty"])
-                total += earned
-                lines.append(f"{item_label(row['item'])} × {row['qty']} → {fmt_gold(earned)}")
-            balance = await self.db.add_gold(gid, uid, total)
-            embed = discord.Embed(
-                title="🏪 Market Day — everything sold!",
-                description="\n".join(lines),
-                colour=discord.Colour.green(),
-            )
-            embed.add_field(name="Total earned", value=f"**{fmt_gold(total)}**")
-            embed.set_footer(text=f"Purse: {balance:,} gold")
-            await interaction.response.send_message(embed=embed)
+        if item is None or item.lower() in ("all", "everything"):
+            await self._sell_everything(ctx)
             return
 
-        if item not in ITEMS:
-            await interaction.response.send_message(
-                "The merchants squint at that — no such goods are traded here.",
+        item_key = resolve_item(item)
+        if item_key is None:
+            await ctx.send(
+                view=simple_panel(
+                    f"The merchants squint at **{item}** — no such goods "
+                    "are traded here.",
+                    accent=Palette.RED,
+                ),
                 ephemeral=True,
             )
             return
-        have = await self.db.get_item_qty(gid, uid, item)
+        have = await self.db.get_item_qty(gid, uid, item_key)
         if have <= 0:
-            await interaction.response.send_message(
-                f"You carry no {ITEMS[item]['name']}.", ephemeral=True
+            await ctx.send(
+                view=simple_panel(
+                    f"You carry no {item_label(item_key)}.", accent=Palette.RED
+                ),
+                ephemeral=True,
             )
             return
-        qty = min(amount, have) if amount else have
-        price = market_price(item)
-        earned = price * qty
-        await self.db.remove_item(gid, uid, item, qty)
-        balance = await self.db.add_gold(gid, uid, earned)
-        embed = discord.Embed(
-            title="🏪 Sold!",
-            description=(
-                f"{item_label(item)} × **{qty}** at {fmt_gold(price)} each "
-                f"→ **{fmt_gold(earned)}**"
-            ),
-            colour=discord.Colour.green(),
-        )
-        embed.set_footer(text=f"Purse: {balance:,} gold")
-        await interaction.response.send_message(embed=embed)
 
-    @app_commands.command(name="shop", description="Browse tools for your trade")
-    @app_commands.guild_only()
-    async def shop(self, interaction: discord.Interaction):
-        gid, uid = interaction.guild_id, interaction.user.id
+        qty = min(amount, have) if amount else have
+        price = formulas.market_price(item_key, ITEMS[item_key]["value"])
+        earned = price * qty
+        await self.db.remove_item(gid, uid, item_key, qty)
+        balance = await self.db.add_gold(gid, uid, earned)
+        await self.db.incr_stat(gid, uid, "items_sold", qty)
+        await self.db.incr_stat(gid, uid, "gold_from_sales", earned)
+
+        panel = Panel(accent=Palette.GREEN, timeout=None)
+        panel.header("🏪 Sold!")
+        panel.text(
+            f"{rarity_badge(item_key)} {item_label(item_key)} × **{qty}** at "
+            f"{formulas.fmt_gold(price)} each → **{formulas.fmt_gold(earned)}**"
+        )
+        panel.footer(f"Purse: {balance:,} gold")
+        await ctx.send(view=panel)
+
+    async def _sell_everything(self, ctx: commands.Context) -> None:
+        gid, uid = ctx.guild.id, ctx.author.id
+        rows = [
+            r for r in await self.db.get_inventory(gid, uid) if r["item"] in ITEMS
+        ]
+        if not rows:
+            await ctx.send(
+                view=simple_panel(
+                    "You have nothing to sell. Go `.work` first!", accent=Palette.RED
+                ),
+                ephemeral=True,
+            )
+            return
+        total, count, lines = 0, 0, []
+        for row in rows:
+            price = formulas.market_price(row["item"], ITEMS[row["item"]]["value"])
+            earned = price * row["qty"]
+            await self.db.remove_item(gid, uid, row["item"], row["qty"])
+            total += earned
+            count += row["qty"]
+            lines.append(
+                f"{item_label(row['item'])} × {row['qty']} → {formulas.fmt_gold(earned)}"
+            )
+        balance = await self.db.add_gold(gid, uid, total)
+        await self.db.incr_stat(gid, uid, "items_sold", count)
+        await self.db.incr_stat(gid, uid, "gold_from_sales", total)
+
+        panel = Panel(accent=Palette.GREEN, timeout=None)
+        panel.header("🏪 Market Day — Everything Sold!")
+        panel.text("\n".join(lines))
+        panel.divider()
+        panel.text(f"### Total: {formulas.fmt_gold(total)}")
+        panel.footer(f"Purse: {balance:,} gold")
+        await ctx.send(view=panel)
+
+    # ══════════════════════════ the smithy ═════════════════════════════
+
+    @commands.hybrid_command(name="shop", aliases=["smithy"], description="Browse tools for your trade")
+    @commands.guild_only()
+    async def shop(self, ctx: commands.Context):
+        gid, uid = ctx.guild.id, ctx.author.id
         user = await self.db.get_user(gid, uid)
         if not user["job"]:
-            await interaction.response.send_message(
-                "The smith only sells to working folk. Pick a trade with `/job choose`.",
+            await ctx.send(
+                view=simple_panel(
+                    "The smith only sells to working folk. Take a trade "
+                    "with `.job` first.",
+                    accent=Palette.RED,
+                ),
                 ephemeral=True,
             )
             return
@@ -162,66 +220,92 @@ class Market(commands.Cog):
         info = JOBS[job_key]
         tier = await self.db.get_tool_tier(gid, uid, job_key)
 
-        embed = discord.Embed(
-            title=f"⚒️ The Smithy — {info['emoji']} {info['name']}'s tools",
-            description=(
-                f"You carry: **{tool_name(job_key, tier)}** "
-                f"(×{tool_multiplier(tier):.2f} yield)\n"
-                "Buy the next tier with `/buy`. Better tools mean bigger hauls."
-            ),
-            colour=discord.Colour.dark_grey(),
+        panel = Panel(accent=Palette.IRON, author_id=uid)
+        panel.header(f"⚒️ The Smithy — {info['emoji']} {info['name']}'s Tools")
+        panel.text(
+            f"You carry: **{tool_name(job_key, tier)}** "
+            f"*(yields ×{formulas.tool_multiplier(tier):.2f})*"
         )
-        for i, (name, price) in enumerate(TOOLS[job_key], start=1):
-            if i <= tier:
-                status = "✅ owned"
-            elif i == tier + 1:
-                status = f"{fmt_gold(price)} — available now"
+        panel.divider()
+        lines = []
+        for t in range(1, MAX_TOOL_TIER + 1):
+            name = TOOLS[job_key][t - 1]
+            mult = formulas.tool_multiplier(t)
+            if t <= tier:
+                status = "✅ *owned*"
+            elif t == tier + 1:
+                status = f"**{formulas.fmt_gold(tool_price(t))}** — available now"
             else:
-                status = f"{fmt_gold(price)} — 🔒 buy previous tier first"
-            embed.add_field(
-                name=f"Tier {i}: {name} (×{tool_multiplier(i):.2f})",
-                value=status,
-                inline=False,
-            )
-        await interaction.response.send_message(embed=embed)
+                status = f"{formulas.fmt_gold(tool_price(t))} — 🔒 *buy the previous tier first*"
+            lines.append(f"**{t}. {name}** *(×{mult:.2f})* — {status}")
+        panel.text("\n".join(lines))
+        panel.footer(f"Your purse: {user['gold']:,} gold · better tools also raise crit chance")
 
-    @app_commands.command(name="buy", description="Buy the next tool tier for your trade")
-    @app_commands.guild_only()
-    async def buy(self, interaction: discord.Interaction):
-        gid, uid = interaction.guild_id, interaction.user.id
-        user = await self.db.get_user(gid, uid)
-        if not user["job"]:
-            await interaction.response.send_message(
-                "Pick a trade first with `/job choose`.", ephemeral=True
+        if tier < MAX_TOOL_TIER:
+            next_name = TOOLS[job_key][tier]
+            buy_btn = ui.Button(
+                label=f"Buy {next_name} — {tool_price(tier + 1):,} gold",
+                emoji="⚒️",
+                style=discord.ButtonStyle.primary,
             )
-            return
-        job_key = user["job"]
-        tier = await self.db.get_tool_tier(gid, uid, job_key)
-        if tier >= len(TOOLS[job_key]):
-            await interaction.response.send_message(
-                "You already own the finest tool a master could wish for!",
-                ephemeral=True,
-            )
-            return
-        name, price = TOOLS[job_key][tier]
-        if user["gold"] < price:
-            await interaction.response.send_message(
-                f"**{name}** costs {fmt_gold(price)}, but your purse holds only "
-                f"{fmt_gold(user['gold'])}.",
-                ephemeral=True,
-            )
-            return
-        await self.db.add_gold(gid, uid, -price)
-        await self.db.set_tool_tier(gid, uid, job_key, tier + 1)
-        embed = discord.Embed(
-            title="⚒️ A fine purchase!",
-            description=(
-                f"The smith hands you a **{name}** for {fmt_gold(price)}.\n"
-                f"Your yields are now ×{tool_multiplier(tier + 1):.2f}."
-            ),
-            colour=discord.Colour.green(),
+            buy_btn.callback = self._buy_button
+            panel.divider()
+            panel.buttons(buy_btn)
+        panel.message = await ctx.send(view=panel)
+
+    async def _buy_button(self, interaction: discord.Interaction) -> None:
+        panel = await self._buy_next_tool(interaction.guild_id, interaction.user)
+        await interaction.response.send_message(
+            view=panel, ephemeral=getattr(panel, "is_error", False)
         )
-        await interaction.response.send_message(embed=embed)
+
+    async def _buy_next_tool(
+        self, guild_id: int, member: discord.abc.User
+    ) -> Panel:
+        user = await self.db.get_user(guild_id, member.id)
+        if not user["job"]:
+            panel = simple_panel("Take a trade first with `.job`.", accent=Palette.RED)
+            panel.is_error = True
+            return panel
+        job_key = user["job"]
+        tier = await self.db.get_tool_tier(guild_id, member.id, job_key)
+        if tier >= MAX_TOOL_TIER:
+            panel = simple_panel(
+                "You already own the finest tool a master could wish for!",
+                accent=Palette.RED,
+            )
+            panel.is_error = True
+            return panel
+        name = TOOLS[job_key][tier]
+        price = tool_price(tier + 1)
+        if user["gold"] < price:
+            panel = simple_panel(
+                f"**{name}** costs {formulas.fmt_gold(price)}, but your purse "
+                f"holds only {formulas.fmt_gold(user['gold'])}.",
+                accent=Palette.RED,
+            )
+            panel.is_error = True
+            return panel
+
+        await self.db.add_gold(guild_id, member.id, -price)
+        await self.db.set_tool_tier(guild_id, member.id, job_key, tier + 1)
+        await self.db.incr_stat(guild_id, member.id, "gold_spent_tools", price)
+
+        panel = Panel(accent=Palette.GREEN, timeout=None)
+        panel.is_error = False
+        panel.header("⚒️ A Fine Purchase!")
+        panel.text(
+            f"The smith hands {member.mention} a **{name}** for "
+            f"{formulas.fmt_gold(price)}.\n"
+            f"Yields are now **×{formulas.tool_multiplier(tier + 1):.2f}** from tools alone."
+        )
+        return panel
+
+    @commands.hybrid_command(name="buy", description="Buy the next tool tier for your trade")
+    @commands.guild_only()
+    async def buy(self, ctx: commands.Context):
+        panel = await self._buy_next_tool(ctx.guild.id, ctx.author)
+        await ctx.send(view=panel, ephemeral=getattr(panel, "is_error", False))
 
 
 async def setup(bot: commands.Bot):
