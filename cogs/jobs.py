@@ -251,7 +251,7 @@ class Jobs(commands.Cog):
                 status = "🔒"
             name_field = f"{i['name']} ({req})"
             guild_lines.append(
-                f"{i['emoji']} {chip((name_field, NAME_W), (status, -4))}"
+                f"{i['emoji']} {chip((name_field, NAME_W))} {status}"
             )
         panel.field("Guild", "\n".join(guild_lines))
 
