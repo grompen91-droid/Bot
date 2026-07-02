@@ -303,22 +303,51 @@ def roll_venture(path: dict, total_level: int, win_streak: int) -> tuple[bool, i
 # ═══════════════════════════ pickpocketing ═════════════════════════════
 # Steal from another player's POCKET only, never their bank. That's the
 # whole point of the bank: a real, meaningful way to protect your gold.
+# Gated behind the Criminal trade (see PICKPOCKET_MIN_LEVEL_WITHOUT_JOB
+# below): both odds and steal size scale with Criminal skill level,
+# so investing in the trade pays off here too, not just at .work.
 
-PICKPOCKET_SUCCESS = 0.30
-PICKPOCKET_STEAL_MIN = 0.25   # of the target's pocket gold
-PICKPOCKET_STEAL_MAX = 0.75
+PICKPOCKET_MIN_LEVEL_WITHOUT_JOB = 5   # same access rule as .brew
+
+PICKPOCKET_SUCCESS_BASE = 0.25
+PICKPOCKET_SUCCESS_PER_LEVEL = 0.003
+PICKPOCKET_SUCCESS_CAP = 0.55
+
+PICKPOCKET_STEAL_MIN = 0.25          # floor, of the target's pocket gold
+PICKPOCKET_STEAL_MAX_BASE = 0.50     # ceiling at skill level 1
+PICKPOCKET_STEAL_MAX_PER_LEVEL = 0.0025
+PICKPOCKET_STEAL_MAX_CAP = 0.75      # ceiling at high skill
+
 PICKPOCKET_COOLDOWN = 20 * 60        # 20 minutes between attempts
 PICKPOCKET_VICTIM_SHIELD = 10 * 60   # victim is safe for 10 minutes after
 PICKPOCKET_MIN_TARGET_POCKET = 50    # not worth targeting below this
 PICKPOCKET_FAIL_FINE_MIN = 10
 PICKPOCKET_FAIL_FINE_MAX = 30
 
+PICKPOCKET_INFAMY_MIN = 1            # every attempt builds a little
+PICKPOCKET_INFAMY_MAX = 3            # notoriety, win or lose
 
-def roll_pickpocket(target_pocket: int) -> tuple[bool, int]:
+
+def pickpocket_success_chance(skill_level: int) -> float:
+    return min(
+        PICKPOCKET_SUCCESS_CAP,
+        PICKPOCKET_SUCCESS_BASE + PICKPOCKET_SUCCESS_PER_LEVEL * max(0, skill_level - 1),
+    )
+
+
+def pickpocket_steal_max(skill_level: int) -> float:
+    return min(
+        PICKPOCKET_STEAL_MAX_CAP,
+        PICKPOCKET_STEAL_MAX_BASE + PICKPOCKET_STEAL_MAX_PER_LEVEL * max(0, skill_level - 1),
+    )
+
+
+def roll_pickpocket(target_pocket: int, skill_level: int) -> tuple[bool, int]:
     """Returns (success, gold_delta): positive gold stolen on success,
-    negative (a fine the attacker pays) on failure."""
-    if random.random() < PICKPOCKET_SUCCESS:
-        pct = random.uniform(PICKPOCKET_STEAL_MIN, PICKPOCKET_STEAL_MAX)
+    negative (a fine the attacker pays) on failure. Odds and steal size
+    both scale with the attacker's Criminal skill level."""
+    if random.random() < pickpocket_success_chance(skill_level):
+        pct = random.uniform(PICKPOCKET_STEAL_MIN, pickpocket_steal_max(skill_level))
         return True, max(1, round(target_pocket * pct))
     fine = random.randint(PICKPOCKET_FAIL_FINE_MIN, PICKPOCKET_FAIL_FINE_MAX)
     return False, -fine
@@ -357,16 +386,19 @@ def minigame_round_base(unlock_level: int, max_unlock_level: int, skill_level: i
 
 def roll_minigame_reward(
     correct: int, length: int, unlock_level: int, max_unlock_level: int,
-    skill_level: int, total_level: int, *, perfect_bonus: float = 1.5,
+    skill_level: int, total_level: int, *,
+    perfect_bonus: float = 1.5, extra_multiplier: float = 1.0,
 ) -> tuple[int, bool]:
     """Returns (gold, was_perfect) for one attempt at a per-job
     minigame. Reward is proportional to rounds correctly cleared; a
-    flawless run gets `perfect_bonus` on top."""
+    flawless run gets `perfect_bonus` on top. `extra_multiplier` is for
+    a caller-specific bonus on top of everything else (infamy for the
+    Criminal trade, fame for every other trade's minigame)."""
     if correct <= 0:
         return 0, False
     base = minigame_round_base(unlock_level, max_unlock_level, skill_level)
     variance = random.uniform(1 - MINIGAME_VARIANCE, 1 + MINIGAME_VARIANCE)
-    reward = base * variance * correct * coin_multiplier(total_level)
+    reward = base * variance * correct * coin_multiplier(total_level) * extra_multiplier
     perfect = correct >= length > 0
     if perfect:
         reward *= perfect_bonus
@@ -396,6 +428,63 @@ def minigame_cooldown(unlock_level: int, max_unlock_level: int) -> int:
     return round(MINIGAME_COOLDOWN_MIN + (MINIGAME_COOLDOWN_MAX - MINIGAME_COOLDOWN_MIN) * frac)
 
 
+# ═══════════════════════════ infamy & fame ══════════════════════════════
+# Two independent, long-game reputation tracks that never touch each
+# other's realm:
+#   Infamy: built by playing the Criminal trade (.work, .pickpocket,
+#   and the .rob bank job). Boosts Criminal's own payouts, the more
+#   notorious you are the more a job is worth. A bank job gone wrong
+#   (getting caught in .rob) wipes it back to 0 -- the one real risk
+#   in the whole system.
+#   Fame: built by *succeeding* at any of the OTHER, legitimate
+#   minigames (.harvest, .dig, .fish, .fell, .hunt, .bake, .tend,
+#   .brew). Boosts those same minigames' payouts. Never resets; it's
+#   the honest counterpart to infamy.
+
+INFAMY_BONUS_PER_POINT = 0.006
+INFAMY_BONUS_CAP_POINTS = 300   # +180% at the cap, matching coin_multiplier's scale
+
+FAME_BONUS_PER_POINT = 0.006
+FAME_BONUS_CAP_POINTS = 300
+
+
+def infamy_multiplier(infamy: int) -> float:
+    return 1.0 + INFAMY_BONUS_PER_POINT * min(max(infamy, 0), INFAMY_BONUS_CAP_POINTS)
+
+
+def fame_multiplier(fame: int) -> float:
+    return 1.0 + FAME_BONUS_PER_POINT * min(max(fame, 0), FAME_BONUS_CAP_POINTS)
+
+
+MINIGAME_FAME_ON_SUCCESS = 1   # flat fame per successful legit minigame clear
+
+CRIMINAL_WORK_INFAMY_MIN = 2   # infamy earned per Criminal .work, win or lose
+CRIMINAL_WORK_INFAMY_MAX = 5
+
+ROB_SUCCESS_INFAMY_MIN = 8     # a successful bank job is worth much more
+ROB_SUCCESS_INFAMY_MAX = 20    # notoriety than an honest day's crime
+
+
+# ═══════════════════════════ the criminal trade ═════════════════════════
+# Criminal is free from the start, like Farmer/Miner/Fisherman, but
+# pays in gold alone -- no goods to sell. Payout scales with skill
+# level (like a tip), tools (lockpicks etc, same shop/buy flow as
+# every other trade), infamy (the whole point of playing dirty), and
+# total skill level across every trade, same as everyone else.
+
+CRIMINAL_WORK_MIN, CRIMINAL_WORK_MAX = 10, 24
+
+
+def roll_criminal_work(level: int, tool_tier: int, infamy: int, total_level: int) -> int:
+    base = random.randint(CRIMINAL_WORK_MIN, CRIMINAL_WORK_MAX)
+    level_scale = 1.0 + TIP_PER_LEVEL * (level - 1)
+    reward = (
+        base * level_scale * tool_multiplier(tool_tier)
+        * infamy_multiplier(infamy) * coin_multiplier(total_level)
+    )
+    return max(1, round(reward))
+
+
 # ═══════════════════════════ the cauldron brew ═════════════════════════
 # A memory minigame: recall a reagent sequence in order. No risk of
 # loss, reward scales with how many you get right, with a bonus for a
@@ -423,13 +512,13 @@ def brew_sequence_length(level: int) -> int:
 
 def roll_brew_reward(
     correct: int, length: int, skill_level: int, total_level: int,
-    unlock_level: int, max_unlock_level: int,
+    unlock_level: int, max_unlock_level: int, *, extra_multiplier: float = 1.0,
 ) -> tuple[int, bool]:
     """Returns (gold, was_perfect). Reward is proportional to reagents
     correctly recalled; a flawless brew gets a 50% bonus on top."""
     return roll_minigame_reward(
         correct, length, unlock_level, max_unlock_level, skill_level,
-        total_level, perfect_bonus=BREW_PERFECT_BONUS,
+        total_level, perfect_bonus=BREW_PERFECT_BONUS, extra_multiplier=extra_multiplier,
     )
 
 

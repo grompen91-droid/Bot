@@ -90,4 +90,25 @@ MINIGAMES = {
         "fail_text": "One scoop too many, the batch is ruined.",
         "success_text": "A perfect batch, risen just right.",
     },
+    # The Criminal trade's own minigame. Unlike the eight above, this one
+    # requires an "are you sure?" confirmation before it starts (getting
+    # caught is a real, painful cost, not just a wasted attempt), doesn't
+    # grant or draw on fame, and pays out on the infamy scale instead --
+    # see cogs/minigames.py's BaseMinigameSession._finish for the branch.
+    # reward_tier_level overrides the usual "pay scales with how hard the
+    # trade was to unlock" rule: Criminal itself unlocks free, but a bank
+    # job is the single biggest score in the game, priced like the
+    # hardest trade there is.
+    "criminal": {
+        "command": "rob", "job_name": "Criminal", "title": "🏦 The Bank Job",
+        "kind": "match", "requires_confirm": True, "reward_tier_level": 50,
+        "options": {
+            "north": "⬆️", "south": "⬇️", "east": "➡️", "west": "⬅️", "vault": "🔓",
+        },
+        "decoys": 3, "round_timeout": 5,
+        "min_len": 5, "max_len": 10, "level_per_step": 10,
+        "prompt": "the guard patrol shifts that way, move now!",
+        "fail_text": "A guard turns and spots you mid-step. The alarm wails.",
+        "success_text": "The vault door swings open. You're rich, and utterly infamous.",
+    },
 }

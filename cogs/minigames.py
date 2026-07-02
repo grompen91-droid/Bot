@@ -1,12 +1,20 @@
-"""The other seven per-job minigames, one cousin of the cauldron brew
-per trade. Each is quick, timed, and fails the instant you mistap or
-run out of time; reward is proportional to how far you got, built on
-the same shared curve as .brew (formulas.roll_minigame_reward). Each
-has an admin test command, exactly like .brewtest.
+"""The other per-job minigames, one cousin of the cauldron brew per
+trade -- including the Criminal trade's own .rob. Each is quick,
+timed, and fails the instant you mistap or run out of time; reward is
+proportional to how far you got, built on the same shared curve as
+.brew (formulas.roll_minigame_reward). Each has an admin test command,
+exactly like .brewtest.
 
 Access follows the same rule as .brew: your current job always
 qualifies, or MINIGAME_MIN_LEVEL_WITHOUT_JOB in that trade's skill
 even without holding the job (persists across job switches).
+
+.rob is the odd one out: it needs an "are you sure?" confirmation
+before it starts (config["requires_confirm"]), doesn't touch fame, and
+resolves through infamy instead -- a success grants a big chunk of it,
+getting caught (any fail) wipes it back to 0. Every other minigame
+here grants a little fame on success and gets a fame-scaled bonus,
+same shape as infamy's bonus to Criminal, opposite realm.
 """
 
 from __future__ import annotations
@@ -56,15 +64,38 @@ class BaseMinigameSession:
     async def _finish(
         self, *, outcome: str, fail_text: str | None = None, extra_text: str | None = None,
     ) -> Panel:
-        """outcome is one of 'success', 'banked', or 'fail'."""
+        """outcome is one of 'success', 'banked', or 'fail'.
+
+        Criminal (.rob) and every other trade's minigame draw on
+        opposite reputation tracks: Criminal's payout scales with
+        infamy and a failed run gets caught, resetting infamy to 0;
+        every other trade's payout scales with fame, and a success
+        grants a little more of it. See formulas.py's infamy/fame
+        section for the full rationale."""
+        is_criminal = self.job_key == "criminal"
+        user = await self.db.get_user(self.gid, self.uid)
         total = await self.db.total_level(self.gid, self.uid)
-        unlock = JOBS[self.job_key]["unlock_total_level"]
+        # Criminal itself unlocks free (0), but .rob should pay like the
+        # single biggest score in the game, not a starter trade -- the
+        # config can override which unlock tier the reward floor uses.
+        unlock = self.config.get(
+            "reward_tier_level", JOBS[self.job_key]["unlock_total_level"]
+        )
+        extra_mult = (
+            formulas.infamy_multiplier(user["infamy"]) if is_criminal
+            else formulas.fame_multiplier(user["fame"])
+        )
         reward, perfect = formulas.roll_minigame_reward(
             self.correct, self.length, unlock, MAX_JOB_UNLOCK_LEVEL,
             self.level, total, perfect_bonus=formulas.MINIGAME_PERFECT_BONUS,
+            extra_multiplier=extra_mult,
         )
         xp_gain = self.correct * formulas.MINIGAME_XP_PER_ROUND
         new_level, new_xp, levels_gained = formulas.apply_xp(self.level, self.xp, xp_gain)
+
+        caught = is_criminal and outcome == "fail"
+        infamy_note: str | None = None
+        fame_gained = 0
 
         if not self.dry_run:
             await self.db.update_skill(
@@ -79,6 +110,20 @@ class BaseMinigameSession:
             if reward:
                 await self.db.incr_stat(self.gid, self.uid, f"gold_from_{cmd}", reward)
 
+            if is_criminal:
+                if outcome == "success":
+                    gained = random.randint(
+                        formulas.ROB_SUCCESS_INFAMY_MIN, formulas.ROB_SUCCESS_INFAMY_MAX
+                    )
+                    await self.db.add_infamy(self.gid, self.uid, gained)
+                    infamy_note = f"+{gained} infamy"
+                elif caught:
+                    await self.db.set_infamy(self.gid, self.uid, 0)
+                    infamy_note = "infamy reset to 0"
+            elif outcome == "success":
+                await self.db.add_fame(self.gid, self.uid, formulas.MINIGAME_FAME_ON_SUCCESS)
+                fame_gained = formulas.MINIGAME_FAME_ON_SUCCESS
+
         title = self.config["title"]
         if outcome == "success":
             panel = Panel(accent=Palette.GREEN, timeout=None)
@@ -88,6 +133,14 @@ class BaseMinigameSession:
             panel = Panel(accent=Palette.GOLD, timeout=None)
             panel.header(f"{title} · Pulled Early")
             panel.text(f"*{extra_text or 'You stop while you can still call it a win.'}*")
+        elif caught:
+            panel = Panel(accent=Palette.RED, timeout=None)
+            panel.header(f"{title} · Caught!")
+            panel.text(
+                "*Alarm bells ring out and guards swarm the vault. You "
+                "barely escape with your life, but your reputation is "
+                "in ruins.*"
+            )
         else:
             panel = Panel(accent=Palette.RED, timeout=None)
             panel.header(f"{title} · It Slips Away")
@@ -104,6 +157,10 @@ class BaseMinigameSession:
             footer += f" · +{xp_gain} XP"
         if levels_gained and not self.dry_run:
             footer += f" · ⭐ now level {new_level}"
+        if fame_gained:
+            footer += f" · 🌟 +{fame_gained} fame"
+        if infamy_note:
+            footer += f" · 🗡️ {infamy_note}"
         panel.footer(self._footer_text(footer))
         return panel
 
@@ -363,8 +420,21 @@ class BakeSession(BaseMinigameSession):
 SESSION_CLASSES = {"match": MatchSession, "reflex": FishSession, "pressluck": BakeSession}
 
 
+class _InteractionSender:
+    """Adapts a component interaction to the ctx.send(view=...) shape a
+    session's start-up expects, for the one-shot "confirm -> the game
+    replaces that same message" flow used by .rob."""
+
+    def __init__(self, interaction: discord.Interaction):
+        self.interaction = interaction
+
+    async def send(self, view=None, **kwargs) -> discord.Message:
+        await self.interaction.response.edit_message(view=view)
+        return self.interaction.message
+
+
 class Minigames(commands.Cog):
-    """The seven per-job minigames beyond the cauldron brew."""
+    """The other per-job minigames beyond the cauldron brew."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -404,39 +474,57 @@ class Minigames(commands.Cog):
         config = MINIGAMES[job_key]
 
         if dry_run:
-            session_level, xp, last_work = level, 0, 0
-        else:
-            if not await self._check_access(ctx, job_key):
-                return
-            now = time.time()
-            cooldown = formulas.minigame_cooldown(
-                JOBS[job_key]["unlock_total_level"], MAX_JOB_UNLOCK_LEVEL
-            )
-            last = await self.db.get_minigame_cooldown(gid, uid, job_key)
-            ready_at = last + cooldown
-            if now < ready_at:
-                await ctx.send(
-                    view=simple_panel(
-                        f"{config['title']} is still recovering. "
-                        f"Ready <t:{int(ready_at)}:R>.",
-                        accent=Palette.RED,
-                    ),
-                    ephemeral=True,
-                )
-                return
-            # The cooldown burns the moment the attempt starts, win or
-            # lose, so walking away mid-attempt can't reroll a bad run.
-            await self.db.set_minigame_cooldown(gid, uid, job_key, now)
-            skill = await self.db.get_skill(gid, uid, job_key)
-            session_level, xp, last_work = skill["level"], skill["xp"], skill["last_work"]
+            await self._send_session(ctx, gid, uid, job_key, config, level, 0, 0, dry_run=True)
+            return
 
+        if not await self._check_access(ctx, job_key):
+            return
+        now = time.time()
+        cooldown = formulas.minigame_cooldown(
+            JOBS[job_key]["unlock_total_level"], MAX_JOB_UNLOCK_LEVEL
+        )
+        last = await self.db.get_minigame_cooldown(gid, uid, job_key)
+        ready_at = last + cooldown
+        if now < ready_at:
+            await ctx.send(
+                view=simple_panel(
+                    f"{config['title']} is still recovering. "
+                    f"Ready <t:{int(ready_at)}:R>.",
+                    accent=Palette.RED,
+                ),
+                ephemeral=True,
+            )
+            return
+
+        if config.get("requires_confirm"):
+            # Cooldown isn't burned until Confirm is actually pressed --
+            # declining, or just looking, shouldn't cost the attempt.
+            await self._send_confirm(ctx, job_key, config)
+            return
+
+        # The cooldown burns the moment the attempt starts, win or
+        # lose, so walking away mid-attempt can't reroll a bad run.
+        await self.db.set_minigame_cooldown(gid, uid, job_key, now)
+        skill = await self.db.get_skill(gid, uid, job_key)
+        await self._send_session(
+            ctx, gid, uid, job_key, config,
+            skill["level"], skill["xp"], skill["last_work"], dry_run=False,
+        )
+
+    async def _send_session(
+        self, sendable, gid: int, uid: int, job_key: str, config: dict,
+        session_level: int, xp: int, last_work: float, *, dry_run: bool,
+    ) -> None:
+        """`sendable` is anything with an async .send(view=...) -> Message
+        (commands.Context, or _InteractionSender for the .rob confirm
+        flow)."""
         session_cls = SESSION_CLASSES[config["kind"]]
         session = session_cls(
             self.db, gid, uid, job_key, session_level, xp, last_work, dry_run=dry_run,
         )
 
         if dry_run:
-            await ctx.send(
+            await sendable.send(
                 view=simple_panel(
                     f"🧪 *TEST MODE for {config['title']}, no job, cooldown, "
                     "or rewards apply.*",
@@ -445,11 +533,58 @@ class Minigames(commands.Cog):
             )
 
         if isinstance(session, FishSession):
-            await session.run(ctx)
+            await session.run(sendable)
         else:
             panel = session.round_panel()
-            message = await ctx.send(view=panel)
+            message = await sendable.send(view=panel)
             panel.message = message
+
+    async def _send_confirm(
+        self, ctx: commands.Context, job_key: str, config: dict
+    ) -> None:
+        """The one-way door before .rob: get caught and infamy resets to
+        0, so make sure the player actually meant to press the button."""
+        panel = Panel(accent=Palette.RED, author_id=ctx.author.id, timeout=30)
+        panel.header(f"{config['title']} · Are You Sure?")
+        panel.text(
+            "*This isn't like the others. Get caught, and everything "
+            "you've built goes up in smoke, your infamy resets to 0.*"
+        )
+        confirm_btn = ui.Button(label="Do It", emoji="🏦", style=discord.ButtonStyle.danger)
+        cancel_btn = ui.Button(label="Walk Away", style=discord.ButtonStyle.secondary)
+
+        async def on_confirm(interaction: discord.Interaction) -> None:
+            gid, uid = interaction.guild_id, interaction.user.id
+            now = time.time()
+            cooldown = formulas.minigame_cooldown(
+                JOBS[job_key]["unlock_total_level"], MAX_JOB_UNLOCK_LEVEL
+            )
+            last = await self.db.get_minigame_cooldown(gid, uid, job_key)
+            if now < last + cooldown:
+                await interaction.response.edit_message(
+                    view=simple_panel(
+                        "Too late, the window's closed for now.", accent=Palette.RED
+                    )
+                )
+                return
+            await self.db.set_minigame_cooldown(gid, uid, job_key, now)
+            skill = await self.db.get_skill(gid, uid, job_key)
+            await self._send_session(
+                _InteractionSender(interaction), gid, uid, job_key, config,
+                skill["level"], skill["xp"], skill["last_work"], dry_run=False,
+            )
+
+        async def on_cancel(interaction: discord.Interaction) -> None:
+            await interaction.response.edit_message(
+                view=simple_panel(
+                    "You think better of it and walk away.", accent=Palette.GOLD
+                )
+            )
+
+        confirm_btn.callback = on_confirm
+        cancel_btn.callback = on_cancel
+        panel.buttons(confirm_btn, cancel_btn)
+        panel.message = await ctx.send(view=panel)
 
     # ── farmer: harvest ─────────────────────────────────────────────────
 
@@ -591,6 +726,26 @@ class Minigames(commands.Cog):
         self, ctx: commands.Context, level: commands.Range[int, 1, formulas.MAX_LEVEL] = 1
     ):
         await self._play(ctx, "brewer", level=level, dry_run=True)
+
+    # ── criminal: rob ───────────────────────────────────────────────────
+
+    @commands.hybrid_command(
+        name="rob", description="Criminal minigame: rob the bank vault for the biggest score in town"
+    )
+    @commands.guild_only()
+    async def rob(self, ctx: commands.Context):
+        await self._play(ctx, "criminal")
+
+    @commands.hybrid_command(
+        name="robtest", description="[Admin] Try the bank job with no job/cooldown/rewards/confirm"
+    )
+    @commands.guild_only()
+    @commands.has_permissions(administrator=True)
+    @app_commands.describe(level="Criminal level to simulate (default: 1)")
+    async def robtest(
+        self, ctx: commands.Context, level: commands.Range[int, 1, formulas.MAX_LEVEL] = 1
+    ):
+        await self._play(ctx, "criminal", level=level, dry_run=True)
 
 
 async def setup(bot: commands.Bot):

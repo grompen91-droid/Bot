@@ -1,9 +1,16 @@
 """Crime: pickpocketing other townsfolk. Banked gold is always safe;
 only what's sitting loose in a pocket can be stolen.
+
+Access follows the same rule as .brew and the per-job minigames:
+current Criminals can always pickpocket, or anyone with Criminal
+skill level 5+ (persists across job switches). Odds and steal size
+both scale with that same skill level, and every attempt, win or
+lose, builds a little infamy.
 """
 
 from __future__ import annotations
 
+import random
 import time
 
 import discord
@@ -44,6 +51,23 @@ class Crime(commands.Cog):
 
         gid, uid = ctx.guild.id, ctx.author.id
         attacker = await self.db.get_user(gid, uid)
+        is_criminal = attacker["job"] == "criminal"
+        # Read-only: peeking must never create a phantom criminal skill
+        # row for a player who was never one (that would silently inflate
+        # their total skill level, the same bug .job info had before).
+        criminal_skill = await self.db.peek_skill(gid, uid, "criminal")
+        if not is_criminal and criminal_skill["level"] < formulas.PICKPOCKET_MIN_LEVEL_WITHOUT_JOB:
+            await ctx.send(
+                view=simple_panel(
+                    "You are not a criminal, or high enough lvl "
+                    f"({formulas.PICKPOCKET_MIN_LEVEL_WITHOUT_JOB}) in it to "
+                    "pickpocket without being one.",
+                    accent=Palette.RED,
+                ),
+                ephemeral=True,
+            )
+            return
+
         now = time.time()
         ready_at = attacker["last_pickpocket"] + formulas.PICKPOCKET_COOLDOWN
         if now < ready_at:
@@ -78,8 +102,12 @@ class Crime(commands.Cog):
             )
             return
 
-        success, delta = formulas.roll_pickpocket(target["gold"])
+        success, delta = formulas.roll_pickpocket(target["gold"], criminal_skill["level"])
         await self.db.set_last_pickpocket(gid, uid, now)
+        infamy_gain = random.randint(
+            formulas.PICKPOCKET_INFAMY_MIN, formulas.PICKPOCKET_INFAMY_MAX
+        )
+        new_infamy = await self.db.add_infamy(gid, uid, infamy_gain)
 
         if success:
             await self.db.add_gold(gid, member.id, -delta)
@@ -107,7 +135,9 @@ class Crime(commands.Cog):
             )
 
         purse = (await self.db.get_user(gid, uid))["gold"]
-        panel.footer(f"Purse: {purse:,} gold")
+        panel.footer(
+            f"Purse: {purse:,} gold · 🗡️ +{infamy_gain} infamy ({new_infamy:,} total)"
+        )
         await ctx.send(view=panel)
 
 

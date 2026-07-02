@@ -87,6 +87,12 @@ MIGRATIONS: list[str] = [
         PRIMARY KEY (guild_id, user_id, job)
     );
     """,
+    # v7, infamy and fame: the Criminal trade's reputation, and the
+    # legit minigames' reputation, two independent long-game tracks
+    """
+    ALTER TABLE users ADD COLUMN infamy BIGINT NOT NULL DEFAULT 0;
+    ALTER TABLE users ADD COLUMN fame BIGINT NOT NULL DEFAULT 0;
+    """,
 ]
 
 
@@ -324,6 +330,40 @@ class Database:
             "UPDATE users SET last_brew = ? WHERE guild_id = ? AND user_id = ?",
             when, guild_id, user_id,
         )
+
+    # ── infamy & fame ───────────────────────────────────────────────────
+
+    async def add_infamy(self, guild_id: int, user_id: int, amount: int) -> int:
+        """Infamy only ever goes up through play; the one way down is
+        set_infamy(0) when a bank job goes wrong. Returns the new total."""
+        await self.get_user(guild_id, user_id)
+        await self.execute(
+            "UPDATE users SET infamy = infamy + ? WHERE guild_id = ? AND user_id = ?",
+            amount, guild_id, user_id,
+        )
+        row = await self.fetchone(
+            "SELECT infamy FROM users WHERE guild_id = ? AND user_id = ?",
+            guild_id, user_id,
+        )
+        return row["infamy"]
+
+    async def set_infamy(self, guild_id: int, user_id: int, value: int) -> None:
+        await self.execute(
+            "UPDATE users SET infamy = ? WHERE guild_id = ? AND user_id = ?",
+            value, guild_id, user_id,
+        )
+
+    async def add_fame(self, guild_id: int, user_id: int, amount: int) -> int:
+        await self.get_user(guild_id, user_id)
+        await self.execute(
+            "UPDATE users SET fame = fame + ? WHERE guild_id = ? AND user_id = ?",
+            amount, guild_id, user_id,
+        )
+        row = await self.fetchone(
+            "SELECT fame FROM users WHERE guild_id = ? AND user_id = ?",
+            guild_id, user_id,
+        )
+        return row["fame"]
 
     # ── the other per-job minigames ─────────────────────────────────────
 

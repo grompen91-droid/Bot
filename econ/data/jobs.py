@@ -6,6 +6,13 @@ tip                = (min, max) bonus coins per work before scaling
 unlock_total_level = sum of all skill levels required to take the trade
 yields             = (item_key, min_qty, max_qty, weight), one is rolled
                      per work, weighted; rare+ items get luckier with level
+category           = "guild" (the 8 honest trades) or "criminal" (the one
+                     dishonest one); the job board lists them separately
+max_infamy         = None (no reputation check) or the infamy above which
+                     that guild refuses to take you on, different per
+                     trade -- the more respectable the trade, the less
+                     they'll tolerate a notorious criminal. Only "guild"
+                     trades use this.
 """
 
 from .items import ITEMS
@@ -13,7 +20,7 @@ from .items import ITEMS
 JOBS = {
     "farmer": {
         "name": "Farmer", "emoji": "🌾", "cooldown": 60, "tip": (2, 6),
-        "unlock_total_level": 0,
+        "unlock_total_level": 0, "category": "guild", "max_infamy": None,
         "description": "Till the fields and bring in the harvest.",
         "yields": [
             ("wheat", 3, 7, 42), ("carrot", 2, 5, 30), ("apple", 2, 4, 18),
@@ -28,7 +35,7 @@ JOBS = {
     },
     "miner": {
         "name": "Miner", "emoji": "⛏️", "cooldown": 60, "tip": (2, 6),
-        "unlock_total_level": 0,
+        "unlock_total_level": 0, "category": "guild", "max_infamy": None,
         "description": "Delve into the mountain for ore and gems.",
         "yields": [
             ("stone", 3, 8, 38), ("coal", 2, 6, 30), ("iron_ore", 2, 4, 20),
@@ -43,7 +50,7 @@ JOBS = {
     },
     "fisherman": {
         "name": "Fisherman", "emoji": "🎣", "cooldown": 60, "tip": (2, 6),
-        "unlock_total_level": 0,
+        "unlock_total_level": 0, "category": "guild", "max_infamy": None,
         "description": "Cast your line into river and sea.",
         "yields": [
             ("herring", 2, 6, 38), ("trout", 2, 4, 30), ("salmon", 1, 3, 20),
@@ -58,7 +65,7 @@ JOBS = {
     },
     "lumberjack": {
         "name": "Lumberjack", "emoji": "🪓", "cooldown": 60, "tip": (2, 6),
-        "unlock_total_level": 5,
+        "unlock_total_level": 5, "category": "guild", "max_infamy": 250,
         "description": "Fell the great trees of the king's forest.",
         "yields": [
             ("birch_log", 3, 7, 42), ("oak_log", 2, 5, 32), ("maple_log", 1, 3, 18),
@@ -73,7 +80,7 @@ JOBS = {
     },
     "hunter": {
         "name": "Hunter", "emoji": "🏹", "cooldown": 70, "tip": (3, 7),
-        "unlock_total_level": 12,
+        "unlock_total_level": 12, "category": "guild", "max_infamy": 180,
         "description": "Stalk game through wood and moor.",
         "yields": [
             ("rabbit", 1, 3, 36), ("pelt", 1, 3, 30), ("venison", 1, 2, 22),
@@ -88,7 +95,7 @@ JOBS = {
     },
     "baker": {
         "name": "Baker", "emoji": "🍞", "cooldown": 75, "tip": (3, 8),
-        "unlock_total_level": 22,
+        "unlock_total_level": 22, "category": "guild", "max_infamy": 100,
         "description": "Fill the town square with the smell of fresh bread.",
         "yields": [
             ("bread", 2, 4, 48), ("meat_pie", 1, 3, 34),
@@ -103,7 +110,7 @@ JOBS = {
     },
     "brewer": {
         "name": "Brewer", "emoji": "🍺", "cooldown": 80, "tip": (3, 9),
-        "unlock_total_level": 35,
+        "unlock_total_level": 35, "category": "guild", "max_infamy": 70,
         "description": "Brew ale and mead for thirsty townsfolk.",
         "yields": [
             ("ale", 2, 4, 50), ("mead", 1, 3, 36),
@@ -118,7 +125,7 @@ JOBS = {
     },
     "alchemist": {
         "name": "Alchemist", "emoji": "🧪", "cooldown": 90, "tip": (4, 10),
-        "unlock_total_level": 50,
+        "unlock_total_level": 50, "category": "guild", "max_infamy": 40,
         "description": "Brew potions and strange tinctures in your tower.",
         "yields": [
             ("herbs", 2, 5, 48), ("minor_potion", 1, 2, 36),
@@ -130,6 +137,13 @@ JOBS = {
             "The mixture flashes green, a successful brew!",
             "You barter with a travelling herbalist for reagents.",
         ],
+    },
+    "criminal": {
+        "name": "Criminal", "emoji": "🗡️", "cooldown": 55, "tip": (0, 0),
+        "unlock_total_level": 0, "category": "criminal", "max_infamy": None,
+        "description": "Live outside the law. No goods, no guild, no honest coin.",
+        "yields": [],
+        "flavour": [],
     },
 }
 

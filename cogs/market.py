@@ -76,6 +76,8 @@ class Market(commands.Cog):
         panel = Panel(timeout=None)
         panel.header("🏪 The Town Market")
         for job_key, info in JOBS.items():
+            if not info["yields"]:
+                continue  # Criminal deals in gold only, no goods to price
             lines = []
             for item, *_rest in info["yields"]:
                 base = ITEMS[item]["value"]

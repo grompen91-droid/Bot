@@ -10,6 +10,7 @@ from discord import app_commands, ui
 from discord.ext import commands
 
 from econ import captcha, formulas
+from econ.data.crime import crime_tier
 from econ.data.items import ITEMS, rarity_badge
 from econ.data.jobs import JOBS, resolve_job
 from econ.data.tools import tool_name
@@ -70,6 +71,11 @@ class Jobs(commands.Cog):
         ready_at = skill["last_work"] + cooldown
         if now < ready_at:
             return f"⏳ You are weary. You can work again <t:{int(ready_at)}:R>."
+
+        if job_key == "criminal":
+            return await self._build_criminal_work_panel(
+                guild_id, member, skill, level, now
+            )
 
         tier = await self.db.get_tool_tier(guild_id, member.id, job_key)
         total_before = await self.db.total_level(guild_id, member.id)
@@ -174,6 +180,59 @@ class Jobs(commands.Cog):
         panel.buttons(work_btn, sell_btn)
         return panel
 
+    async def _build_criminal_work_panel(
+        self, guild_id: int, member: discord.abc.User, skill, level: int, now: float,
+    ) -> Panel:
+        """Criminal has no goods to gather, only gold and infamy. Both
+        the payout and the flavour of the crime scale with how
+        notorious you already are (see econ/data/crime.py)."""
+        user = await self.db.get_user(guild_id, member.id)
+        tier = await self.db.get_tool_tier(guild_id, member.id, "criminal")
+        total_before = await self.db.total_level(guild_id, member.id)
+        infamy = user["infamy"]
+
+        gold = formulas.roll_criminal_work(level, tier, infamy, total_before)
+        infamy_gain = random.randint(
+            formulas.CRIMINAL_WORK_INFAMY_MIN, formulas.CRIMINAL_WORK_INFAMY_MAX
+        )
+        xp_gain = formulas.roll_work_xp(JOBS["criminal"]["cooldown"])
+
+        new_level, new_xp, levels_gained = formulas.apply_xp(level, skill["xp"], xp_gain)
+        await self.db.update_skill(guild_id, member.id, "criminal", new_level, new_xp, now)
+        await self.db.add_gold(guild_id, member.id, gold)
+        new_infamy = await self.db.add_infamy(guild_id, member.id, infamy_gain)
+        await self.db.incr_stat(guild_id, member.id, "works")
+        await self.db.incr_stat(guild_id, member.id, "gold_from_crime", gold)
+
+        _threshold, crime_title, flavour_lines = crime_tier(infamy)
+        panel = Panel(accent=Palette.RED, author_id=member.id)
+        panel.header(f"🗡️ Criminal · {crime_title}")
+        panel.text(f"*{random.choice(flavour_lines)}*")
+        panel.text(
+            f"💰 {chip(('Take', NAME_W), (f'{gold:,}', -AMT_W))} 🪙\n"
+            f"🗡️ {chip(('Infamy', NAME_W), (f'+{infamy_gain}', -AMT_W))} "
+            f"({new_infamy:,} total)"
+        )
+
+        if levels_gained:
+            panel.text(f"⭐ **Level up!** Criminal is now level **{new_level}**")
+
+        needed = formulas.xp_to_next(new_level)
+        ready = int(
+            now + formulas.effective_cooldown(JOBS["criminal"]["cooldown"], new_level)
+        )
+        panel.footer(
+            f"+{xp_gain} XP · Lv {new_level} `{formulas.progress_bar(new_xp, needed)}` "
+            f"{new_xp}/{needed}\nready <t:{ready}:R>"
+        )
+
+        work_btn = ui.Button(
+            label="Work Again", emoji="⚒️", style=discord.ButtonStyle.secondary
+        )
+        work_btn.callback = self._work_again
+        panel.buttons(work_btn)
+        return panel
+
     @staticmethod
     def _rarity(item_key: str) -> str:
         return ITEMS[item_key]["rarity"]
@@ -221,17 +280,31 @@ class Jobs(commands.Cog):
         """Show the job board with a trade picker."""
         total = await self.db.total_level(ctx.guild.id, ctx.author.id)
         user = await self.db.get_user(ctx.guild.id, ctx.author.id)
+        infamy = user["infamy"]
 
+        criminal_jobs = [(k, i) for k, i in JOBS.items() if i["category"] == "criminal"]
         starters = [
-            (k, i) for k, i in JOBS.items() if i["unlock_total_level"] == 0
+            (k, i) for k, i in JOBS.items()
+            if i["category"] == "guild" and i["unlock_total_level"] == 0
         ]
         guild_trades = sorted(
-            ((k, i) for k, i in JOBS.items() if i["unlock_total_level"] > 0),
+            (
+                (k, i) for k, i in JOBS.items()
+                if i["category"] == "guild" and i["unlock_total_level"] > 0
+            ),
             key=lambda pair: pair[1]["unlock_total_level"],
         )
 
         panel = Panel(author_id=ctx.author.id)
         panel.header("🪧 The Town Job Board")
+        panel.field(
+            "Criminal",
+            " · ".join(
+                f"{i['emoji']} **{i['name']}**"
+                + (" 📍" if user["job"] == k else "")
+                for k, i in criminal_jobs
+            ),
+        )
         panel.field(
             "Starter",
             " · ".join(
@@ -243,8 +316,12 @@ class Jobs(commands.Cog):
         guild_lines = []
         for key, i in guild_trades:
             req = i["unlock_total_level"]
+            max_infamy = i["max_infamy"]
+            too_infamous = max_infamy is not None and infamy > max_infamy
             if user["job"] == key:
                 status = "📍"
+            elif too_infamous:
+                status = "🚫"
             elif total >= req:
                 status = "✅"
             else:
@@ -254,26 +331,37 @@ class Jobs(commands.Cog):
                 f"{i['emoji']} {chip((name_field, NAME_W))} {status}"
             )
         panel.field("Guild", "\n".join(guild_lines))
+        if any(
+            i["max_infamy"] is not None and infamy > i["max_infamy"]
+            for _k, i in guild_trades
+        ):
+            panel.text("🚫 too infamous, the guild wants nothing to do with you")
 
         rank_emoji, rank_title = formulas.town_rank(total)
         footer = f"{rank_emoji} {rank_title} · Lv {total}"
         if user["job"]:
             footer = f"trade: {JOBS[user['job']]['name']} · " + footer
+        if infamy:
+            footer += f" · 🗡️ {infamy:,} infamy"
         panel.footer(footer)
 
         select = ui.Select(placeholder="⚒️ Take up a trade…")
         for key, info in JOBS.items():
             req = info["unlock_total_level"]
-            locked = total < req
+            max_infamy = info["max_infamy"]
+            too_infamous = max_infamy is not None and infamy > max_infamy
+            locked = total < req or too_infamous
+            if too_infamous:
+                description = f"Refuses anyone above {max_infamy} infamy"
+            elif locked:
+                description = f"Requires {req} total skill levels"
+            else:
+                description = info["description"][:100]
             select.add_option(
                 label=info["name"],
                 value=key,
-                emoji="🔒" if locked else info["emoji"],
-                description=(
-                    f"Requires {req} total skill levels"
-                    if locked
-                    else info["description"][:100]
-                ),
+                emoji="🚫" if too_infamous else ("🔒" if locked else info["emoji"]),
+                description=description,
             )
         select.callback = self._board_select
         panel.select(select)
@@ -316,6 +404,16 @@ class Jobs(commands.Cog):
                 f"🔒 The {info['emoji']} **{info['name']}**'s guild turns you away. "
                 f"They want **{info['unlock_total_level']} total skill levels** "
                 f"and you have {total}. Master your current trade first!",
+                accent=Palette.RED,
+            )
+            panel.accent_is_error = True
+            return panel
+        max_infamy = info["max_infamy"]
+        if max_infamy is not None and user["infamy"] > max_infamy:
+            panel = simple_panel(
+                f"🚫 The {info['emoji']} **{info['name']}**'s guild wants nothing "
+                f"to do with someone of your reputation. They'll tolerate at "
+                f"most **{max_infamy} infamy** and you have {user['infamy']:,}.",
                 accent=Palette.RED,
             )
             panel.accent_is_error = True
@@ -391,16 +489,19 @@ class Jobs(commands.Cog):
         panel = Panel(accent=Palette.BLUE, timeout=None)
         panel.header(f"{info['emoji']} {info['name']}")
 
-        total_weight = sum(w for *_rest, w in info["yields"])
-        yield_lines = []
-        for item, lo, hi, w in info["yields"]:
-            badge = rarity_badge(item).strip()
-            yield_lines.append(
-                f"{ITEMS[item]['emoji']} "
-                f"{chip((ITEMS[item]['name'], NAME_W), (f'{lo}-{hi}', QTY_W), (f'{w / total_weight:.0%}', -AMT_W))}"
-                + (f" {badge}" if badge else "")
-            )
-        panel.text("\n".join(yield_lines))
+        if info["yields"]:
+            total_weight = sum(w for *_rest, w in info["yields"])
+            yield_lines = []
+            for item, lo, hi, w in info["yields"]:
+                badge = rarity_badge(item).strip()
+                yield_lines.append(
+                    f"{ITEMS[item]['emoji']} "
+                    f"{chip((ITEMS[item]['name'], NAME_W), (f'{lo}-{hi}', QTY_W), (f'{w / total_weight:.0%}', -AMT_W))}"
+                    + (f" {badge}" if badge else "")
+                )
+            panel.text("\n".join(yield_lines))
+        else:
+            panel.text("*No goods, gold and infamy only. See* `.work`.")
 
         total = await self.db.total_level(ctx.guild.id, ctx.author.id)
         coin_mult = formulas.coin_multiplier(total)

@@ -123,15 +123,18 @@ class BrewSession:
         timed_out: bool = False,
     ) -> Panel:
         total = await self.db.total_level(self.gid, self.uid)
+        user = await self.db.get_user(self.gid, self.uid)
         reward, perfect = formulas.roll_brew_reward(
             self.progress, self.length, self.level, total,
             JOBS["alchemist"]["unlock_total_level"], MAX_JOB_UNLOCK_LEVEL,
+            extra_multiplier=formulas.fame_multiplier(user["fame"]),
         )
         xp_gain = self.progress * formulas.BREW_XP_PER_SYMBOL
 
         new_level, new_xp, levels_gained = formulas.apply_xp(
             self.level, self.xp, xp_gain
         )
+        fame_gained = 0
         if not self.dry_run:
             await self.db.update_skill(
                 self.gid, self.uid, "alchemist", new_level, new_xp, self.last_work
@@ -143,6 +146,9 @@ class BrewSession:
                 await self.db.incr_stat(self.gid, self.uid, "brews_perfect")
             if reward:
                 await self.db.incr_stat(self.gid, self.uid, "gold_from_brewing", reward)
+            if success:
+                await self.db.add_fame(self.gid, self.uid, formulas.MINIGAME_FAME_ON_SUCCESS)
+                fame_gained = formulas.MINIGAME_FAME_ON_SUCCESS
 
         panel = Panel(accent=Palette.GREEN if success else Palette.RED, timeout=None)
         if success:
@@ -173,6 +179,8 @@ class BrewSession:
             footer += f" · +{xp_gain} XP"
         if levels_gained and not self.dry_run:
             footer += f" · ⭐ now level {new_level}"
+        if fame_gained:
+            footer += f" · 🌟 +{fame_gained} fame"
         if self.dry_run:
             footer = "🧪 TEST MODE, nothing was actually awarded · " + footer
         panel.footer(footer)

@@ -15,12 +15,12 @@ HELP_SECTIONS = [
     ("🗺️ Venture", ".venture"),
     ("💰 Gold", ".balance · .daily · .pay · .profile · .leaderboard"),
     ("🏦 Bank", ".bank · .deposit · .withdraw"),
-    ("🗡️ Crime", ".pickpocket"),
+    ("🗡️ Crime", ".pickpocket (needs Criminal, or lvl 5 in it)"),
     # Every job-specific minigame lives in this one section, not a new
     # section per job, however many of these exist.
     (
         "🎯 Job Minigames",
-        ".harvest · .dig · .fish · .fell · .hunt · .bake · .tend · .brew",
+        ".harvest · .dig · .fish · .fell · .hunt · .bake · .tend · .brew · .rob",
     ),
 ]
 
@@ -46,7 +46,9 @@ class Info(commands.Cog):
         panel.header("🏰 About the Town")
         panel.text(
             f"{len(JOBS)} trades · {len(ITEMS)} goods · daily-shifting market. "
-            "No Discord roles, your rank is gold and skill alone."
+            "No Discord roles, your rank is gold and skill alone. Walk an "
+            "honest trade and build fame, or turn to crime and build "
+            "infamy, but get caught robbing the bank and it's gone."
         )
         await ctx.send(view=panel)
 

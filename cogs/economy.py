@@ -301,6 +301,13 @@ class Economy(commands.Cog):
             thumbnail=target.display_avatar.url,
         )
         panel.text("\n".join(trade_lines))
+        rep_bits = []
+        if user["infamy"]:
+            rep_bits.append(f"🗡️ {user['infamy']:,} infamy")
+        if user["fame"]:
+            rep_bits.append(f"🌟 {user['fame']:,} fame")
+        if rep_bits:
+            panel.text(" · ".join(rep_bits))
         if user["daily_streak"]:
             panel.footer(f"🔥 {user['daily_streak']} day streak")
         await ctx.send(view=panel)

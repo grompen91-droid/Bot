@@ -42,12 +42,16 @@ TOOLS = {
         "Glass Alembic", "Silver Cauldron", "Arcane Library",
         "Arcane Still", "Star Athanor",
     ],
+    "criminal": [
+        "Lockpick Set", "Forged Papers", "Smoke Bombs",
+        "Guild Contact", "Shadow Cloak",
+    ],
 }
 
 BASE_TOOL_NAMES = {
     "farmer": "Rusty Sickle", "miner": "Worn Pickaxe", "fisherman": "Bent Rod",
     "lumberjack": "Chipped Axe", "hunter": "Old Sling", "baker": "Borrowed Hearth",
-    "brewer": "Leaky Pot", "alchemist": "Cracked Flask",
+    "brewer": "Leaky Pot", "alchemist": "Cracked Flask", "criminal": "Bare Hands",
 }
 
 MAX_TOOL_TIER = len(TOOL_PRICES)
