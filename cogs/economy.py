@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, time as dtime, timedelta
 
 import discord
 from discord import app_commands
@@ -61,9 +61,14 @@ class Economy(commands.Cog):
         today = date.today()
 
         if user["last_daily"] == today.isoformat():
+            reset_at = datetime.combine(today + timedelta(days=1), dtime.min)
+            remaining = reset_at - datetime.now()
+            hours, rem = divmod(max(0, int(remaining.total_seconds())), 3600)
+            minutes, seconds = divmod(rem, 60)
             await ctx.send(
                 view=simple_panel(
-                    "🕯️ The coffers open but once a day. Return on the morrow!",
+                    "🕯️ The coffers open but once a day. "
+                    f"**{hours}h {minutes}m {seconds}s** until you can collect again.",
                     accent=Palette.RED,
                 ),
                 ephemeral=True,
