@@ -300,6 +300,30 @@ def roll_venture(path: dict, total_level: int, win_streak: int) -> tuple[bool, i
     return False, -loss
 
 
+# ═══════════════════════════ pickpocketing ═════════════════════════════
+# Steal from another player's POCKET only, never their bank. That's the
+# whole point of the bank: a real, meaningful way to protect your gold.
+
+PICKPOCKET_SUCCESS = 0.30
+PICKPOCKET_STEAL_MIN = 0.25   # of the target's pocket gold
+PICKPOCKET_STEAL_MAX = 0.75
+PICKPOCKET_COOLDOWN = 20 * 60        # 20 minutes between attempts
+PICKPOCKET_VICTIM_SHIELD = 10 * 60   # victim is safe for 10 minutes after
+PICKPOCKET_MIN_TARGET_POCKET = 50    # not worth targeting below this
+PICKPOCKET_FAIL_FINE_MIN = 10
+PICKPOCKET_FAIL_FINE_MAX = 30
+
+
+def roll_pickpocket(target_pocket: int) -> tuple[bool, int]:
+    """Returns (success, gold_delta): positive gold stolen on success,
+    negative (a fine the attacker pays) on failure."""
+    if random.random() < PICKPOCKET_SUCCESS:
+        pct = random.uniform(PICKPOCKET_STEAL_MIN, PICKPOCKET_STEAL_MAX)
+        return True, max(1, round(target_pocket * pct))
+    fine = random.randint(PICKPOCKET_FAIL_FINE_MIN, PICKPOCKET_FAIL_FINE_MAX)
+    return False, -fine
+
+
 # ═══════════════════════════ progress bars ═════════════════════════════
 
 BAR_FILLED, BAR_EMPTY = "█", "░"

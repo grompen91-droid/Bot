@@ -65,6 +65,13 @@ MIGRATIONS: list[str] = [
     ALTER TABLE users ADD COLUMN last_venture DOUBLE PRECISION NOT NULL DEFAULT 0;
     ALTER TABLE users ADD COLUMN venture_streak BIGINT NOT NULL DEFAULT 0;
     """,
+    # v4, the bank and pickpocketing
+    """
+    ALTER TABLE users ADD COLUMN bank_gold BIGINT NOT NULL DEFAULT 0;
+    ALTER TABLE users ADD COLUMN bank_tier BIGINT NOT NULL DEFAULT 0;
+    ALTER TABLE users ADD COLUMN last_pickpocket DOUBLE PRECISION NOT NULL DEFAULT 0;
+    ALTER TABLE users ADD COLUMN robbed_until DOUBLE PRECISION NOT NULL DEFAULT 0;
+    """,
 ]
 
 
@@ -231,6 +238,42 @@ class Database:
             when, streak, guild_id, user_id,
         )
 
+    # ── bank ────────────────────────────────────────────────────────────
+
+    async def deposit_gold(self, guild_id: int, user_id: int, amount: int) -> None:
+        await self.execute(
+            "UPDATE users SET gold = gold - ?, bank_gold = bank_gold + ? "
+            "WHERE guild_id = ? AND user_id = ?",
+            amount, amount, guild_id, user_id,
+        )
+
+    async def withdraw_gold(self, guild_id: int, user_id: int, amount: int) -> None:
+        await self.execute(
+            "UPDATE users SET gold = gold + ?, bank_gold = bank_gold - ? "
+            "WHERE guild_id = ? AND user_id = ?",
+            amount, amount, guild_id, user_id,
+        )
+
+    async def set_bank_tier(self, guild_id: int, user_id: int, tier: int) -> None:
+        await self.execute(
+            "UPDATE users SET bank_tier = ? WHERE guild_id = ? AND user_id = ?",
+            tier, guild_id, user_id,
+        )
+
+    # ── pickpocketing ───────────────────────────────────────────────────
+
+    async def set_last_pickpocket(self, guild_id: int, user_id: int, when: float) -> None:
+        await self.execute(
+            "UPDATE users SET last_pickpocket = ? WHERE guild_id = ? AND user_id = ?",
+            when, guild_id, user_id,
+        )
+
+    async def set_robbed_until(self, guild_id: int, user_id: int, until: float) -> None:
+        await self.execute(
+            "UPDATE users SET robbed_until = ? WHERE guild_id = ? AND user_id = ?",
+            until, guild_id, user_id,
+        )
+
     # ── skills ──────────────────────────────────────────────────────────
 
     async def get_skill(self, guild_id: int, user_id: int, job: str):
@@ -362,9 +405,11 @@ class Database:
     # ── leaderboards ────────────────────────────────────────────────────
 
     async def top_gold(self, guild_id: int, limit: int = 10) -> list:
+        """Ranked by total wealth (pocket + bank combined)."""
         return await self.fetchall(
-            "SELECT user_id, gold FROM users WHERE guild_id = ? AND gold > 0 "
-            "ORDER BY gold DESC LIMIT ?",
+            "SELECT user_id, gold, bank_gold, (gold + bank_gold) AS total_gold "
+            "FROM users WHERE guild_id = ? AND (gold + bank_gold) > 0 "
+            "ORDER BY total_gold DESC LIMIT ?",
             guild_id, limit,
         )
 

@@ -14,6 +14,8 @@ HELP_SECTIONS = [
     ("🏪 Market", ".inventory · .market · .sell · .shop · .buy"),
     ("🗺️ Venture", ".venture"),
     ("💰 Gold", ".balance · .daily · .pay · .profile · .leaderboard"),
+    ("🏦 Bank", ".bank · .deposit · .withdraw"),
+    ("🗡️ Crime", ".pickpocket"),
 ]
 
 

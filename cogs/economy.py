@@ -9,9 +9,20 @@ from discord import app_commands
 from discord.ext import commands
 
 from econ import formulas
+from econ.data.bank import MAX_BANK_TIER, bank_capacity, bank_upgrade_cost
 from econ.data.jobs import JOBS
 from econ.data.tools import tool_name
-from ui.panels import Palette, Panel, simple_panel
+from ui.panels import AMT_W, NAME_W, WEALTH_W, Palette, Panel, chip, simple_panel
+
+
+def _resolve_amount(text: str, available: int) -> int | None:
+    """'all'/'max' -> available; a plain number -> that number; else None."""
+    t = text.strip().lower().replace(",", "")
+    if t in ("all", "max"):
+        return available
+    if t.isdigit():
+        return int(t)
+    return None
 
 
 class Economy(commands.Cog):
@@ -32,9 +43,14 @@ class Economy(commands.Cog):
     ):
         target = member or ctx.author
         user = await self.db.get_user(ctx.guild.id, target.id)
+        pocket, bank = user["gold"], user["bank_gold"]
+        cap = bank_capacity(user["bank_tier"])
         panel = Panel(timeout=None)
         panel.header(f"💰 {target.display_name}'s Purse")
-        panel.text(f"# {formulas.fmt_gold(user['gold'])}")
+        panel.text(
+            f"👛 {chip(('Pocket', NAME_W), (f'{pocket:,}', -WEALTH_W))} 🪙\n"
+            f"🏦 Bank: **{bank:,}** / {cap:,} 🪙"
+        )
         await ctx.send(view=panel)
 
     @commands.hybrid_command(name="daily", description="Collect your daily stipend from the town coffers")
@@ -109,6 +125,148 @@ class Economy(commands.Cog):
             )
         )
 
+    # ══════════════════════════════ bank ═══════════════════════════════
+
+    @commands.hybrid_command(name="deposit", aliases=["dep"], description="Move gold from your pocket into the bank")
+    @commands.guild_only()
+    @app_commands.describe(amount="How much to deposit, or 'all'")
+    async def deposit(self, ctx: commands.Context, *, amount: str = "all"):
+        gid, uid = ctx.guild.id, ctx.author.id
+        user = await self.db.get_user(gid, uid)
+        cap = bank_capacity(user["bank_tier"])
+        room = cap - user["bank_gold"]
+        if room <= 0:
+            await ctx.send(
+                view=simple_panel(
+                    "🏦 Your bank is already full. Upgrade it with `.bank`.",
+                    accent=Palette.RED,
+                ),
+                ephemeral=True,
+            )
+            return
+        amt = _resolve_amount(amount, min(user["gold"], room))
+        if amt is None or amt <= 0:
+            await ctx.send(
+                view=simple_panel("Deposit a positive amount, or `all`.", accent=Palette.RED),
+                ephemeral=True,
+            )
+            return
+        if amt > user["gold"]:
+            await ctx.send(
+                view=simple_panel("You don't have that much on hand.", accent=Palette.RED),
+                ephemeral=True,
+            )
+            return
+        if amt > room:
+            await ctx.send(
+                view=simple_panel(
+                    f"🏦 Your bank only has room for **{room:,}** more gold.",
+                    accent=Palette.RED,
+                ),
+                ephemeral=True,
+            )
+            return
+        await self.db.deposit_gold(gid, uid, amt)
+        user = await self.db.get_user(gid, uid)
+        panel = Panel(accent=Palette.GREEN, timeout=None)
+        panel.header("🏦 Deposited")
+        panel.text(f"# {formulas.fmt_gold(amt)}")
+        panel.footer(f"Pocket: {user['gold']:,} · Bank: {user['bank_gold']:,}/{cap:,} gold")
+        await ctx.send(view=panel)
+
+    @commands.hybrid_command(name="withdraw", aliases=["with"], description="Take gold out of the bank")
+    @commands.guild_only()
+    @app_commands.describe(amount="How much to withdraw, or 'all'")
+    async def withdraw(self, ctx: commands.Context, *, amount: str = "all"):
+        gid, uid = ctx.guild.id, ctx.author.id
+        user = await self.db.get_user(gid, uid)
+        amt = _resolve_amount(amount, user["bank_gold"])
+        if amt is None or amt <= 0:
+            await ctx.send(
+                view=simple_panel("Withdraw a positive amount, or `all`.", accent=Palette.RED),
+                ephemeral=True,
+            )
+            return
+        if amt > user["bank_gold"]:
+            await ctx.send(
+                view=simple_panel("You don't have that much banked.", accent=Palette.RED),
+                ephemeral=True,
+            )
+            return
+        await self.db.withdraw_gold(gid, uid, amt)
+        user = await self.db.get_user(gid, uid)
+        cap = bank_capacity(user["bank_tier"])
+        panel = Panel(accent=Palette.GREEN, timeout=None)
+        panel.header("🏦 Withdrawn")
+        panel.text(f"# {formulas.fmt_gold(amt)}")
+        panel.footer(f"Pocket: {user['gold']:,} · Bank: {user['bank_gold']:,}/{cap:,} gold")
+        await ctx.send(view=panel)
+
+    @commands.hybrid_command(name="bank", description="The bank: your balance and capacity upgrades")
+    @commands.guild_only()
+    async def bank(self, ctx: commands.Context):
+        gid, uid = ctx.guild.id, ctx.author.id
+        user = await self.db.get_user(gid, uid)
+        tier = user["bank_tier"]
+        cap = bank_capacity(tier)
+
+        panel = Panel(accent=Palette.IRON, author_id=uid)
+        panel.header("🏦 The Bank")
+        panel.text(f"Balance: **{user['bank_gold']:,}** / {cap:,} 🪙")
+        lines = []
+        for t in range(MAX_BANK_TIER + 1):
+            cap_label = f"{bank_capacity(t):,} cap"
+            if t <= tier:
+                lines.append(f"✅ {chip((cap_label, NAME_W), ('owned', -WEALTH_W))}")
+            else:
+                icon = "🏦" if t == tier + 1 else "🔒"
+                cost = bank_upgrade_cost(t)
+                lines.append(f"{icon} {chip((cap_label, NAME_W), (f'{cost:,}', -WEALTH_W))} 🪙")
+        panel.text("\n".join(lines))
+        panel.footer(f"Your purse: {user['gold']:,} gold")
+
+        if tier < MAX_BANK_TIER:
+            cost = bank_upgrade_cost(tier + 1)
+            btn = discord.ui.Button(
+                label=f"Upgrade to {bank_capacity(tier + 1):,} cap · {cost:,} gold",
+                emoji="🏦",
+                style=discord.ButtonStyle.primary,
+            )
+            btn.callback = self._upgrade_bank
+            panel.buttons(btn)
+        panel.message = await ctx.send(view=panel)
+
+    async def _upgrade_bank(self, interaction: discord.Interaction) -> None:
+        gid, uid = interaction.guild_id, interaction.user.id
+        user = await self.db.get_user(gid, uid)
+        tier = user["bank_tier"]
+        if tier >= MAX_BANK_TIER:
+            await interaction.response.send_message(
+                view=simple_panel("Your bank is already at its finest.", accent=Palette.RED),
+                ephemeral=True,
+            )
+            return
+        cost = bank_upgrade_cost(tier + 1)
+        if user["gold"] < cost:
+            await interaction.response.send_message(
+                view=simple_panel(
+                    f"That upgrade costs {formulas.fmt_gold(cost)}, but you only "
+                    f"have {formulas.fmt_gold(user['gold'])}.",
+                    accent=Palette.RED,
+                ),
+                ephemeral=True,
+            )
+            return
+        await self.db.add_gold(gid, uid, -cost)
+        await self.db.set_bank_tier(gid, uid, tier + 1)
+        panel = Panel(accent=Palette.GREEN, timeout=None)
+        panel.header("🏦 Bank Upgraded!")
+        panel.text(
+            f"Capacity is now **{bank_capacity(tier + 1):,}** gold for "
+            f"{formulas.fmt_gold(cost)}."
+        )
+        await interaction.response.send_message(view=panel)
+
     @commands.hybrid_command(name="profile", description="Your standing in the town")
     @commands.guild_only()
     @app_commands.describe(member="Whose profile to view (default: you)")
@@ -164,23 +322,33 @@ class Economy(commands.Cog):
             title = "📖 The Most Skilled Townsfolk"
             lines = []
             for i, row in enumerate(rows):
-                emoji, _title = formulas.town_rank(row["total_level"])
+                total = row["total_level"]
+                emoji, _title = formulas.town_rank(total)
+                prefix = medals[i] if i < 3 else f"{i + 1}."
+                name = self._display_name(ctx.guild, row["user_id"])
                 lines.append(
-                    f"{medals[i] if i < 3 else f'**{i + 1}.**'} <@{row['user_id']}> · "
-                    f"**{row['total_level']}** levels {emoji}"
+                    f"{prefix} {chip((name, NAME_W), (f'{total:,}', -AMT_W))} {emoji}"
                 )
         else:
             rows = await self.db.top_gold(gid)
             title = "💰 The Richest Townsfolk"
-            lines = [
-                f"{medals[i] if i < 3 else f'**{i + 1}.**'} <@{row['user_id']}> · "
-                f"**{formulas.fmt_gold(row['gold'])}**"
-                for i, row in enumerate(rows)
-            ]
+            lines = []
+            for i, row in enumerate(rows):
+                total = row["total_gold"]
+                prefix = medals[i] if i < 3 else f"{i + 1}."
+                name = self._display_name(ctx.guild, row["user_id"])
+                lines.append(
+                    f"{prefix} {chip((name, NAME_W), (f'{total:,}', -WEALTH_W))} 🪙"
+                )
         panel = Panel(timeout=None)
         panel.header(title)
         panel.text("\n".join(lines) or "*The town ledger is empty.*")
         await ctx.send(view=panel)
+
+    @staticmethod
+    def _display_name(guild: discord.Guild, user_id: int) -> str:
+        member = guild.get_member(user_id)
+        return member.display_name if member else f"townsfolk {user_id}"
 
 
 async def setup(bot: commands.Bot):

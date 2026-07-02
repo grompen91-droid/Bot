@@ -42,7 +42,14 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
   (300 → 30,000 gold), the main gold sink.
 - **Daily stipend** (`.daily`): base + streak bonus + a bonus for total
   skill level. `.pay`, `.profile` (with lifetime deed stats),
-  `.leaderboard` for gold and skills.
+  `.leaderboard` for gold and skills (ranked by pocket + bank combined).
+- **The bank** (`.bank`, `.deposit`, `.withdraw`): banked gold is safe
+  from pickpocketing. Starts with a 5,000 gold capacity, upgradeable
+  through 5 tiers up to 750,000. `.deposit all` / `.withdraw all` work.
+- **`.pickpocket`**: 30% chance to lift 25-75% of another player's
+  *pocket* gold only, never their bank. 20-minute cooldown per
+  attacker, and a successful victim is shielded from further attempts
+  for 10 minutes. Failing costs a small fine.
 
 ## Commands
 
@@ -58,6 +65,8 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
 | `.shop` / `.buy` | The smithy, tool tiers with a buy button |
 | `.venture` | Risk a journey beyond the walls, no trade needed |
 | `.balance` / `.daily` / `.pay` / `.profile` / `.leaderboard` | Gold |
+| `.bank` / `.deposit [amount\|all]` / `.withdraw [amount\|all]` | Bank |
+| `.pickpocket <member>` | Try to lift coin from their pocket |
 | `.help` / `.about` | Guidance |
 
 ## Architecture (how to expand it)
@@ -66,18 +75,23 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
 bot.py               entry point, prefix + intents, error handling, sync
 econ/
   formulas.py        EVERY tunable number & curve, balance the game here
-  database.py        async SQLite with versioned migrations (append to
+  database.py        SQLite/Postgres with versioned migrations (append to
                      MIGRATIONS to evolve the schema safely)
+  captcha.py         anti-bot letter-challenge state
   data/
     items.py         item registry (name, emoji, value, rarity)
     jobs.py          job registry (yields, cooldown, unlock, flavour)
     tools.py         tool ladders per trade (names + prices)
+    ventures.py      venture route registry (odds, rewards, flavour)
+    bank.py          bank tier capacities and upgrade costs
 ui/
   panels.py          Components V2 medieval panel builder (fluent API)
 cogs/
   jobs.py            job board, work engine, skills
   market.py          inventory, market, sell, smithy
-  economy.py         balance, daily, pay, profile, leaderboards
+  economy.py         balance, daily, pay, profile, leaderboards, bank
+  venture.py         the .venture minigame
+  crime.py           pickpocketing
   info.py            help, about
 ```
 
