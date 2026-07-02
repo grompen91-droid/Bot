@@ -7,11 +7,13 @@ from discord.ext import commands
 from econ import formulas
 from econ.data.items import ITEMS
 from econ.data.jobs import JOBS
+from econ.data.recipes import RECIPES
 from ui.panels import Palette, Panel
 
 HELP_SECTIONS = [
     ("⚒️ Trade", ".job · .work · .skills"),
     ("🏪 Market", ".inventory · .market · .sell · .shop · .buy"),
+    ("🛠️ Crafting", ".recipes · .craft"),
     ("🗺️ Venture", ".venture"),
     ("💰 Gold", ".balance · .daily · .pay · .profile · .leaderboard"),
     ("🏦 Bank", ".bank · .deposit · .withdraw"),
@@ -45,10 +47,11 @@ class Info(commands.Cog):
         panel = Panel(accent=Palette.BLUE, timeout=None)
         panel.header("🏰 About the Town")
         panel.text(
-            f"{len(JOBS)} trades · {len(ITEMS)} goods · daily-shifting market. "
-            "No Discord roles, your rank is gold and skill alone. Walk an "
-            "honest trade and build fame, or turn to crime and build "
-            "infamy, but get caught robbing the bank and it's gone."
+            f"{len(JOBS)} trades · {len(ITEMS)} goods · {len(RECIPES)} recipes · "
+            "daily-shifting market. No Discord roles, your rank is gold and "
+            "skill alone. Walk an honest trade and build fame, or turn to "
+            "crime and build infamy, but get caught robbing the bank and "
+            "it's gone."
         )
         await ctx.send(view=panel)
 

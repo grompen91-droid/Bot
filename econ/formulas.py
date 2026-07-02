@@ -529,6 +529,16 @@ def roll_brew_reward(
     )
 
 
+# ═══════════════════════════════ crafting ═══════════════════════════════
+# A standalone skill, not tied to any trade -- anyone can craft
+# regardless of their current job. Cooldown and XP reuse the same
+# effective_cooldown()/roll_work_xp() every trade's .work uses; the
+# real incentive is the recipes themselves (see econ/data/recipes.py),
+# each priced well above its ingredients' combined market value.
+
+CRAFTING_COOLDOWN = 90   # seconds; shorter than gathering, it's assembly
+
+
 # ═══════════════════════════ progress bars ═════════════════════════════
 
 BAR_FILLED, BAR_EMPTY = "█", "░"

@@ -9,6 +9,7 @@ from discord.ext import commands
 from econ import formulas
 from econ.data.items import ITEMS, item_label
 from econ.data.jobs import JOBS
+from econ.data.recipes import RECIPES
 from econ.data.tools import MAX_TOOL_TIER, TOOLS, tool_name, tool_price
 from ui.panels import AMT_W, NAME_W, QTY_W, TOOL_W, Palette, Panel, chip, simple_panel
 
@@ -88,6 +89,18 @@ class Market(commands.Cog):
                     f"{chip((ITEMS[item]['name'], NAME_W), (f'{price:,}', -AMT_W))} 🪙{arrow}"
                 )
             panel.field(f"{info['emoji']} {info['name']}", "\n".join(lines))
+
+        craft_lines = []
+        for r in RECIPES.values():
+            item = r["output_item"]
+            base = ITEMS[item]["value"]
+            price = formulas.market_price(item, base)
+            arrow = " ▲" if price > base else (" ▼" if price < base else "")
+            craft_lines.append(
+                f"{ITEMS[item]['emoji']} "
+                f"{chip((ITEMS[item]['name'], NAME_W), (f'{price:,}', -AMT_W))} 🪙{arrow}"
+            )
+        panel.field("🛠️ Crafted Goods", "\n".join(craft_lines))
         panel.footer("▲ above usual · ▼ below")
         await ctx.send(view=panel)
 

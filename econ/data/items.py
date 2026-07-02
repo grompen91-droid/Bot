@@ -61,6 +61,17 @@ ITEMS = {
     "minor_potion":   {"name": "Minor Potion",      "emoji": "🧪", "value": 16, "rarity": "uncommon"},
     "elixir":         {"name": "Golden Elixir",     "emoji": "⚗️", "value": 55, "rarity": "epic"},
     "philosophers_dust": {"name": "Philosopher Dust", "emoji": "💫", "value": 110, "rarity": "legendary"},
+    # ── Crafted Goods (see econ/data/recipes.py) ───────────────────────────
+    "hearty_stew":            {"name": "Hearty Stew",             "emoji": "🍲", "value": 45,   "rarity": "uncommon"},
+    "fishermans_basket":      {"name": "Fisherman's Basket",      "emoji": "🧺", "value": 48,   "rarity": "uncommon"},
+    "reinforced_toolkit":     {"name": "Reinforced Toolkit",      "emoji": "🧰", "value": 85,   "rarity": "rare"},
+    "spiced_mead_cask":       {"name": "Spiced Mead Cask",        "emoji": "🛢️", "value": 190,  "rarity": "rare"},
+    "alchemical_tonic":       {"name": "Alchemical Tonic",        "emoji": "🔮", "value": 230,  "rarity": "epic"},
+    "huntsmans_cloak":        {"name": "Huntsman's Cloak",        "emoji": "🧥", "value": 320,  "rarity": "epic"},
+    "feast_of_kings":         {"name": "Feast of Kings",          "emoji": "🍗", "value": 480,  "rarity": "legendary"},
+    "dragonforged_blade":     {"name": "Dragonforged Blade",      "emoji": "⚔️", "value": 500,  "rarity": "legendary"},
+    "krakens_bounty":         {"name": "Kraken's Bounty",         "emoji": "🌊", "value": 750,  "rarity": "legendary"},
+    "philosophers_masterwork": {"name": "Philosopher's Masterwork", "emoji": "🌟", "value": 1050, "rarity": "legendary"},
 }
 
 

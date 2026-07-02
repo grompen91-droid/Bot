@@ -40,6 +40,14 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
   peak on different days and every player sees the same market.
 - **The smithy** (`.shop`, `.buy`): five tool tiers per trade
   (300 → 30,000 gold), the main gold sink.
+- **Crafting** (`.recipes`, `.craft`): a standalone skill, not tied to
+  any trade, anyone can craft regardless of their current job. Combine
+  gathered goods from across multiple trades into one higher-value
+  crafted item, gated by Crafting skill level (10 recipes across 5
+  tiers). Every recipe prices its output at roughly 2.4-2.7x the
+  combined market value of its ingredients, so it's always worth doing
+  once you've got the level and the goods. Crafting itself levels the
+  skill and counts toward total skill level like any trade.
 - **Daily stipend** (`.daily`): base + streak bonus + a bonus for total
   skill level across every trade, capped at 1,000 gold a day. `.pay`,
   `.profile` (with lifetime deed stats), `.leaderboard` for gold and
@@ -88,6 +96,7 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
 | `.market` | Today's prices with ▲▼ trends |
 | `.sell [item] [amount]` | Sell goods (`.sell` alone sells everything) |
 | `.shop` / `.buy` | The smithy, tool tiers with a buy button |
+| `.recipes` / `.craft <recipe>` | Crafting: browse and craft, no trade required |
 | `.venture` | Risk a journey beyond the walls, no trade needed |
 | `.balance` / `.daily` / `.pay` / `.profile` / `.leaderboard` | Gold |
 | `.bank` / `.deposit [amount\|all]` / `.withdraw [amount\|all]` | Bank |
@@ -112,6 +121,7 @@ econ/
     ventures.py      venture route registry (odds, rewards, flavour)
     bank.py          bank tier capacities and upgrade costs
     minigames.py     per-job minigame content (options, flavour, timing)
+    recipes.py       crafting recipe registry (ingredients, output, unlock)
 ui/
   panels.py          Components V2 medieval panel builder (fluent API)
 cogs/
@@ -123,6 +133,7 @@ cogs/
   brew.py            the .brew cauldron memory minigame
   minigames.py       the other 7 per-job minigames (harvest/dig/fish/
                      fell/hunt/bake/tend) + their *test admin twins
+  craft.py           .recipes / .craft, the standalone Crafting skill
   info.py            help, about
 ```
 

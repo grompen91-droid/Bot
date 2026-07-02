@@ -30,6 +30,13 @@ JOB_CHOICES = [
     for key, info in JOBS.items()
 ]
 
+# Skills that live in the same skills table but aren't tied to any
+# trade in JOBS (currently just Crafting, see cogs/craft.py). .skills
+# needs a display fallback for these or it silently skips the row.
+NON_JOB_SKILL_DISPLAY = {
+    "crafting": {"name": "Crafting", "emoji": "🛠️"},
+}
+
 
 class Jobs(commands.Cog):
     """Everything about earning your keep."""
@@ -549,7 +556,7 @@ class Jobs(commands.Cog):
         else:
             lines = []
             for row in rows:
-                info = JOBS.get(row["job"])
+                info = JOBS.get(row["job"]) or NON_JOB_SKILL_DISPLAY.get(row["job"])
                 if not info:
                     continue
                 needed = formulas.xp_to_next(row["level"])
