@@ -17,14 +17,16 @@ from discord import app_commands, ui
 from discord.ext import commands
 
 from econ import formulas
-from ui.panels import Palette, Panel, simple_panel
+from ui.panels import AMT_W, NAME_W, Palette, Panel, chip, simple_panel
 
 REAGENTS = {
     "herb": "🌿", "water": "💧", "fire": "🔥", "flask": "⚗️",
     "spark": "✨", "shroom": "🍄", "venom": "💀",
 }
 REAGENT_KEYS = list(REAGENTS)
-REVEAL_DELAY = 1.1  # seconds between flashing each reagent
+REVEAL_DELAY = 1.1     # seconds between flashing each reagent
+ANSWER_TIMEOUT = 30    # seconds to tap each reagent before the view expires
+HIDDEN_SLOT = "❔"
 
 
 class BrewSession:
@@ -47,11 +49,16 @@ class BrewSession:
         self.progress = 0
         self.done = False
 
+    def reveal_track(self, revealed: int) -> str:
+        shown = [REAGENTS[r] for r in self.sequence[:revealed]]
+        hidden = [HIDDEN_SLOT] * (self.length - revealed)
+        return " ".join(shown + hidden)
+
     def answer_panel(self) -> Panel:
         dots = "🟢" * self.progress + "⚪" * (self.length - self.progress)
-        panel = Panel(accent=Palette.GOLD, author_id=self.uid, timeout=30)
+        panel = Panel(accent=Palette.GOLD, author_id=self.uid, timeout=ANSWER_TIMEOUT)
         panel.header("🧪 Repeat the Sequence!")
-        panel.text(f"`{dots}`")
+        panel.text(f"`{dots}`  ({self.progress}/{self.length})")
         buttons = []
         for key in REAGENT_KEYS:
             btn = ui.Button(emoji=REAGENTS[key], style=discord.ButtonStyle.secondary)
@@ -60,6 +67,8 @@ class BrewSession:
         # Discord caps an ActionRow at 5 components; split across rows.
         for i in range(0, len(buttons), 5):
             panel.buttons(*buttons[i : i + 5])
+        deadline = int(time.time()) + ANSWER_TIMEOUT
+        panel.footer(f"⏱️ answer by <t:{deadline}:R>")
         return panel
 
     def _make_handler(self, key: str):
@@ -126,13 +135,18 @@ class BrewSession:
                 f"*You reach for {REAGENTS[wrong_key]}, but the recipe called "
                 f"for {REAGENTS[expected_key]}. The mixture curdles.*"
             )
-        lines = [f"💰 **{reward:,} 🪙**" if reward else "💰 No gold this time."]
-        if xp_gain:
-            lines.append(f"+{xp_gain} XP")
-        if levels_gained and not self.dry_run:
-            lines.append(f"⭐ Alchemist is now level **{new_level}**!")
-        panel.text("\n".join(lines))
+
+        reward_line = (
+            f"💰 {chip(('Reward', NAME_W), (f'{reward:,}', -AMT_W))} 🪙"
+            if reward else "💰 No gold this time."
+        )
+        panel.text(reward_line)
+
         footer = f"{self.progress}/{self.length} recalled correctly"
+        if xp_gain:
+            footer += f" · +{xp_gain} XP"
+        if levels_gained and not self.dry_run:
+            footer += f" · ⭐ now level {new_level}"
         if self.dry_run:
             footer = "🧪 TEST MODE, nothing was actually awarded · " + footer
         panel.footer(footer)
@@ -211,17 +225,21 @@ class Brew(commands.Cog):
         """Shared reveal-then-answer flow for both .brew and .brewtest."""
         panel = Panel(accent=Palette.PURPLE, timeout=None)
         panel.header("🧪 The Cauldron Brew")
-        intro = "👀 *Watch closely, and remember the order...*"
         if test_mode:
-            intro = "🧪 *TEST MODE, no job, cooldown, or rewards apply.*\n" + intro
-        panel.text(intro)
+            panel.text("🧪 *TEST MODE, no job, cooldown, or rewards apply.*")
+        panel.text(f"Sequence length: **{session.length}** reagents")
+        panel.text(f"`{session.reveal_track(0)}`")
+        panel.footer("👀 watch closely, and remember the order")
         message = await ctx.send(view=panel)
 
-        for reagent in session.sequence:
+        for revealed in range(1, session.length + 1):
             await asyncio.sleep(REVEAL_DELAY)
+            reagent = session.sequence[revealed - 1]
             flash = Panel(accent=Palette.PURPLE, timeout=None)
             flash.header("🧪 The Cauldron Brew")
+            flash.text(f"Reagent {revealed}/{session.length}")
             flash.text(f"# {REAGENTS[reagent]}")
+            flash.footer(f"`{session.reveal_track(revealed)}`")
             try:
                 await message.edit(view=flash)
             except discord.HTTPException:
