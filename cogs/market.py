@@ -94,6 +94,7 @@ class Market(commands.Cog):
         else:
             total = 0
             lines = []
+            any_usable = False
             for item in item_keys:
                 info_i = ITEMS[item]
                 price = formulas.market_price(item, info_i["value"])
@@ -108,15 +109,22 @@ class Market(commands.Cog):
                         f"　✨ {buff['description']}"
                     )
                 else:
-                    tag = " ✨" if buff else ""
+                    # The usable marker lives INSIDE the fixed-width chip:
+                    # anything trailing after the coin emoji wraps onto its
+                    # own line on narrow (mobile) screens and renders as a
+                    # stray symbol floating between rows.
+                    item_name = info_i["name"]
+                    if buff:
+                        any_usable = True
+                        item_name = f"{item_name[:NAME_W - 2].rstrip()} *"
                     lines.append(
                         f"{info_i['emoji']} "
-                        f"{chip((info_i['name'], NAME_W), (f'x{qty}', QTY_W), (f'{worth:,}', -AMT_W))} 🪙{tag}"
+                        f"{chip((item_name, NAME_W), (f'x{qty}', QTY_W), (f'{worth:,}', -AMT_W))} 🪙"
                     )
             panel.text("\n".join(lines))
             footer = f"Worth {total:,} gold today"
-            if category_key != "consumables":
-                footer += " · ✨ usable with `.use`"
+            if any_usable:
+                footer += " · `*` usable with `.use`"
             panel.footer(footer)
 
         select = ui.Select(placeholder="🎒 Browse a category…")
