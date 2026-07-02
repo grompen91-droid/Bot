@@ -443,6 +443,18 @@ class Minigames(commands.Cog):
     def db(self):
         return self.bot.db
 
+    @staticmethod
+    def _cooldown_for(job_key: str, config: dict) -> int:
+        """Most minigames use the usual unlock-tier cooldown curve; a
+        config can set a flat "cooldown" to override it (.rob is a
+        flat 12h, not the ~45min a free-to-start trade would otherwise
+        get from that formula)."""
+        if "cooldown" in config:
+            return config["cooldown"]
+        return formulas.minigame_cooldown(
+            JOBS[job_key]["unlock_total_level"], MAX_JOB_UNLOCK_LEVEL
+        )
+
     async def _check_access(self, ctx: commands.Context, job_key: str) -> bool:
         gid, uid = ctx.guild.id, ctx.author.id
         user = await self.db.get_user(gid, uid)
@@ -480,9 +492,7 @@ class Minigames(commands.Cog):
         if not await self._check_access(ctx, job_key):
             return
         now = time.time()
-        cooldown = formulas.minigame_cooldown(
-            JOBS[job_key]["unlock_total_level"], MAX_JOB_UNLOCK_LEVEL
-        )
+        cooldown = self._cooldown_for(job_key, config)
         last = await self.db.get_minigame_cooldown(gid, uid, job_key)
         ready_at = last + cooldown
         if now < ready_at:
@@ -556,9 +566,7 @@ class Minigames(commands.Cog):
         async def on_confirm(interaction: discord.Interaction) -> None:
             gid, uid = interaction.guild_id, interaction.user.id
             now = time.time()
-            cooldown = formulas.minigame_cooldown(
-                JOBS[job_key]["unlock_total_level"], MAX_JOB_UNLOCK_LEVEL
-            )
+            cooldown = self._cooldown_for(job_key, config)
             last = await self.db.get_minigame_cooldown(gid, uid, job_key)
             if now < last + cooldown:
                 await interaction.response.edit_message(

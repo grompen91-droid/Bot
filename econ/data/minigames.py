@@ -102,6 +102,7 @@ MINIGAMES = {
     "criminal": {
         "command": "rob", "job_name": "Criminal", "title": "🏦 The Bank Job",
         "kind": "match", "requires_confirm": True, "reward_tier_level": 50,
+        "cooldown": 12 * 60 * 60,  # flat 12h, not the usual unlock-tier formula
         "options": {
             "north": "⬆️", "south": "⬇️", "east": "➡️", "west": "⬅️", "vault": "🔓",
         },
