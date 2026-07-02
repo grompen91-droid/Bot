@@ -15,9 +15,9 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
 ## The game
 
 - **8 trades**: 🌾 Farmer, ⛏️ Miner, 🎣 Fisherman start open; 🪓 Lumberjack,
-  🏹 Hunter, 🍞 Baker, 🍺 Brewer, 🧪 Alchemist unlock at 4 / 8 / 14 / 20 / 30
-  total skill levels. Skill per trade is never lost; switching has a
-  5-minute cooldown.
+  🏹 Hunter, 🍞 Baker, 🍺 Brewer, 🧪 Alchemist unlock at 20 / 50 / 100 / 180 / 300
+  total skill levels, a wide ladder built for a long game. Skill per trade
+  is never lost; switching has a 5-minute cooldown.
 - **Anti-bot guard**: each work has a 1-in-20 chance of a letter
   challenge; commands and buttons stay locked (and the challenge
   repeats) until the player types the letters back in chat.
@@ -41,8 +41,9 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
 - **The smithy** (`.shop`, `.buy`): five tool tiers per trade
   (300 → 30,000 gold), the main gold sink.
 - **Daily stipend** (`.daily`): base + streak bonus + a bonus for total
-  skill level. `.pay`, `.profile` (with lifetime deed stats),
-  `.leaderboard` for gold and skills (ranked by pocket + bank combined).
+  skill level across every trade, capped at 1,000 gold a day. `.pay`,
+  `.profile` (with lifetime deed stats), `.leaderboard` for gold and
+  skills (ranked by pocket + bank combined).
 - **The bank** (`.bank`, `.deposit`, `.withdraw`): banked gold is safe
   from pickpocketing. Starts with a 5,000 gold capacity, upgradeable
   through 5 tiers up to 750,000. `.deposit all` / `.withdraw all` work.
@@ -50,12 +51,18 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
   *pocket* gold only, never their bank. 20-minute cooldown per
   attacker, and a successful victim is shielded from further attempts
   for 10 minutes. Failing costs a small fine.
-- **`.brew`**: an Alchemist-only memory minigame. Watch a sequence of
-  reagents flash by, then tap them back in order; reward scales with
-  how many you recall correctly, with a 50% bonus for a flawless
-  brew. Sequence length grows with Alchemist level (3 up to 8
-  reagents). 6-hour cooldown, but the single biggest payout in the
-  game — no risk of loss, only how far your memory takes you.
+- **`.brew`**: a memory minigame, and the first of the per-job minigames.
+  Watch a sequence of reagents flash by, then tap them back in order
+  before a 20-second-per-tap timer runs out; one wrong tap ends the
+  attempt and the reward reflects how far you got, with a 50% bonus for
+  a flawless brew. Open to current Alchemists always, or anyone with
+  Alchemist skill level 5+ even without the job. Sequence length grows
+  with Alchemist level (3 up to 8 reagents). 6-hour cooldown, but the
+  single biggest payout in the game — no risk of loss, only how far
+  your memory takes you. Reward scales with skill level (low at level
+  1, up to 6x that at max level) and with how late-game the trade is to
+  unlock in the first place — Alchemist starts far higher per round
+  than a starter trade's minigame would.
 
 ## Commands
 
@@ -73,7 +80,7 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
 | `.balance` / `.daily` / `.pay` / `.profile` / `.leaderboard` | Gold |
 | `.bank` / `.deposit [amount\|all]` / `.withdraw [amount\|all]` | Bank |
 | `.pickpocket <member>` | Try to lift coin from their pocket |
-| `.brew` | Cauldron memory minigame (Alchemist only, biggest payout) |
+| `.brew` | Cauldron memory minigame (Alchemist, or lvl 5+ in it, biggest payout) |
 | `.brewtest [level]` | Admin-only: try the minigame with no job/cooldown/rewards |
 | `.help` / `.about` | Guidance |
 

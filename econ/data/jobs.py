@@ -58,7 +58,7 @@ JOBS = {
     },
     "lumberjack": {
         "name": "Lumberjack", "emoji": "🪓", "cooldown": 60, "tip": (2, 6),
-        "unlock_total_level": 4,
+        "unlock_total_level": 20,
         "description": "Fell the great trees of the king's forest.",
         "yields": [
             ("birch_log", 3, 7, 42), ("oak_log", 2, 5, 32), ("maple_log", 1, 3, 18),
@@ -73,7 +73,7 @@ JOBS = {
     },
     "hunter": {
         "name": "Hunter", "emoji": "🏹", "cooldown": 70, "tip": (3, 7),
-        "unlock_total_level": 8,
+        "unlock_total_level": 50,
         "description": "Stalk game through wood and moor.",
         "yields": [
             ("rabbit", 1, 3, 36), ("pelt", 1, 3, 30), ("venison", 1, 2, 22),
@@ -88,7 +88,7 @@ JOBS = {
     },
     "baker": {
         "name": "Baker", "emoji": "🍞", "cooldown": 75, "tip": (3, 8),
-        "unlock_total_level": 14,
+        "unlock_total_level": 100,
         "description": "Fill the town square with the smell of fresh bread.",
         "yields": [
             ("bread", 2, 4, 48), ("meat_pie", 1, 3, 34),
@@ -103,7 +103,7 @@ JOBS = {
     },
     "brewer": {
         "name": "Brewer", "emoji": "🍺", "cooldown": 80, "tip": (3, 9),
-        "unlock_total_level": 20,
+        "unlock_total_level": 180,
         "description": "Brew ale and mead for thirsty townsfolk.",
         "yields": [
             ("ale", 2, 4, 50), ("mead", 1, 3, 36),
@@ -118,7 +118,7 @@ JOBS = {
     },
     "alchemist": {
         "name": "Alchemist", "emoji": "🧪", "cooldown": 90, "tip": (4, 10),
-        "unlock_total_level": 30,
+        "unlock_total_level": 300,
         "description": "Brew potions and strange tinctures in your tower.",
         "yields": [
             ("herbs", 2, 5, 48), ("minor_potion", 1, 2, 36),

@@ -196,8 +196,8 @@ def market_price(item_key: str, base_value: int, day: int | None = None) -> int:
 DAILY_BASE = 100
 DAILY_STREAK_BONUS = 8
 DAILY_STREAK_CAP = 30
-DAILY_LEVEL_BONUS = 2
-DAILY_LEVEL_BONUS_CAP = 150
+DAILY_LEVEL_BONUS = 1
+DAILY_LEVEL_BONUS_CAP = 660  # 100 base + 240 max streak + 660 = 1,000 max
 
 
 def daily_payout(streak: int, total_level: int) -> tuple[int, int, int]:
@@ -324,6 +324,55 @@ def roll_pickpocket(target_pocket: int) -> tuple[bool, int]:
     return False, -fine
 
 
+# ═══════════════════════════ job minigames ══════════════════════════════
+# Shared reward curve for every per-job minigame (the cauldron brew,
+# and its siblings for the other trades). Each round has a base value
+# that:
+#   1. Starts low for a starter trade, higher for a trade that was
+#      harder to unlock in the first place (Alchemist pays much more
+#      per round than Farmer from square one).
+#   2. Grows as YOUR skill in that specific trade grows: level 1 pays
+#      the tier's floor, level MAX_LEVEL pays MINIGAME_MAX_MULTIPLIER
+#      times that floor.
+# On top of that, coin_multiplier(total_level) still applies (total
+# skill across every trade), and a flawless run gets a perfect bonus.
+# This is what every per-job minigame's roll_*_reward() should build on.
+
+MINIGAME_BASE_MIN = 50            # starter-trade floor, at skill level 1
+MINIGAME_BASE_MIN_HARDEST = 400   # floor for the hardest trade to unlock
+MINIGAME_MAX_MULTIPLIER = 6       # floor grows to this many times itself
+MINIGAME_VARIANCE = 0.15          # +/- randomness applied on top
+
+
+def minigame_round_base(unlock_level: int, max_unlock_level: int, skill_level: int) -> float:
+    """Per-round reward before variance, coin_multiplier, and any
+    perfect bonus. `unlock_level` is this trade's own unlock threshold,
+    `max_unlock_level` the hardest trade's, so the floor interpolates
+    between MINIGAME_BASE_MIN and MINIGAME_BASE_MIN_HARDEST."""
+    tier_frac = (unlock_level / max_unlock_level) if max_unlock_level else 0.0
+    floor = MINIGAME_BASE_MIN + (MINIGAME_BASE_MIN_HARDEST - MINIGAME_BASE_MIN) * tier_frac
+    level_frac = (max(1, skill_level) - 1) / (MAX_LEVEL - 1)
+    return floor * (1 + (MINIGAME_MAX_MULTIPLIER - 1) * level_frac)
+
+
+def roll_minigame_reward(
+    correct: int, length: int, unlock_level: int, max_unlock_level: int,
+    skill_level: int, total_level: int, *, perfect_bonus: float = 1.5,
+) -> tuple[int, bool]:
+    """Returns (gold, was_perfect) for one attempt at a per-job
+    minigame. Reward is proportional to rounds correctly cleared; a
+    flawless run gets `perfect_bonus` on top."""
+    if correct <= 0:
+        return 0, False
+    base = minigame_round_base(unlock_level, max_unlock_level, skill_level)
+    variance = random.uniform(1 - MINIGAME_VARIANCE, 1 + MINIGAME_VARIANCE)
+    reward = base * variance * correct * coin_multiplier(total_level)
+    perfect = correct >= length > 0
+    if perfect:
+        reward *= perfect_bonus
+    return round(reward), perfect
+
+
 # ═══════════════════════════ the cauldron brew ═════════════════════════
 # A memory minigame: recall a reagent sequence in order. No risk of
 # loss, reward scales with how many you get right, with a bonus for a
@@ -341,7 +390,6 @@ BREW_MIN_LEVEL_WITHOUT_JOB = 5
 BREW_MIN_LENGTH = 3
 BREW_MAX_LENGTH = 8
 BREW_LEVEL_PER_STEP = 15   # +1 reagent per 15 Alchemist levels
-BREW_REWARD_PER_SYMBOL = (150, 280)
 BREW_PERFECT_BONUS = 1.5
 BREW_XP_PER_SYMBOL = 3
 
@@ -350,17 +398,16 @@ def brew_sequence_length(level: int) -> int:
     return min(BREW_MAX_LENGTH, BREW_MIN_LENGTH + level // BREW_LEVEL_PER_STEP)
 
 
-def roll_brew_reward(correct: int, length: int, total_level: int) -> tuple[int, bool]:
+def roll_brew_reward(
+    correct: int, length: int, skill_level: int, total_level: int,
+    unlock_level: int, max_unlock_level: int,
+) -> tuple[int, bool]:
     """Returns (gold, was_perfect). Reward is proportional to reagents
     correctly recalled; a flawless brew gets a 50% bonus on top."""
-    if correct <= 0:
-        return 0, False
-    per_symbol = random.randint(*BREW_REWARD_PER_SYMBOL)
-    reward = per_symbol * correct * coin_multiplier(total_level)
-    perfect = correct >= length > 0
-    if perfect:
-        reward *= BREW_PERFECT_BONUS
-    return round(reward), perfect
+    return roll_minigame_reward(
+        correct, length, unlock_level, max_unlock_level, skill_level,
+        total_level, perfect_bonus=BREW_PERFECT_BONUS,
+    )
 
 
 # ═══════════════════════════ progress bars ═════════════════════════════

@@ -20,6 +20,7 @@ from discord import app_commands, ui
 from discord.ext import commands
 
 from econ import formulas
+from econ.data.jobs import JOBS
 from ui.panels import AMT_W, NAME_W, Palette, Panel, chip, simple_panel
 
 REAGENTS = {
@@ -28,6 +29,7 @@ REAGENTS = {
 }
 REAGENT_KEYS = list(REAGENTS)
 REVEAL_DELAY = 1.1     # seconds between flashing each reagent
+MAX_JOB_UNLOCK_LEVEL = max(info["unlock_total_level"] for info in JOBS.values())
 ANSWER_TIMEOUT = 20    # seconds to tap each reagent before the view expires
 
 
@@ -100,7 +102,10 @@ class BrewSession:
         expected_key: str | None = None,
     ) -> None:
         total = await self.db.total_level(self.gid, self.uid)
-        reward, perfect = formulas.roll_brew_reward(self.progress, self.length, total)
+        reward, perfect = formulas.roll_brew_reward(
+            self.progress, self.length, self.level, total,
+            JOBS["alchemist"]["unlock_total_level"], MAX_JOB_UNLOCK_LEVEL,
+        )
         xp_gain = self.progress * formulas.BREW_XP_PER_SYMBOL
 
         new_level, new_xp, levels_gained = formulas.apply_xp(
