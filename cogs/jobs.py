@@ -260,8 +260,10 @@ class Jobs(commands.Cog):
         if getattr(result, "is_captcha", False):
             await interaction.response.send_message(view=result)
             return
-        result.message = interaction.message
-        await interaction.response.edit_message(view=result)
+        # A fresh message each time, not an edit-in-place, so every
+        # work is its own entry in the channel history.
+        await interaction.response.send_message(view=result)
+        result.message = await interaction.original_response()
 
     def _make_sell_haul_handler(self, hauls: list[tuple[str, int]]):
         """Binds the Sell Haul button to exactly the items this one
