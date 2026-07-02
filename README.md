@@ -59,6 +59,12 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
   kind stack additively while both are up. `.inventory` has a category
   dropdown (like `.market`) so it's obvious at a glance what's usable
   and what it does.
+- **`.cd` / `.cooldown`**: every timer you're currently carrying in one
+  place, gold and skill trades, crime, brewing, minigames, all of it,
+  with a live `<t:...:R>` countdown or a plain "ready now." Only shows
+  what you actually have access to (e.g. `.brew` stays hidden until
+  you're an Alchemist or Alchemist level 5+), so it doesn't turn into a
+  wall of things you can't do yet.
 - **Daily stipend** (`.daily`): base + streak bonus + a bonus for total
   skill level across every trade, capped at 1,000 gold a day. `.pay`,
   `.profile` (with lifetime deed stats), `.leaderboard` for gold and
@@ -127,6 +133,7 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
 | `.beg` | A tiny, reliable trickle of gold, no job or skill needed |
 | `.harvest` / `.dig` / `.fish` / `.fell` / `.hunt` / `.bake` / `.tend` / `.brew` | Job minigames (current job, or lvl 5+ in it) |
 | `.harvesttest` / `.digtest` / `.fishtest` / `.felltest` / `.hunttest` / `.baketest` / `.tendtest` / `.brewtest [level]` | Admin-only: try any minigame with no job/cooldown/rewards |
+| `.cd` / `.cooldown` | Every cooldown you're currently carrying, at a glance |
 | `.help` / `.about` | Guidance |
 
 ## Architecture (how to expand it)

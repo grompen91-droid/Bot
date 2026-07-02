@@ -370,7 +370,7 @@ class Economy(commands.Cog):
                 total = row["total_level"]
                 emoji, _title = formulas.town_rank(total)
                 prefix = medals[i] if i < 3 else f"{i + 1}."
-                name = self._display_name(ctx.guild, row["user_id"])
+                name = await self._display_name(ctx.guild, row["user_id"])
                 lines.append(
                     f"{prefix} {chip((name, NAME_W), (f'{total:,}', -AMT_W))} {emoji}"
                 )
@@ -381,7 +381,7 @@ class Economy(commands.Cog):
             for i, row in enumerate(rows):
                 total = row["total_gold"]
                 prefix = medals[i] if i < 3 else f"{i + 1}."
-                name = self._display_name(ctx.guild, row["user_id"])
+                name = await self._display_name(ctx.guild, row["user_id"])
                 lines.append(
                     f"{prefix} {chip((name, NAME_W), (f'{total:,}', -WEALTH_W))} 🪙"
                 )
@@ -391,9 +391,17 @@ class Economy(commands.Cog):
         await ctx.send(view=panel)
 
     @staticmethod
-    def _display_name(guild: discord.Guild, user_id: int) -> str:
+    async def _display_name(guild: discord.Guild, user_id: int) -> str:
+        """The member cache only holds whoever the bot has recently seen
+        (no members intent), so a leaderboard entry for someone quiet is
+        a cache miss, not someone who left -- fetch before giving up."""
         member = guild.get_member(user_id)
-        return member.display_name if member else f"townsfolk {user_id}"
+        if member is None:
+            try:
+                member = await guild.fetch_member(user_id)
+            except discord.HTTPException:
+                return f"townsfolk {user_id}"
+        return member.display_name
 
 
 async def setup(bot: commands.Bot):
