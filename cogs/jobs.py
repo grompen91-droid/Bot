@@ -115,7 +115,7 @@ class Jobs(commands.Cog):
         ]
         if len(hauls) > 1:
             haul_lines[-1] += " *(bonus find)*"
-        haul_lines.append(f"💰 **{formulas.fmt_gold(tip)}** tip")
+        haul_lines.append(f"💰 Tip · **{formulas.fmt_gold(tip)}**")
         panel.text("\n".join(haul_lines))
 
         if levels_gained:
@@ -142,7 +142,11 @@ class Jobs(commands.Cog):
             label="Work Again", emoji="⚒️", style=discord.ButtonStyle.secondary
         )
         work_btn.callback = self._work_again
-        panel.buttons(work_btn)
+        sell_btn = ui.Button(
+            label="Sell All", emoji="🏪", style=discord.ButtonStyle.secondary
+        )
+        sell_btn.callback = self._sell_all
+        panel.buttons(work_btn, sell_btn)
         return panel
 
     @staticmethod
@@ -172,6 +176,16 @@ class Jobs(commands.Cog):
             return
         result.message = interaction.message
         await interaction.response.edit_message(view=result)
+
+    async def _sell_all(self, interaction: discord.Interaction) -> None:
+        market = self.bot.get_cog("Market")
+        result = await market.build_sell_all_panel(
+            interaction.guild_id, interaction.user.id
+        )
+        if isinstance(result, str):
+            await interaction.response.send_message(result, ephemeral=True)
+            return
+        await interaction.response.send_message(view=result)
 
     # ══════════════════════════ job commands ═══════════════════════════
 

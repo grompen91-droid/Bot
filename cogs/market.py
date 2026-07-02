@@ -80,8 +80,8 @@ class Market(commands.Cog):
             for item, *_rest in info["yields"]:
                 base = ITEMS[item]["value"]
                 price = formulas.market_price(item, base)
-                arrow = " ▲" if price > base else (" ▼" if price < base else "")
-                lines.append(f"{item_label(item)} · **{formulas.fmt_gold(price)}**{arrow}")
+                arrow = "▲ " if price > base else ("▼ " if price < base else "")
+                lines.append(f"{item_label(item)} · {arrow}**{formulas.fmt_gold(price)}**")
             panel.field(f"{info['emoji']} {info['name']}", "\n".join(lines))
         panel.footer("▲ above the usual rate · ▼ below · sell with .sell")
         await ctx.send(view=panel)
@@ -118,7 +118,13 @@ class Market(commands.Cog):
         gid, uid = ctx.guild.id, ctx.author.id
 
         if item is None or item.lower() in ("all", "everything"):
-            await self._sell_everything(ctx)
+            result = await self.build_sell_all_panel(gid, uid)
+            if isinstance(result, str):
+                await ctx.send(
+                    view=simple_panel(result, accent=Palette.RED), ephemeral=True
+                )
+            else:
+                await ctx.send(view=result)
             return
 
         item_key = resolve_item(item)
@@ -153,25 +159,20 @@ class Market(commands.Cog):
         panel = Panel(accent=Palette.GREEN, timeout=None)
         panel.header("🏪 Sold!")
         panel.text(
-            f"{rarity_badge(item_key)}{item_label(item_key)} × **{qty}** at "
-            f"{formulas.fmt_gold(price)} each → **{formulas.fmt_gold(earned)}**"
+            f"{rarity_badge(item_key)}{item_label(item_key)} × **{qty}** · "
+            f"**{formulas.fmt_gold(earned)}**"
         )
-        panel.footer(f"Purse: {balance:,} gold")
+        panel.footer(f"{price:,} gold each · Purse: {balance:,} gold")
         await ctx.send(view=panel)
 
-    async def _sell_everything(self, ctx: commands.Context) -> None:
-        gid, uid = ctx.guild.id, ctx.author.id
+    async def build_sell_all_panel(self, gid: int, uid: int) -> Panel | str:
+        """Sell the whole satchel. Returns a result Panel, or an error string.
+        Also used by the Sell All button on work results."""
         rows = [
             r for r in await self.db.get_inventory(gid, uid) if r["item"] in ITEMS
         ]
         if not rows:
-            await ctx.send(
-                view=simple_panel(
-                    "You have nothing to sell. Go `.work` first!", accent=Palette.RED
-                ),
-                ephemeral=True,
-            )
-            return
+            return "You have nothing to sell. Go `.work` first!"
         total, count, lines = 0, 0, []
         for row in rows:
             price = formulas.market_price(row["item"], ITEMS[row["item"]]["value"])
@@ -180,7 +181,7 @@ class Market(commands.Cog):
             total += earned
             count += row["qty"]
             lines.append(
-                f"{item_label(row['item'])} × {row['qty']} → {formulas.fmt_gold(earned)}"
+                f"{item_label(row['item'])} × {row['qty']} · {formulas.fmt_gold(earned)}"
             )
         balance = await self.db.add_gold(gid, uid, total)
         await self.db.incr_stat(gid, uid, "items_sold", count)
@@ -190,9 +191,9 @@ class Market(commands.Cog):
         panel.header("🏪 Everything Sold!")
         panel.text("\n".join(lines))
         panel.divider()
-        panel.text(f"### Total: {formulas.fmt_gold(total)}")
+        panel.text(f"**Total · {formulas.fmt_gold(total)}**")
         panel.footer(f"Purse: {balance:,} gold")
-        await ctx.send(view=panel)
+        return panel
 
     # ══════════════════════════ the smithy ═════════════════════════════
 
@@ -227,19 +228,22 @@ class Market(commands.Cog):
             name = TOOLS[job_key][t - 1]
             mult = formulas.tool_multiplier(t)
             if t <= tier:
-                status = "✅"
+                lines.append(f"✅ **{name}** ×{mult:.2f}")
             elif t == tier + 1:
-                status = f"**{formulas.fmt_gold(tool_price(t))}**"
+                lines.append(
+                    f"⚒️ **{name}** ×{mult:.2f} · **{formulas.fmt_gold(tool_price(t))}**"
+                )
             else:
-                status = f"🔒 {formulas.fmt_gold(tool_price(t))}"
-            lines.append(f"**{name}** *(×{mult:.2f})* · {status}")
+                lines.append(
+                    f"🔒 **{name}** ×{mult:.2f} · {formulas.fmt_gold(tool_price(t))}"
+                )
         panel.text("\n".join(lines))
         panel.footer(f"Your purse: {user['gold']:,} gold")
 
         if tier < MAX_TOOL_TIER:
             next_name = TOOLS[job_key][tier]
             buy_btn = ui.Button(
-                label=f"Buy {next_name} ({tool_price(tier + 1):,} gold)",
+                label=f"Buy {next_name} · {tool_price(tier + 1):,} gold",
                 emoji="⚒️",
                 style=discord.ButtonStyle.primary,
             )
