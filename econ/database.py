@@ -163,8 +163,36 @@ class Database:
         else:
             version = row["version"]
         for target, script in enumerate(MIGRATIONS[version:], start=version + 1):
-            await self._script(script)
-            await self.execute("UPDATE schema_meta SET version = ?", target)
+            await self._apply_migration(script, target)
+
+    async def _apply_migration(self, script: str, target_version: int) -> None:
+        """Run a migration script and bump schema_meta atomically, so an
+        interrupted deploy can never leave the schema and the recorded
+        version out of sync. If it turns out the schema already has this
+        migration's changes (an earlier attempt applied them before
+        crashing, right before the version bump), just catch the
+        version up instead of failing on 'column already exists' forever.
+        """
+        try:
+            if self.is_postgres:
+                async with self._pool.acquire() as conn:
+                    async with conn.transaction():
+                        await conn.execute(script)
+                        await conn.execute(
+                            self._q("UPDATE schema_meta SET version = ?"),
+                            target_version,
+                        )
+            else:
+                await self._conn.executescript(script)
+                await self._conn.execute(
+                    "UPDATE schema_meta SET version = ?", (target_version,)
+                )
+                await self._conn.commit()
+        except Exception as e:
+            msg = str(e).lower()
+            if "already exists" not in msg and "duplicate column" not in msg:
+                raise
+            await self.execute("UPDATE schema_meta SET version = ?", target_version)
 
     # ── users ───────────────────────────────────────────────────────────
 
