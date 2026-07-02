@@ -57,10 +57,13 @@ class Craft(commands.Cog):
             )
             lines.append(
                 f"{status} {out['emoji']} **{r['name']}** (Lv {r['unlock_level']})\n"
-                f"　{ing_text} → {formulas.fmt_gold(out['value'])}"
+                f"　needs {ing_text} · yields the item, worth ~{formulas.fmt_gold(out['value'])}"
             )
         panel.text("\n\n".join(lines))
-        panel.footer(f"🛠️ Crafting Lv {level} · craft with .craft <recipe>")
+        panel.footer(
+            f"🛠️ Crafting Lv {level} · craft with .craft <recipe> · "
+            "you get the item itself, not gold"
+        )
         await ctx.send(view=panel)
 
     @commands.hybrid_command(

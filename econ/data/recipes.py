@@ -8,10 +8,12 @@ itself. unlock_level is the Crafting skill level required to attempt
 the recipe. ingredients is a list of (item_key, qty), all consumed on
 a successful craft; output_item is minted x1 in return.
 
-Every recipe here prices its output at roughly 2.4-2.7x the combined
+Every recipe here prices its output at roughly 3.5-4.4x the combined
 market value of its ingredients, so crafting is always worth doing
 once you've got the level and the goods -- the markup is the whole
-point of the skill.
+point of the skill. Crafting always mints the actual output item into
+your satchel, never gold directly; .market and .recipes show its
+market value just so you know what it's worth before you sell it.
 """
 
 from .items import ITEMS
