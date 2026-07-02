@@ -12,6 +12,7 @@ database, tracked in the schema_meta table.
 """
 
 import os
+from functools import lru_cache
 
 MIGRATIONS: list[str] = [
     # v1, initial schema
@@ -127,15 +128,19 @@ class Database:
 
     # ── driver plumbing ─────────────────────────────────────────────────
 
-    def _q(self, sql: str) -> str:
-        """Convert ?-placeholders to $1..$n for asyncpg."""
-        if not self.is_postgres:
-            return sql
+    @staticmethod
+    @lru_cache(maxsize=512)
+    def _to_postgres(sql: str) -> str:
+        """Convert ?-placeholders to $1..$n for asyncpg. The query set is
+        small and fixed, so the conversion is memoised."""
         parts = sql.split("?")
         out = parts[0]
         for i, part in enumerate(parts[1:], start=1):
             out += f"${i}{part}"
         return out
+
+    def _q(self, sql: str) -> str:
+        return self._to_postgres(sql) if self.is_postgres else sql
 
     async def connect(self) -> None:
         if self.is_postgres:
@@ -179,6 +184,21 @@ class Database:
         else:
             await self._conn.execute(sql, args)
             await self._conn.commit()
+
+    async def execute_rowcount(self, sql: str, *args) -> int:
+        """Execute and return how many rows were affected. This is what
+        makes conditional updates (`... AND gold >= ?`) usable as atomic
+        check-and-take operations instead of racy check-then-act pairs."""
+        if self.is_postgres:
+            async with self._pool.acquire() as conn:
+                status = await conn.execute(self._q(sql), *args)
+            try:
+                return int(status.rsplit(" ", 1)[-1])  # e.g. "UPDATE 1"
+            except ValueError:
+                return 0
+        cur = await self._conn.execute(sql, args)
+        await self._conn.commit()
+        return cur.rowcount
 
     async def fetchone(self, sql: str, *args):
         if self.is_postgres:
@@ -239,6 +259,14 @@ class Database:
     # ── users ───────────────────────────────────────────────────────────
 
     async def get_user(self, guild_id: int, user_id: int):
+        # Fast path: almost every call is for a user who already exists,
+        # so try the plain SELECT before paying for the ensure-INSERT.
+        row = await self.fetchone(
+            "SELECT * FROM users WHERE guild_id = ? AND user_id = ?",
+            guild_id, user_id,
+        )
+        if row is not None:
+            return row
         await self.execute(
             "INSERT INTO users (guild_id, user_id) VALUES (?, ?) "
             "ON CONFLICT (guild_id, user_id) DO NOTHING",
@@ -251,10 +279,11 @@ class Database:
 
     async def add_gold(self, guild_id: int, user_id: int, amount: int) -> int:
         """Add (or subtract) gold; returns the new balance."""
-        await self.get_user(guild_id, user_id)
         await self.execute(
-            "UPDATE users SET gold = gold + ? WHERE guild_id = ? AND user_id = ?",
-            amount, guild_id, user_id,
+            "INSERT INTO users (guild_id, user_id, gold) VALUES (?, ?, ?) "
+            "ON CONFLICT (guild_id, user_id) "
+            "DO UPDATE SET gold = users.gold + excluded.gold",
+            guild_id, user_id, amount,
         )
         row = await self.fetchone(
             "SELECT gold FROM users WHERE guild_id = ? AND user_id = ?",
@@ -262,18 +291,31 @@ class Database:
         )
         return row["gold"]
 
+    async def spend_gold(self, guild_id: int, user_id: int, amount: int) -> bool:
+        """Deduct gold only if the pocket covers it; False otherwise.
+        The purchase primitive: a double-clicked buy button can't drive
+        a purse negative through two racing deductions."""
+        taken = await self.execute_rowcount(
+            "UPDATE users SET gold = gold - ? "
+            "WHERE guild_id = ? AND user_id = ? AND gold >= ?",
+            amount, guild_id, user_id, amount,
+        )
+        return bool(taken)
+
     async def transfer_gold(
         self, guild_id: int, from_id: int, to_id: int, amount: int
     ) -> bool:
-        """Move gold between users; False if the sender is short."""
-        sender = await self.get_user(guild_id, from_id)
-        if sender["gold"] < amount:
-            return False
+        """Move gold between users; False if the sender is short. The
+        debit is a conditional update, so two concurrent transfers can
+        never spend the same gold twice."""
         await self.get_user(guild_id, to_id)
-        await self.execute(
-            "UPDATE users SET gold = gold - ? WHERE guild_id = ? AND user_id = ?",
-            amount, guild_id, from_id,
+        taken = await self.execute_rowcount(
+            "UPDATE users SET gold = gold - ? "
+            "WHERE guild_id = ? AND user_id = ? AND gold >= ?",
+            amount, guild_id, from_id, amount,
         )
+        if not taken:
+            return False
         await self.execute(
             "UPDATE users SET gold = gold + ? WHERE guild_id = ? AND user_id = ?",
             amount, guild_id, to_id,
@@ -310,19 +352,28 @@ class Database:
 
     # ── bank ────────────────────────────────────────────────────────────
 
-    async def deposit_gold(self, guild_id: int, user_id: int, amount: int) -> None:
-        await self.execute(
+    async def deposit_gold(
+        self, guild_id: int, user_id: int, amount: int, capacity: int
+    ) -> bool:
+        """Move pocket gold into the bank; False if the pocket is short
+        or the bank would overflow. Conditional, so double-clicking the
+        command can't overdraw the pocket or overfill the bank."""
+        moved = await self.execute_rowcount(
             "UPDATE users SET gold = gold - ?, bank_gold = bank_gold + ? "
-            "WHERE guild_id = ? AND user_id = ?",
-            amount, amount, guild_id, user_id,
+            "WHERE guild_id = ? AND user_id = ? "
+            "AND gold >= ? AND bank_gold + ? <= ?",
+            amount, amount, guild_id, user_id, amount, amount, capacity,
         )
+        return bool(moved)
 
-    async def withdraw_gold(self, guild_id: int, user_id: int, amount: int) -> None:
-        await self.execute(
+    async def withdraw_gold(self, guild_id: int, user_id: int, amount: int) -> bool:
+        """Move banked gold back to the pocket; False if the bank is short."""
+        moved = await self.execute_rowcount(
             "UPDATE users SET gold = gold + ?, bank_gold = bank_gold - ? "
-            "WHERE guild_id = ? AND user_id = ?",
-            amount, amount, guild_id, user_id,
+            "WHERE guild_id = ? AND user_id = ? AND bank_gold >= ?",
+            amount, amount, guild_id, user_id, amount,
         )
+        return bool(moved)
 
     async def set_bank_tier(self, guild_id: int, user_id: int, tier: int) -> None:
         await self.execute(
@@ -360,10 +411,11 @@ class Database:
         succeeding at a legit minigame passes a positive one. The one
         way it snaps back is set_reputation(0) when a bank job goes
         wrong. Returns the new total."""
-        await self.get_user(guild_id, user_id)
         await self.execute(
-            "UPDATE users SET reputation = reputation + ? WHERE guild_id = ? AND user_id = ?",
-            delta, guild_id, user_id,
+            "INSERT INTO users (guild_id, user_id, reputation) VALUES (?, ?, ?) "
+            "ON CONFLICT (guild_id, user_id) "
+            "DO UPDATE SET reputation = users.reputation + excluded.reputation",
+            guild_id, user_id, delta,
         )
         row = await self.fetchone(
             "SELECT reputation FROM users WHERE guild_id = ? AND user_id = ?",
@@ -410,6 +462,18 @@ class Database:
         )
         return row["last_played"] if row else 0.0
 
+    async def get_minigame_cooldowns(
+        self, guild_id: int, user_id: int
+    ) -> dict[str, float]:
+        """All of a player's minigame cooldowns in one query, for views
+        like .cd that would otherwise fetch them one game at a time."""
+        rows = await self.fetchall(
+            "SELECT job, last_played FROM minigame_cooldowns "
+            "WHERE guild_id = ? AND user_id = ?",
+            guild_id, user_id,
+        )
+        return {row["job"]: row["last_played"] for row in rows}
+
     async def set_minigame_cooldown(
         self, guild_id: int, user_id: int, job: str, when: float
     ) -> None:
@@ -423,6 +487,13 @@ class Database:
     # ── skills ──────────────────────────────────────────────────────────
 
     async def get_skill(self, guild_id: int, user_id: int, job: str):
+        # Fast path first, same reasoning as get_user.
+        row = await self.fetchone(
+            "SELECT * FROM skills WHERE guild_id = ? AND user_id = ? AND job = ?",
+            guild_id, user_id, job,
+        )
+        if row is not None:
+            return row
         await self.execute(
             "INSERT INTO skills (guild_id, user_id, job) VALUES (?, ?, ?) "
             "ON CONFLICT (guild_id, user_id, job) DO NOTHING",
@@ -501,14 +572,16 @@ class Database:
     async def remove_item(
         self, guild_id: int, user_id: int, item: str, qty: int
     ) -> bool:
-        """Remove qty of an item; False if the user doesn't hold enough."""
-        if await self.get_item_qty(guild_id, user_id, item) < qty:
-            return False
-        await self.execute(
+        """Remove qty of an item; False if the user doesn't hold enough.
+        Conditional, so two concurrent spends can't consume the same
+        goods twice (e.g. .sell racing the Sell Haul button)."""
+        removed = await self.execute_rowcount(
             "UPDATE inventory SET qty = qty - ? "
-            "WHERE guild_id = ? AND user_id = ? AND item = ?",
-            qty, guild_id, user_id, item,
+            "WHERE guild_id = ? AND user_id = ? AND item = ? AND qty >= ?",
+            qty, guild_id, user_id, item, qty,
         )
+        if not removed:
+            return False
         await self.execute(
             "DELETE FROM inventory "
             "WHERE guild_id = ? AND user_id = ? AND item = ? AND qty <= 0",

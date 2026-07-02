@@ -62,9 +62,14 @@ class Venture(commands.Cog):
             lo, hi = path["reward"]
             range_s = f"{round(lo * mult):,}-{round(hi * mult):,}"
             win_s = f"win {path['success']:.0%}"
+            loss_lo, loss_hi = path["loss"]
+            lose_s = (
+                f"risk {round(loss_lo * mult):,}-{round(loss_hi * mult):,} on a bad turn"
+                if loss_hi else "a safe miss, nothing lost"
+            )
             blocks.append(
                 f"{path['emoji']} **{path['name']}** · {path['risk']}\n"
-                f"{chip((win_s, 8), (range_s, -12))} 🪙"
+                f"{chip((win_s, 8), (range_s, -12))} 🪙 · *{lose_s}*"
             )
         panel.text("\n\n".join(blocks))
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from datetime import date, datetime, time as dtime, timedelta
+from datetime import datetime, time as dtime, timedelta, timezone
 
 from discord.ext import commands
 
@@ -79,6 +79,7 @@ class Info(commands.Cog):
         gid, uid = ctx.guild.id, ctx.author.id
         user = await self.db.get_user(gid, uid)
         skills = {s["job"]: s for s in await self.db.get_all_skills(gid, uid)}
+        mg_last = await self.db.get_minigame_cooldowns(gid, uid)
         now = time.time()
         # Every cooldown below is read through the same buff totals the
         # actual commands apply (see econ/buffs.py), so the countdowns
@@ -127,18 +128,20 @@ class Info(commands.Cog):
             f"{status(user['last_venture'] + apply_cooldown_buff(formulas.VENTURE_COOLDOWN, buffs))}"
         )
 
-        today = date.today()
+        # Same UTC clock .daily itself uses.
+        today = datetime.now(timezone.utc).date()
         if user["last_daily"] == today.isoformat():
-            reset_at = datetime.combine(today + timedelta(days=1), dtime.min)
+            reset_at = datetime.combine(
+                today + timedelta(days=1), dtime.min, tzinfo=timezone.utc
+            )
             daily_status = f"<t:{int(reset_at.timestamp())}:R>"
         else:
             daily_status = "✅ ready now"
         lines.append(f"🕯️ {chip(('.daily', NAME_W))} {daily_status}")
 
-        beg_last = await self.db.get_minigame_cooldown(gid, uid, "beg")
         lines.append(
             f"🥺 {chip(('.beg', NAME_W))} "
-            f"{status(beg_last + apply_cooldown_buff(formulas.BEG_COOLDOWN, buffs))}"
+            f"{status(mg_last.get('beg', 0.0) + apply_cooldown_buff(formulas.BEG_COOLDOWN, buffs))}"
         )
 
         crime_access = (
@@ -150,15 +153,13 @@ class Info(commands.Cog):
                 f"🗡️ {chip(('.pickpocket', NAME_W))} "
                 f"{status(user['last_pickpocket'] + apply_cooldown_buff(formulas.PICKPOCKET_COOLDOWN, buffs))}"
             )
-            smuggle_last = await self.db.get_minigame_cooldown(gid, uid, "smuggle")
             lines.append(
                 f"🚚 {chip(('.smuggle', NAME_W))} "
-                f"{status(smuggle_last + apply_cooldown_buff(formulas.SMUGGLE_COOLDOWN, buffs))}"
+                f"{status(mg_last.get('smuggle', 0.0) + apply_cooldown_buff(formulas.SMUGGLE_COOLDOWN, buffs))}"
             )
-            rob_last = await self.db.get_minigame_cooldown(gid, uid, "criminal")
             lines.append(
                 f"🏦 {chip(('.rob', NAME_W))} "
-                f"{status(rob_last + apply_cooldown_buff(MINIGAMES['criminal']['cooldown'], buffs))}"
+                f"{status(mg_last.get('criminal', 0.0) + apply_cooldown_buff(MINIGAMES['criminal']['cooldown'], buffs))}"
             )
 
         if user["job"] == "alchemist" or skill_level("alchemist") >= formulas.BREW_MIN_LEVEL_WITHOUT_JOB:
@@ -182,11 +183,10 @@ class Info(commands.Cog):
                 ),
                 buffs,
             )
-            last = await self.db.get_minigame_cooldown(gid, uid, job_key)
             command_label = f".{config['command']}"
             lines.append(
                 f"{JOBS[job_key]['emoji']} {chip((command_label, NAME_W))} "
-                f"{status(last + cooldown)}"
+                f"{status(mg_last.get(job_key, 0.0) + cooldown)}"
             )
 
         panel = Panel(timeout=None)

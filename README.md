@@ -81,7 +81,8 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
   skills (ranked by pocket + bank combined).
 - **The bank** (`.bank`, `.deposit`, `.withdraw`): banked gold is safe
   from pickpocketing. Starts with a 5,000 gold capacity, upgradeable
-  through 5 tiers up to 750,000. `.deposit all` / `.withdraw all` work.
+  through 5 tiers up to 750,000. Amounts accept plain numbers, `10k` /
+  `1.5m` shorthand, `half`, and `all`.
 - **`.pickpocket`**: lift a chunk of another player's *pocket* gold
   only, never their bank. 20-minute cooldown per attacker, and a
   successful victim is shielded from further attempts for 10 minutes.
@@ -137,7 +138,7 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
 | `.use <item>` / `.buffs` | Drink/eat a consumable for its buff, or check what's active |
 | `.venture` | Risk a journey beyond the walls, no trade needed |
 | `.balance` / `.daily` / `.pay` / `.profile` / `.leaderboard` | Gold |
-| `.bank` / `.deposit [amount\|all]` / `.withdraw [amount\|all]` | Bank |
+| `.bank` / `.deposit [amount\|half\|all]` / `.withdraw [amount\|half\|all]` | Bank (`10k`/`1.5m` shorthand works) |
 | `.pickpocket <member>` | Try to lift coin from their pocket |
 | `.smuggle` | Move contraband for a real payday, real risk of losing it |
 | `.beg` | A tiny, reliable trickle of gold, no job or skill needed |

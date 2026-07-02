@@ -12,6 +12,7 @@ import math
 import random
 import zlib
 from datetime import datetime, timezone
+from functools import lru_cache
 
 # ══════════════════════════════ currency ═══════════════════════════════
 
@@ -32,6 +33,7 @@ XP_EXPONENT = 1.35
 MAX_LEVEL = 100
 
 
+@lru_cache(maxsize=None)
 def xp_to_next(level: int) -> int:
     """XP required to advance from `level` to `level + 1`."""
     return round(XP_BASE * level**XP_EXPONENT)
@@ -171,13 +173,16 @@ def utc_day() -> int:
     return datetime.now(timezone.utc).date().toordinal()
 
 
+@lru_cache(maxsize=None)
 def _item_phase(item_key: str) -> float:
     """Stable per-item offset into the price wave (hash-randomisation safe)."""
     return (zlib.crc32(item_key.encode()) % 1000) / 1000 * MARKET_WAVE_PERIOD_DAYS
 
 
-def market_factor(item_key: str, day: int | None = None) -> float:
-    day = utc_day() if day is None else day
+# Deterministic per (item, day), so memoising is free money: inventory
+# and market panels reprice dozens of items per render.
+@lru_cache(maxsize=4096)
+def _market_factor(item_key: str, day: int) -> float:
     wave = 1.0 + MARKET_WAVE_AMPLITUDE * math.sin(
         2 * math.pi * (day + _item_phase(item_key)) / MARKET_WAVE_PERIOD_DAYS
     )
@@ -185,6 +190,10 @@ def market_factor(item_key: str, day: int | None = None) -> float:
         MARKET_NOISE_LOW, MARKET_NOISE_HIGH
     )
     return max(MARKET_FACTOR_MIN, min(MARKET_FACTOR_MAX, wave * noise))
+
+
+def market_factor(item_key: str, day: int | None = None) -> float:
+    return _market_factor(item_key, utc_day() if day is None else day)
 
 
 def market_price(item_key: str, base_value: int, day: int | None = None) -> int:

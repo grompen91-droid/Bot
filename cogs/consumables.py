@@ -82,7 +82,14 @@ class Consumables(commands.Cog):
         expires_at = extend_expiry(current_expiry, item_key, now)
         capped = was_active and expires_at < current_expiry + buff["duration"]
 
-        await self.db.remove_item(gid, uid, item_key, 1)
+        if not await self.db.remove_item(gid, uid, item_key, 1):
+            await ctx.send(
+                view=simple_panel(
+                    f"You carry no {item_label(item_key)}.", accent=Palette.RED
+                ),
+                ephemeral=True,
+            )
+            return
         await self.db.add_buff(gid, uid, item_key, expires_at)
 
         panel = Panel(accent=Palette.GREEN, timeout=None)

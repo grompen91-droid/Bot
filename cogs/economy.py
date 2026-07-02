@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from datetime import date, datetime, time as dtime, timedelta
+from datetime import datetime, time as dtime, timedelta, timezone
 
 import discord
 from discord import app_commands
@@ -18,13 +18,23 @@ from ui.panels import AMT_W, NAME_W, WEALTH_W, Palette, Panel, chip, simple_pane
 
 
 def _resolve_amount(text: str, available: int) -> int | None:
-    """'all'/'max' -> available; a plain number -> that number; else None."""
+    """'all'/'max' -> available; 'half' -> half of it; a plain number,
+    optionally with a k/m suffix ('10k', '1.5m'), -> that number;
+    anything else -> None."""
     t = text.strip().lower().replace(",", "")
     if t in ("all", "max"):
         return available
-    if t.isdigit():
-        return int(t)
-    return None
+    if t == "half":
+        return available // 2
+    multiplier = 1
+    if t.endswith("k"):
+        multiplier, t = 1_000, t[:-1]
+    elif t.endswith("m"):
+        multiplier, t = 1_000_000, t[:-1]
+    try:
+        return int(float(t) * multiplier)
+    except (ValueError, OverflowError):
+        return None
 
 
 class Economy(commands.Cog):
@@ -51,8 +61,10 @@ class Economy(commands.Cog):
         panel.header(f"💰 {target.display_name}'s Purse")
         panel.text(
             f"👛 {chip(('Pocket', NAME_W), (f'{pocket:,}', -WEALTH_W))} 🪙\n"
-            f"🏦 Bank: **{bank:,}** / {cap:,} 🪙"
+            f"🏦 {chip(('Bank', NAME_W), (f'{bank:,}', -WEALTH_W))} 🪙\n"
+            f"💰 {chip(('Total', NAME_W), (f'{pocket + bank:,}', -WEALTH_W))} 🪙"
         )
+        panel.footer(f"bank capacity {cap:,} gold · leaderboard ranks by total")
         await ctx.send(view=panel)
 
     @commands.hybrid_command(name="daily", description="Collect your daily stipend from the town coffers")
@@ -60,17 +72,18 @@ class Economy(commands.Cog):
     async def daily(self, ctx: commands.Context):
         gid, uid = ctx.guild.id, ctx.author.id
         user = await self.db.get_user(gid, uid)
-        today = date.today()
+        # UTC day, same clock the market uses, so the daily rolls over at
+        # the same moment no matter where the bot is hosted.
+        today = datetime.now(timezone.utc).date()
 
         if user["last_daily"] == today.isoformat():
-            reset_at = datetime.combine(today + timedelta(days=1), dtime.min)
-            remaining = reset_at - datetime.now()
-            hours, rem = divmod(max(0, int(remaining.total_seconds())), 3600)
-            minutes, seconds = divmod(rem, 60)
+            reset_at = datetime.combine(
+                today + timedelta(days=1), dtime.min, tzinfo=timezone.utc
+            )
             await ctx.send(
                 view=simple_panel(
-                    "🕯️ The coffers open but once a day. "
-                    f"**{hours}h {minutes}m {seconds}s** until you can collect again.",
+                    "🕯️ The coffers open but once a day. You can collect "
+                    f"again <t:{int(reset_at.timestamp())}:R>.",
                     accent=Palette.RED,
                 ),
                 ephemeral=True,
@@ -86,6 +99,7 @@ class Economy(commands.Cog):
 
         await self.db.set_daily(gid, uid, today.isoformat(), streak)
         balance = await self.db.add_gold(gid, uid, payout)
+        await self.db.incr_stat(gid, uid, "gold_from_daily", payout)
 
         panel = Panel(accent=Palette.GREEN, timeout=None)
         panel.header("🏛️ Daily Stipend")
@@ -128,6 +142,7 @@ class Economy(commands.Cog):
         gold, rep_delta = formulas.roll_beg(user["reputation"])
         gold = round(apply_gold_buff(gold, buffs))
         balance = await self.db.add_gold(gid, uid, gold)
+        await self.db.incr_stat(gid, uid, "gold_from_begging", gold)
         if rep_delta:
             await self.db.add_reputation(gid, uid, rep_delta)
 
@@ -181,7 +196,7 @@ class Economy(commands.Cog):
 
     @commands.hybrid_command(name="deposit", aliases=["dep"], description="Move gold from your pocket into the bank")
     @commands.guild_only()
-    @app_commands.describe(amount="How much to deposit, or 'all'")
+    @app_commands.describe(amount="How much to deposit: a number, '10k', 'half', or 'all'")
     async def deposit(self, ctx: commands.Context, *, amount: str = "all"):
         gid, uid = ctx.guild.id, ctx.author.id
         user = await self.db.get_user(gid, uid)
@@ -199,7 +214,9 @@ class Economy(commands.Cog):
         amt = _resolve_amount(amount, min(user["gold"], room))
         if amt is None or amt <= 0:
             await ctx.send(
-                view=simple_panel("Deposit a positive amount, or `all`.", accent=Palette.RED),
+                view=simple_panel(
+                    "Deposit a positive amount, `half`, or `all`.", accent=Palette.RED
+                ),
                 ephemeral=True,
             )
             return
@@ -218,7 +235,17 @@ class Economy(commands.Cog):
                 ephemeral=True,
             )
             return
-        await self.db.deposit_gold(gid, uid, amt)
+        ok = await self.db.deposit_gold(gid, uid, amt, cap)
+        if not ok:
+            await ctx.send(
+                view=simple_panel(
+                    "🏦 The clerk recounts your coin and shakes his head, "
+                    "your purse or vault changed while you queued. Try again.",
+                    accent=Palette.RED,
+                ),
+                ephemeral=True,
+            )
+            return
         user = await self.db.get_user(gid, uid)
         panel = Panel(accent=Palette.GREEN, timeout=None)
         panel.header("🏦 Deposited")
@@ -228,24 +255,26 @@ class Economy(commands.Cog):
 
     @commands.hybrid_command(name="withdraw", aliases=["with"], description="Take gold out of the bank")
     @commands.guild_only()
-    @app_commands.describe(amount="How much to withdraw, or 'all'")
+    @app_commands.describe(amount="How much to withdraw: a number, '10k', 'half', or 'all'")
     async def withdraw(self, ctx: commands.Context, *, amount: str = "all"):
         gid, uid = ctx.guild.id, ctx.author.id
         user = await self.db.get_user(gid, uid)
         amt = _resolve_amount(amount, user["bank_gold"])
         if amt is None or amt <= 0:
             await ctx.send(
-                view=simple_panel("Withdraw a positive amount, or `all`.", accent=Palette.RED),
+                view=simple_panel(
+                    "Withdraw a positive amount, `half`, or `all`.", accent=Palette.RED
+                ),
                 ephemeral=True,
             )
             return
-        if amt > user["bank_gold"]:
+        ok = await self.db.withdraw_gold(gid, uid, amt)
+        if not ok:
             await ctx.send(
                 view=simple_panel("You don't have that much banked.", accent=Palette.RED),
                 ephemeral=True,
             )
             return
-        await self.db.withdraw_gold(gid, uid, amt)
         user = await self.db.get_user(gid, uid)
         cap = bank_capacity(user["bank_tier"])
         panel = Panel(accent=Palette.GREEN, timeout=None)
@@ -299,7 +328,7 @@ class Economy(commands.Cog):
             )
             return
         cost = bank_upgrade_cost(tier + 1)
-        if user["gold"] < cost:
+        if not await self.db.spend_gold(gid, uid, cost):
             await interaction.response.send_message(
                 view=simple_panel(
                     f"That upgrade costs {formulas.fmt_gold(cost)}, but you only "
@@ -309,7 +338,6 @@ class Economy(commands.Cog):
                 ephemeral=True,
             )
             return
-        await self.db.add_gold(gid, uid, -cost)
         await self.db.set_bank_tier(gid, uid, tier + 1)
         panel = Panel(accent=Palette.GREEN, timeout=None)
         panel.header("🏦 Bank Upgraded!")
@@ -349,7 +377,7 @@ class Economy(commands.Cog):
         panel.header(f"🏰 {target.display_name} of the Town")
         panel.section(
             f"{rank_emoji} **{rank_title}**",
-            f"💰 **{formulas.fmt_gold(user['gold'])}**",
+            f"👛 **{formulas.fmt_gold(user['gold'])}** · 🏦 **{formulas.fmt_gold(user['bank_gold'])}**",
             thumbnail=target.display_avatar.url,
         )
         panel.text("\n".join(trade_lines))
@@ -358,8 +386,24 @@ class Economy(commands.Cog):
             panel.text(f"🗡️ {formulas.reputation_infamy(reputation):,} infamy")
         elif reputation > 0:
             panel.text(f"🌟 {formulas.reputation_fame(reputation):,} fame")
+
+        stats = await self.db.get_stats(gid, target.id)
+        deeds = [
+            f"{stats[key]:,} {label}"
+            for key, label in (
+                ("works", "works"), ("items_gathered", "goods gathered"),
+                ("items_sold", "sold"), ("items_crafted", "crafted"),
+                ("ventures_won", "ventures won"),
+            )
+            if stats.get(key)
+        ]
+        footer_bits = []
+        if deeds:
+            footer_bits.append("📜 " + " · ".join(deeds))
         if user["daily_streak"]:
-            panel.footer(f"🔥 {user['daily_streak']} day streak")
+            footer_bits.append(f"🔥 {user['daily_streak']} day streak")
+        if footer_bits:
+            panel.footer("\n".join(footer_bits))
         await ctx.send(view=panel)
 
     @commands.hybrid_command(name="leaderboard", aliases=["lb", "top"], description="The wealthiest and most skilled in town")

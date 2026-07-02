@@ -115,7 +115,10 @@ class Crime(commands.Cog):
         new_infamy = formulas.reputation_infamy(new_rep)
 
         if success:
-            delta = round(apply_gold_buff(delta, buffs))
+            # The gold buff sweetens the take, but never past what the
+            # victim actually carries -- a buffed steal must not be able
+            # to drive their pocket negative.
+            delta = min(round(apply_gold_buff(delta, buffs)), target["gold"])
             await self.db.add_gold(gid, member.id, -delta)
             await self.db.add_gold(gid, uid, delta)
             await self.db.set_robbed_until(

@@ -244,7 +244,15 @@ class Market(commands.Cog):
         qty = min(amount, have) if amount else have
         price = formulas.market_price(item_key, ITEMS[item_key]["value"])
         earned = price * qty
-        await self.db.remove_item(gid, uid, item_key, qty)
+        if not await self.db.remove_item(gid, uid, item_key, qty):
+            await ctx.send(
+                view=simple_panel(
+                    "Those goods are already gone from your satchel.",
+                    accent=Palette.RED,
+                ),
+                ephemeral=True,
+            )
+            return
         balance = await self.db.add_gold(gid, uid, earned)
         await self.db.incr_stat(gid, uid, "items_sold", qty)
         await self.db.incr_stat(gid, uid, "gold_from_sales", earned)
@@ -323,13 +331,16 @@ class Market(commands.Cog):
             price = formulas.market_price(row["item"], info_i["value"])
             qty = row["qty"]
             earned = price * qty
-            await self.db.remove_item(gid, uid, row["item"], qty)
+            if not await self.db.remove_item(gid, uid, row["item"], qty):
+                continue  # spent between the confirm and now; skip it
             total += earned
             count += qty
             lines.append(
                 f"{info_i['emoji']} "
                 f"{chip((info_i['name'], NAME_W), (f'x{qty}', QTY_W), (f'{earned:,}', -AMT_W))} 🪙"
             )
+        if not lines:
+            return "You have nothing to sell. Go `.work` first!"
         balance = await self.db.add_gold(gid, uid, total)
         await self.db.incr_stat(gid, uid, "items_sold", count)
         await self.db.incr_stat(gid, uid, "gold_from_sales", total)
@@ -363,7 +374,8 @@ class Market(commands.Cog):
             info_i = ITEMS[item]
             price = formulas.market_price(item, info_i["value"])
             earned = price * sell_qty
-            await self.db.remove_item(gid, uid, item, sell_qty)
+            if not await self.db.remove_item(gid, uid, item, sell_qty):
+                continue  # sold or spent since the button was rendered
             total += earned
             count += sell_qty
             lines.append(
@@ -463,7 +475,7 @@ class Market(commands.Cog):
             return panel
         name = TOOLS[job_key][tier]
         price = tool_price(tier + 1)
-        if user["gold"] < price:
+        if not await self.db.spend_gold(guild_id, member.id, price):
             panel = simple_panel(
                 f"**{name}** costs {formulas.fmt_gold(price)}, but your purse "
                 f"holds only {formulas.fmt_gold(user['gold'])}.",
@@ -472,7 +484,6 @@ class Market(commands.Cog):
             panel.is_error = True
             return panel
 
-        await self.db.add_gold(guild_id, member.id, -price)
         await self.db.set_tool_tier(guild_id, member.id, job_key, tier + 1)
         await self.db.incr_stat(guild_id, member.id, "gold_spent_tools", price)
 
