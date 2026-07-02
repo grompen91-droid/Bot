@@ -50,6 +50,12 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
   *pocket* gold only, never their bank. 20-minute cooldown per
   attacker, and a successful victim is shielded from further attempts
   for 10 minutes. Failing costs a small fine.
+- **`.brew`**: an Alchemist-only memory minigame. Watch a sequence of
+  reagents flash by, then tap them back in order; reward scales with
+  how many you recall correctly, with a 50% bonus for a flawless
+  brew. Sequence length grows with Alchemist level (3 up to 8
+  reagents). 6-hour cooldown, but the single biggest payout in the
+  game — no risk of loss, only how far your memory takes you.
 
 ## Commands
 
@@ -67,6 +73,7 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
 | `.balance` / `.daily` / `.pay` / `.profile` / `.leaderboard` | Gold |
 | `.bank` / `.deposit [amount\|all]` / `.withdraw [amount\|all]` | Bank |
 | `.pickpocket <member>` | Try to lift coin from their pocket |
+| `.brew` | Cauldron memory minigame (Alchemist only, biggest payout) |
 | `.help` / `.about` | Guidance |
 
 ## Architecture (how to expand it)
@@ -92,6 +99,7 @@ cogs/
   economy.py         balance, daily, pay, profile, leaderboards, bank
   venture.py         the .venture minigame
   crime.py           pickpocketing
+  brew.py            the .brew cauldron memory minigame
   info.py            help, about
 ```
 

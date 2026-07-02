@@ -72,6 +72,10 @@ MIGRATIONS: list[str] = [
     ALTER TABLE users ADD COLUMN last_pickpocket DOUBLE PRECISION NOT NULL DEFAULT 0;
     ALTER TABLE users ADD COLUMN robbed_until DOUBLE PRECISION NOT NULL DEFAULT 0;
     """,
+    # v5, the cauldron brew
+    """
+    ALTER TABLE users ADD COLUMN last_brew DOUBLE PRECISION NOT NULL DEFAULT 0;
+    """,
 ]
 
 
@@ -300,6 +304,14 @@ class Database:
         await self.execute(
             "UPDATE users SET robbed_until = ? WHERE guild_id = ? AND user_id = ?",
             until, guild_id, user_id,
+        )
+
+    # ── the cauldron brew ───────────────────────────────────────────────
+
+    async def set_last_brew(self, guild_id: int, user_id: int, when: float) -> None:
+        await self.execute(
+            "UPDATE users SET last_brew = ? WHERE guild_id = ? AND user_id = ?",
+            when, guild_id, user_id,
         )
 
     # ── skills ──────────────────────────────────────────────────────────

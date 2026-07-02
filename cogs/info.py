@@ -16,6 +16,7 @@ HELP_SECTIONS = [
     ("💰 Gold", ".balance · .daily · .pay · .profile · .leaderboard"),
     ("🏦 Bank", ".bank · .deposit · .withdraw"),
     ("🗡️ Crime", ".pickpocket"),
+    ("🧪 Cauldron", ".brew"),
 ]
 
 

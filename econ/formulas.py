@@ -324,6 +324,39 @@ def roll_pickpocket(target_pocket: int) -> tuple[bool, int]:
     return False, -fine
 
 
+# ═══════════════════════════ the cauldron brew ═════════════════════════
+# Alchemist-only memory minigame: recall a reagent sequence in order.
+# No risk of loss, reward scales with how many you get right, with a
+# bonus for a flawless brew. A long cooldown and a bigger per-attempt
+# payout than .venture make it worth doing once a day's business is
+# settled. Sequence length grows with Alchemist skill level.
+
+BREW_COOLDOWN = 6 * 60 * 60  # 6 hours
+BREW_MIN_LENGTH = 3
+BREW_MAX_LENGTH = 8
+BREW_LEVEL_PER_STEP = 15   # +1 reagent per 15 Alchemist levels
+BREW_REWARD_PER_SYMBOL = (150, 280)
+BREW_PERFECT_BONUS = 1.5
+BREW_XP_PER_SYMBOL = 3
+
+
+def brew_sequence_length(level: int) -> int:
+    return min(BREW_MAX_LENGTH, BREW_MIN_LENGTH + level // BREW_LEVEL_PER_STEP)
+
+
+def roll_brew_reward(correct: int, length: int, total_level: int) -> tuple[int, bool]:
+    """Returns (gold, was_perfect). Reward is proportional to reagents
+    correctly recalled; a flawless brew gets a 50% bonus on top."""
+    if correct <= 0:
+        return 0, False
+    per_symbol = random.randint(*BREW_REWARD_PER_SYMBOL)
+    reward = per_symbol * correct * coin_multiplier(total_level)
+    perfect = correct >= length > 0
+    if perfect:
+        reward *= BREW_PERFECT_BONUS
+    return round(reward), perfect
+
+
 # ═══════════════════════════ progress bars ═════════════════════════════
 
 BAR_FILLED, BAR_EMPTY = "█", "░"
