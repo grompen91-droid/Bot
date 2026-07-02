@@ -107,17 +107,17 @@ so Railway needs no extra configuration:
 1. Go to [railway.app](https://railway.app) → **New Project** →
    **Deploy from GitHub repo** → pick this repo (choose the branch you
    want under the service's *Settings → Source* if it isn't the default).
-2. In the service's **Variables** tab add:
-   - `DISCORD_TOKEN`, your bot token
-   - `GUILD_ID`, your server ID (instant slash-command sync)
-   - `DB_PATH`, `/data/economy.db` (see step 3)
-3. **Keep your economy safe across deploys:** in the service, open
-   **Settings → Volumes** (or right-click the service → *Attach Volume*)
-   and mount a volume at `/data`. Without a volume the container
-   filesystem is wiped on every redeploy, balances, skills, and
-   inventories included.
+2. **Add persistent storage:** in the project, tap **+ Create →
+   Database → Add PostgreSQL**. This keeps the economy safe across
+   deploys; without it, SQLite lives on the container filesystem and is
+   wiped on every redeploy.
+3. In the bot service's **Variables** tab add:
+   - `DISCORD_TOKEN`: your bot token
+   - `GUILD_ID`: your server ID (instant slash-command sync)
+   - `DATABASE_URL`: use *Add Variable Reference* and pick the
+     Postgres service's `DATABASE_URL`
 4. Deploy. The logs should end with
-   `Logged in as <your bot>, Synced N commands to guild …`.
+   `Logged in as <your bot>` and `Synced N commands to guild …`.
 
 The free trial credit is enough to test; after that a small always-on
 worker like this costs roughly $5/month.

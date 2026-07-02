@@ -37,7 +37,10 @@ class MedievalBot(commands.Bot):
             # Mentions render as highlights but never ping anyone.
             allowed_mentions=discord.AllowedMentions.none(),
         )
-        self.db = Database(os.getenv("DB_PATH", "economy.db"))
+        self.db = Database(
+            sqlite_path=os.getenv("DB_PATH", "economy.db"),
+            postgres_url=os.getenv("DATABASE_URL"),
+        )
 
     async def setup_hook(self) -> None:
         await self.db.connect()
