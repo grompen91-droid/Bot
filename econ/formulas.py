@@ -325,13 +325,19 @@ def roll_pickpocket(target_pocket: int) -> tuple[bool, int]:
 
 
 # ═══════════════════════════ the cauldron brew ═════════════════════════
-# Alchemist-only memory minigame: recall a reagent sequence in order.
-# No risk of loss, reward scales with how many you get right, with a
-# bonus for a flawless brew. A long cooldown and a bigger per-attempt
-# payout than .venture make it worth doing once a day's business is
-# settled. Sequence length grows with Alchemist skill level.
+# A memory minigame: recall a reagent sequence in order. No risk of
+# loss, reward scales with how many you get right, with a bonus for a
+# flawless brew. A long cooldown and a bigger per-attempt payout than
+# .venture make it worth doing once a day's business is settled.
+# Sequence length grows with Alchemist skill level.
+#
+# Access: current Alchemists can always brew. Anyone else needs at
+# least BREW_MIN_LEVEL_WITHOUT_JOB in the Alchemist skill (persists
+# across job switches), so once you've put in the work you keep this
+# even after moving on to another trade.
 
 BREW_COOLDOWN = 6 * 60 * 60  # 6 hours
+BREW_MIN_LEVEL_WITHOUT_JOB = 5
 BREW_MIN_LENGTH = 3
 BREW_MAX_LENGTH = 8
 BREW_LEVEL_PER_STEP = 15   # +1 reagent per 15 Alchemist levels

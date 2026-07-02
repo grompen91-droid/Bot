@@ -1,9 +1,12 @@
-"""The Cauldron Brew: an Alchemist-only memory minigame.
+"""The Cauldron Brew: a memory minigame.
 
 Watch a sequence of reagents flash by, then tap them back in order.
 No risk of loss, reward scales with how many you recall correctly,
-with a bonus for a flawless brew. Long cooldown, big single payout,
-the endgame Alchemist's signature activity.
+with a bonus for a flawless brew. Long cooldown, big single payout.
+
+Access: current Alchemists can always brew, regardless of level.
+Anyone else needs Alchemist skill level 5+ (persists across job
+switches, so once earned it's never lost).
 """
 
 from __future__ import annotations
@@ -25,8 +28,7 @@ REAGENTS = {
 }
 REAGENT_KEYS = list(REAGENTS)
 REVEAL_DELAY = 1.1     # seconds between flashing each reagent
-ANSWER_TIMEOUT = 30    # seconds to tap each reagent before the view expires
-HIDDEN_SLOT = "❔"
+ANSWER_TIMEOUT = 20    # seconds to tap each reagent before the view expires
 
 
 class BrewSession:
@@ -48,11 +50,6 @@ class BrewSession:
         self.sequence = [random.choice(REAGENT_KEYS) for _ in range(self.length)]
         self.progress = 0
         self.done = False
-
-    def reveal_track(self, revealed: int) -> str:
-        shown = [REAGENTS[r] for r in self.sequence[:revealed]]
-        hidden = [HIDDEN_SLOT] * (self.length - revealed)
-        return " ".join(shown + hidden)
 
     def answer_panel(self) -> Panel:
         dots = "🟢" * self.progress + "⚪" * (self.length - self.progress)
@@ -165,17 +162,23 @@ class Brew(commands.Cog):
 
     @commands.hybrid_command(
         name="brew",
-        description="Test your memory at the cauldron for a big payout (Alchemist only)",
+        description="Test your memory at the cauldron for a big payout",
     )
     @commands.guild_only()
     async def brew(self, ctx: commands.Context):
         gid, uid = ctx.guild.id, ctx.author.id
         user = await self.db.get_user(gid, uid)
-        if user["job"] != "alchemist":
+        is_alchemist = user["job"] == "alchemist"
+        # Read-only: peeking must never create a phantom alchemist skill
+        # row for a player who was never one (that would silently inflate
+        # their total skill level, the same bug .job info had before).
+        alchemist_skill = await self.db.peek_skill(gid, uid, "alchemist")
+        if not is_alchemist and alchemist_skill["level"] < formulas.BREW_MIN_LEVEL_WITHOUT_JOB:
             await ctx.send(
                 view=simple_panel(
-                    "🧪 Only an Alchemist knows the cauldron's secrets. Take "
-                    "up the trade with `.job choose alchemist`.",
+                    "You are not an alchemist, or high enough lvl "
+                    f"({formulas.BREW_MIN_LEVEL_WITHOUT_JOB}) to do brewery "
+                    "without being an alchemist.",
                     accent=Palette.RED,
                 ),
                 ephemeral=True,
@@ -228,7 +231,6 @@ class Brew(commands.Cog):
         if test_mode:
             panel.text("🧪 *TEST MODE, no job, cooldown, or rewards apply.*")
         panel.text(f"Sequence length: **{session.length}** reagents")
-        panel.text(f"`{session.reveal_track(0)}`")
         panel.footer("👀 watch closely, and remember the order")
         message = await ctx.send(view=panel)
 
@@ -239,7 +241,6 @@ class Brew(commands.Cog):
             flash.header("🧪 The Cauldron Brew")
             flash.text(f"Reagent {revealed}/{session.length}")
             flash.text(f"# {REAGENTS[reagent]}")
-            flash.footer(f"`{session.reveal_track(revealed)}`")
             try:
                 await message.edit(view=flash)
             except discord.HTTPException:
