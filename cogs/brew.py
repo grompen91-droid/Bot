@@ -20,6 +20,13 @@ from discord import app_commands, ui
 from discord.ext import commands
 
 from econ import formulas
+from econ.buffs import (
+    active_buff_summary,
+    active_buff_totals,
+    apply_cooldown_buff,
+    apply_gold_buff,
+    apply_xp_buff,
+)
 from econ.data.consumables import BREW_POTION_CHANCE, BREW_POTIONS
 from econ.data.items import ITEMS
 from econ.data.jobs import JOBS, MAX_JOB_UNLOCK_LEVEL
@@ -40,7 +47,7 @@ class BrewSession:
 
     def __init__(
         self, db, gid: int, uid: int, level: int, xp: int, last_work: float,
-        *, dry_run: bool = False,
+        *, dry_run: bool = False, buffs: dict | None = None,
     ):
         self.db = db
         self.gid = gid
@@ -49,6 +56,7 @@ class BrewSession:
         self.xp = xp
         self.last_work = last_work
         self.dry_run = dry_run
+        self.buffs = buffs or {}
         self.length = formulas.brew_sequence_length(level)
         self.sequence = [random.choice(REAGENT_KEYS) for _ in range(self.length)]
         self.progress = 0
@@ -131,7 +139,8 @@ class BrewSession:
             JOBS["alchemist"]["unlock_total_level"], MAX_JOB_UNLOCK_LEVEL,
             extra_multiplier=formulas.fame_multiplier(formulas.reputation_fame(user["reputation"])),
         )
-        xp_gain = self.progress * formulas.BREW_XP_PER_SYMBOL
+        reward = round(apply_gold_buff(reward, self.buffs))
+        xp_gain = round(apply_xp_buff(self.progress * formulas.BREW_XP_PER_SYMBOL, self.buffs))
 
         new_level, new_xp, levels_gained = formulas.apply_xp(
             self.level, self.xp, xp_gain
@@ -195,6 +204,9 @@ class BrewSession:
             footer += f" · ⭐ now level {new_level}"
         if fame_gained:
             footer += f" · 🌟 +{fame_gained} fame"
+        buff_line = active_buff_summary(self.buffs)
+        if buff_line:
+            footer += f"\n✨ active: {buff_line}"
         if self.dry_run:
             footer = "🧪 TEST MODE, nothing was actually awarded · " + footer
         panel.footer(footer)
@@ -236,8 +248,9 @@ class Brew(commands.Cog):
             )
             return
 
+        buffs = await active_buff_totals(self.db, gid, uid)
         now = time.time()
-        ready_at = user["last_brew"] + formulas.BREW_COOLDOWN
+        ready_at = user["last_brew"] + apply_cooldown_buff(formulas.BREW_COOLDOWN, buffs)
         if now < ready_at:
             await ctx.send(
                 view=simple_panel(
@@ -254,7 +267,7 @@ class Brew(commands.Cog):
 
         skill = await self.db.get_skill(gid, uid, "alchemist")
         session = BrewSession(
-            self.db, gid, uid, skill["level"], skill["xp"], skill["last_work"]
+            self.db, gid, uid, skill["level"], skill["xp"], skill["last_work"], buffs=buffs
         )
         await self._run_brew(ctx, session)
 

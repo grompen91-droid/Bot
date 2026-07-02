@@ -80,10 +80,9 @@ class Info(commands.Cog):
         user = await self.db.get_user(gid, uid)
         skills = {s["job"]: s for s in await self.db.get_all_skills(gid, uid)}
         now = time.time()
-        # .work/.craft are the only two that already respect active
-        # buffs (see econ/buffs.py); every other command below still
-        # ignores them, so showing the buffed number for those would be
-        # a lie about what will actually happen when you run them.
+        # Every cooldown below is read through the same buff totals the
+        # actual commands apply (see econ/buffs.py), so the countdowns
+        # shown here always match what running the command would do.
         buffs = await active_buff_totals(self.db, gid, uid)
 
         def status(ready_at: float) -> str:
@@ -125,7 +124,7 @@ class Info(commands.Cog):
         )
         lines.append(
             f"🗺️ {chip(('.venture', NAME_W))} "
-            f"{status(user['last_venture'] + formulas.VENTURE_COOLDOWN)}"
+            f"{status(user['last_venture'] + apply_cooldown_buff(formulas.VENTURE_COOLDOWN, buffs))}"
         )
 
         today = date.today()
@@ -138,7 +137,8 @@ class Info(commands.Cog):
 
         beg_last = await self.db.get_minigame_cooldown(gid, uid, "beg")
         lines.append(
-            f"🥺 {chip(('.beg', NAME_W))} {status(beg_last + formulas.BEG_COOLDOWN)}"
+            f"🥺 {chip(('.beg', NAME_W))} "
+            f"{status(beg_last + apply_cooldown_buff(formulas.BEG_COOLDOWN, buffs))}"
         )
 
         crime_access = (
@@ -148,23 +148,23 @@ class Info(commands.Cog):
         if crime_access:
             lines.append(
                 f"🗡️ {chip(('.pickpocket', NAME_W))} "
-                f"{status(user['last_pickpocket'] + formulas.PICKPOCKET_COOLDOWN)}"
+                f"{status(user['last_pickpocket'] + apply_cooldown_buff(formulas.PICKPOCKET_COOLDOWN, buffs))}"
             )
             smuggle_last = await self.db.get_minigame_cooldown(gid, uid, "smuggle")
             lines.append(
                 f"🚚 {chip(('.smuggle', NAME_W))} "
-                f"{status(smuggle_last + formulas.SMUGGLE_COOLDOWN)}"
+                f"{status(smuggle_last + apply_cooldown_buff(formulas.SMUGGLE_COOLDOWN, buffs))}"
             )
             rob_last = await self.db.get_minigame_cooldown(gid, uid, "criminal")
             lines.append(
                 f"🏦 {chip(('.rob', NAME_W))} "
-                f"{status(rob_last + MINIGAMES['criminal']['cooldown'])}"
+                f"{status(rob_last + apply_cooldown_buff(MINIGAMES['criminal']['cooldown'], buffs))}"
             )
 
         if user["job"] == "alchemist" or skill_level("alchemist") >= formulas.BREW_MIN_LEVEL_WITHOUT_JOB:
             lines.append(
                 f"🧪 {chip(('.brew', NAME_W))} "
-                f"{status(user['last_brew'] + formulas.BREW_COOLDOWN)}"
+                f"{status(user['last_brew'] + apply_cooldown_buff(formulas.BREW_COOLDOWN, buffs))}"
             )
 
         for job_key, config in MINIGAMES.items():
@@ -176,8 +176,11 @@ class Info(commands.Cog):
             )
             if not eligible:
                 continue
-            cooldown = formulas.minigame_cooldown(
-                JOBS[job_key]["unlock_total_level"], MAX_JOB_UNLOCK_LEVEL
+            cooldown = apply_cooldown_buff(
+                formulas.minigame_cooldown(
+                    JOBS[job_key]["unlock_total_level"], MAX_JOB_UNLOCK_LEVEL
+                ),
+                buffs,
             )
             last = await self.db.get_minigame_cooldown(gid, uid, job_key)
             command_label = f".{config['command']}"
@@ -191,7 +194,7 @@ class Info(commands.Cog):
         panel.text("\n".join(lines))
         buff_line = active_buff_summary(buffs)
         if buff_line:
-            panel.footer(f"✨ active: {buff_line} (already reflected in .work/.craft above)")
+            panel.footer(f"✨ active: {buff_line}")
         await ctx.send(view=panel)
 
 

@@ -18,6 +18,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from econ import formulas
+from econ.buffs import active_buff_summary, active_buff_totals, apply_cooldown_buff, apply_gold_buff
 from ui.panels import Palette, Panel, simple_panel
 
 
@@ -68,8 +69,11 @@ class Crime(commands.Cog):
             )
             return
 
+        buffs = await active_buff_totals(self.db, gid, uid)
         now = time.time()
-        ready_at = attacker["last_pickpocket"] + formulas.PICKPOCKET_COOLDOWN
+        ready_at = attacker["last_pickpocket"] + apply_cooldown_buff(
+            formulas.PICKPOCKET_COOLDOWN, buffs
+        )
         if now < ready_at:
             await ctx.send(
                 view=simple_panel(
@@ -111,6 +115,7 @@ class Crime(commands.Cog):
         new_infamy = formulas.reputation_infamy(new_rep)
 
         if success:
+            delta = round(apply_gold_buff(delta, buffs))
             await self.db.add_gold(gid, member.id, -delta)
             await self.db.add_gold(gid, uid, delta)
             await self.db.set_robbed_until(
@@ -136,9 +141,11 @@ class Crime(commands.Cog):
             )
 
         purse = (await self.db.get_user(gid, uid))["gold"]
-        panel.footer(
-            f"Purse: {purse:,} gold · 🗡️ +{infamy_gain} infamy ({new_infamy:,} total)"
-        )
+        footer = f"Purse: {purse:,} gold · 🗡️ +{infamy_gain} infamy ({new_infamy:,} total)"
+        buff_line = active_buff_summary(buffs)
+        if buff_line:
+            footer += f"\n✨ active: {buff_line}"
+        panel.footer(footer)
         await ctx.send(view=panel)
 
     @commands.hybrid_command(
@@ -164,9 +171,10 @@ class Crime(commands.Cog):
             )
             return
 
+        buffs = await active_buff_totals(self.db, gid, uid)
         now = time.time()
-        ready_at = await self.db.get_minigame_cooldown(gid, uid, "smuggle")
-        ready_at += formulas.SMUGGLE_COOLDOWN
+        last = await self.db.get_minigame_cooldown(gid, uid, "smuggle")
+        ready_at = last + apply_cooldown_buff(formulas.SMUGGLE_COOLDOWN, buffs)
         if now < ready_at:
             await ctx.send(
                 view=simple_panel(
@@ -186,6 +194,7 @@ class Crime(commands.Cog):
         success, delta = formulas.roll_smuggle(criminal_skill["level"], infamy, total)
 
         if success:
+            delta = round(apply_gold_buff(delta, buffs))
             await self.db.add_gold(gid, uid, delta)
             infamy_gain = random.randint(
                 formulas.SMUGGLE_INFAMY_MIN, formulas.SMUGGLE_INFAMY_MAX
@@ -214,6 +223,9 @@ class Crime(commands.Cog):
         footer = f"Purse: {purse:,} gold"
         if footer_extra:
             footer += f" · {footer_extra}"
+        buff_line = active_buff_summary(buffs)
+        if buff_line:
+            footer += f"\n✨ active: {buff_line}"
         panel.footer(footer)
         await ctx.send(view=panel)
 

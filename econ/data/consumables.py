@@ -12,10 +12,16 @@ magnitude = the fraction above, always positive
 duration  = how long the buff lasts once used, in seconds
 source    = where it can come from, for flavour only
 
-Using an item whose buff is already active refreshes the duration to
-a fresh full length rather than stacking on top of itself. Two
-different items with the same effect (e.g. two different gold buffs)
-DO stack additively while both are active.
+Using an item whose buff is already active EXTENDS the remaining
+duration by another full copy rather than resetting it (see
+econ/buffs.py's extend_expiry), capped at MAX_STACK_MULTIPLIER x the
+item's own duration so chaining the same cheap item forever can't buy
+a permanent buff. Only one timer per item ever exists (the DB row is
+keyed by item, not a generated buff id), so you can't hold two
+separate copies of the exact same buff. Two DIFFERENT items with the
+same effect (e.g. two different gold buffs) DO stack additively while
+both are active, up to the MAX_GOLD_BONUS/MAX_XP_BONUS/
+MAX_COOLDOWN_REDUCTION caps in econ/buffs.py.
 """
 
 CONSUMABLES = {

@@ -28,6 +28,13 @@ from discord import app_commands, ui
 from discord.ext import commands
 
 from econ import formulas
+from econ.buffs import (
+    active_buff_summary,
+    active_buff_totals,
+    apply_cooldown_buff,
+    apply_gold_buff,
+    apply_xp_buff,
+)
 from econ.data.jobs import JOBS, MAX_JOB_UNLOCK_LEVEL
 from econ.data.minigames import MINIGAMES
 from ui.panels import AMT_W, NAME_W, Palette, Panel, RoundPanel, chip, simple_panel
@@ -40,7 +47,7 @@ class BaseMinigameSession:
 
     def __init__(
         self, db, gid: int, uid: int, job_key: str, level: int, xp: int,
-        last_work: float, *, dry_run: bool = False,
+        last_work: float, *, dry_run: bool = False, buffs: dict | None = None,
     ):
         self.db = db
         self.gid = gid
@@ -51,6 +58,7 @@ class BaseMinigameSession:
         self.xp = xp
         self.last_work = last_work
         self.dry_run = dry_run
+        self.buffs = buffs or {}
         self.length = formulas.minigame_length(
             level, self.config["min_len"], self.config["max_len"],
             self.config["level_per_step"],
@@ -91,7 +99,8 @@ class BaseMinigameSession:
             self.level, total, perfect_bonus=formulas.MINIGAME_PERFECT_BONUS,
             extra_multiplier=extra_mult,
         )
-        xp_gain = self.correct * formulas.MINIGAME_XP_PER_ROUND
+        reward = round(apply_gold_buff(reward, self.buffs))
+        xp_gain = round(apply_xp_buff(self.correct * formulas.MINIGAME_XP_PER_ROUND, self.buffs))
         new_level, new_xp, levels_gained = formulas.apply_xp(self.level, self.xp, xp_gain)
 
         caught = is_criminal and outcome == "fail"
@@ -164,6 +173,9 @@ class BaseMinigameSession:
             footer += f" · 🌟 +{fame_gained} fame"
         if infamy_note:
             footer += f" · 🗡️ {infamy_note}"
+        buff_line = active_buff_summary(self.buffs)
+        if buff_line:
+            footer += f"\n✨ active: {buff_line}"
         panel.footer(self._footer_text(footer))
         return panel
 
@@ -494,8 +506,9 @@ class Minigames(commands.Cog):
 
         if not await self._check_access(ctx, job_key):
             return
+        buffs = await active_buff_totals(self.db, gid, uid)
         now = time.time()
-        cooldown = self._cooldown_for(job_key, config)
+        cooldown = apply_cooldown_buff(self._cooldown_for(job_key, config), buffs)
         last = await self.db.get_minigame_cooldown(gid, uid, job_key)
         ready_at = last + cooldown
         if now < ready_at:
@@ -521,19 +534,21 @@ class Minigames(commands.Cog):
         skill = await self.db.get_skill(gid, uid, job_key)
         await self._send_session(
             ctx, gid, uid, job_key, config,
-            skill["level"], skill["xp"], skill["last_work"], dry_run=False,
+            skill["level"], skill["xp"], skill["last_work"], dry_run=False, buffs=buffs,
         )
 
     async def _send_session(
         self, sendable, gid: int, uid: int, job_key: str, config: dict,
         session_level: int, xp: int, last_work: float, *, dry_run: bool,
+        buffs: dict | None = None,
     ) -> None:
         """`sendable` is anything with an async .send(view=...) -> Message
         (commands.Context, or _InteractionSender for the .rob confirm
         flow)."""
         session_cls = SESSION_CLASSES[config["kind"]]
         session = session_cls(
-            self.db, gid, uid, job_key, session_level, xp, last_work, dry_run=dry_run,
+            self.db, gid, uid, job_key, session_level, xp, last_work,
+            dry_run=dry_run, buffs=buffs,
         )
 
         if dry_run:
@@ -568,8 +583,9 @@ class Minigames(commands.Cog):
 
         async def on_confirm(interaction: discord.Interaction) -> None:
             gid, uid = interaction.guild_id, interaction.user.id
+            buffs = await active_buff_totals(self.db, gid, uid)
             now = time.time()
-            cooldown = self._cooldown_for(job_key, config)
+            cooldown = apply_cooldown_buff(self._cooldown_for(job_key, config), buffs)
             last = await self.db.get_minigame_cooldown(gid, uid, job_key)
             if now < last + cooldown:
                 await interaction.response.edit_message(
@@ -582,7 +598,7 @@ class Minigames(commands.Cog):
             skill = await self.db.get_skill(gid, uid, job_key)
             await self._send_session(
                 _InteractionSender(interaction), gid, uid, job_key, config,
-                skill["level"], skill["xp"], skill["last_work"], dry_run=False,
+                skill["level"], skill["xp"], skill["last_work"], dry_run=False, buffs=buffs,
             )
 
         async def on_cancel(interaction: discord.Interaction) -> None:

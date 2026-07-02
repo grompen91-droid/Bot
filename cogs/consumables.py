@@ -11,6 +11,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from econ.buffs import extend_expiry
 from econ.data.consumables import CONSUMABLES
 from econ.data.items import ITEMS, item_label
 from ui.panels import NAME_W, Palette, Panel, chip, simple_panel
@@ -72,14 +73,25 @@ class Consumables(commands.Cog):
             return
 
         buff = CONSUMABLES[item_key]
+        now = time.time()
+        active = await self.db.get_active_buffs(gid, uid, now)
+        current_expiry = next(
+            (r["expires_at"] for r in active if r["item"] == item_key), None
+        )
+        was_active = current_expiry is not None
+        expires_at = extend_expiry(current_expiry, item_key, now)
+        capped = was_active and expires_at < current_expiry + buff["duration"]
+
         await self.db.remove_item(gid, uid, item_key, 1)
-        expires_at = time.time() + buff["duration"]
         await self.db.add_buff(gid, uid, item_key, expires_at)
 
         panel = Panel(accent=Palette.GREEN, timeout=None)
         panel.header(f"{ITEMS[item_key]['emoji']} {ITEMS[item_key]['name']} Used")
         panel.text(f"✨ {buff['description']}")
-        panel.footer(f"active until <t:{int(expires_at)}:R> · see `.buffs`")
+        footer = f"{'extended to' if was_active else 'active until'} <t:{int(expires_at)}:R> · see `.buffs`"
+        if capped:
+            footer += " · maxed out, using another won't extend it further"
+        panel.footer(footer)
         await ctx.send(view=panel)
 
     @commands.hybrid_command(name="buffs", description="See your currently active buffs")

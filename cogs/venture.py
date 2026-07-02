@@ -15,6 +15,7 @@ from discord import ui
 from discord.ext import commands
 
 from econ import formulas
+from econ.buffs import active_buff_summary, active_buff_totals, apply_cooldown_buff, apply_gold_buff
 from econ.data.ventures import VENTURE_PATHS
 from ui.panels import AMT_W, NAME_W, Palette, Panel, chip, simple_panel
 
@@ -36,8 +37,9 @@ class Venture(commands.Cog):
     @commands.guild_only()
     async def venture(self, ctx: commands.Context):
         user = await self.db.get_user(ctx.guild.id, ctx.author.id)
+        buffs = await active_buff_totals(self.db, ctx.guild.id, ctx.author.id)
         now = time.time()
-        ready_at = user["last_venture"] + formulas.VENTURE_COOLDOWN
+        ready_at = user["last_venture"] + apply_cooldown_buff(formulas.VENTURE_COOLDOWN, buffs)
         if now < ready_at:
             await ctx.send(
                 view=simple_panel(
@@ -69,6 +71,9 @@ class Venture(commands.Cog):
         footer = f"×{mult:.2f} bonus from total skill level"
         if streak:
             footer += f" & 🔥 {streak} win streak"
+        buff_line = active_buff_summary(buffs)
+        if buff_line:
+            footer += f"\n✨ active: {buff_line}"
         panel.footer(footer)
 
         buttons = []
@@ -91,8 +96,10 @@ class Venture(commands.Cog):
     async def _resolve(self, interaction: discord.Interaction, path_key: str) -> None:
         gid, uid = interaction.guild_id, interaction.user.id
         user = await self.db.get_user(gid, uid)
+        buffs = await active_buff_totals(self.db, gid, uid)
         now = time.time()
-        ready_at = user["last_venture"] + formulas.VENTURE_COOLDOWN
+        cooldown = apply_cooldown_buff(formulas.VENTURE_COOLDOWN, buffs)
+        ready_at = user["last_venture"] + cooldown
         if now < ready_at:
             await interaction.response.send_message(
                 view=simple_panel(
@@ -107,6 +114,8 @@ class Venture(commands.Cog):
         streak = user["venture_streak"]
         path = VENTURE_PATHS[path_key]
         success, delta = formulas.roll_venture(path, total, streak)
+        if success:
+            delta = round(apply_gold_buff(delta, buffs))
 
         new_streak = streak + 1 if success else 0
         await self.db.set_venture(gid, uid, now, new_streak)
@@ -133,8 +142,11 @@ class Venture(commands.Cog):
             footer += f" · 🔥 {new_streak} win streak"
         elif not success and streak:
             footer += " · streak reset"
-        ready = int(now + formulas.VENTURE_COOLDOWN)
+        ready = int(now + cooldown)
         footer += f"\nnext venture <t:{ready}:R>"
+        buff_line = active_buff_summary(buffs)
+        if buff_line:
+            footer += f"\n✨ active: {buff_line}"
         panel.footer(footer)
         await interaction.response.edit_message(view=panel)
 

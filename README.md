@@ -54,11 +54,18 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
   A small chance drops from ordinary `.work` regardless of trade,
   Alchemists can also brew potions with `.brew` (guaranteed on a
   flawless brew), and 6 of the 10 crafting recipes yield a buff food
-  instead of a sellable good. `.use <item>` drinks/eats it and refreshes
-  the duration if it's already active; two different buffs of the same
-  kind stack additively while both are up. `.inventory` has a category
-  dropdown (like `.market`) so it's obvious at a glance what's usable
-  and what it does.
+  instead of a sellable good. `.use <item>` drinks/eats it; using the
+  *same* item again extends the remaining time rather than resetting it
+  (capped at 3x its base duration, so chaining a cheap item can't buy a
+  near-permanent buff), while two *different* items of the same kind
+  stack additively, up to a balance cap (+75% gold, +100% XP, -75%
+  cooldown) so five gold potions at once can't multiply your income
+  several times over. Every command that grants gold, XP, or has a
+  cooldown reads these buffs, not just `.work`/`.craft`, everything from
+  `.daily` and `.beg` to `.pickpocket`, `.smuggle`, `.venture`, `.brew`,
+  and every per-job minigame. `.inventory` has a category dropdown
+  (like `.market`) so it's obvious at a glance what's usable and what it
+  does.
 - **`.cd` / `.cooldown`**: every timer you're currently carrying in one
   place, gold and skill trades, crime, brewing, minigames, all of it,
   with a live `<t:...:R>` countdown or a plain "ready now." Only shows

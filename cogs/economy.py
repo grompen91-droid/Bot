@@ -10,6 +10,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from econ import formulas
+from econ.buffs import active_buff_summary, active_buff_totals, apply_cooldown_buff, apply_gold_buff
 from econ.data.bank import MAX_BANK_TIER, bank_capacity, bank_upgrade_cost
 from econ.data.jobs import JOBS
 from econ.data.tools import tool_name
@@ -80,6 +81,8 @@ class Economy(commands.Cog):
         streak = user["daily_streak"] + 1 if user["last_daily"] == yesterday else 1
         total_level = await self.db.total_level(gid, uid)
         payout, streak_bonus, level_bonus = formulas.daily_payout(streak, total_level)
+        buffs = await active_buff_totals(self.db, gid, uid)
+        payout = round(apply_gold_buff(payout, buffs))
 
         await self.db.set_daily(gid, uid, today.isoformat(), streak)
         balance = await self.db.add_gold(gid, uid, payout)
@@ -94,7 +97,11 @@ class Economy(commands.Cog):
             extras.append(f"📖 skill: +{level_bonus:,}")
         if extras:
             panel.text(" · ".join(extras))
-        panel.footer(f"Purse: {balance:,} gold")
+        footer = f"Purse: {balance:,} gold"
+        buff_line = active_buff_summary(buffs)
+        if buff_line:
+            footer += f"\n✨ active: {buff_line}"
+        panel.footer(footer)
         await ctx.send(view=panel)
 
     @commands.hybrid_command(name="beg", description="Beg passersby for a few coins")
@@ -103,9 +110,10 @@ class Economy(commands.Cog):
         gid, uid = ctx.guild.id, ctx.author.id
         user = await self.db.get_user(gid, uid)
 
+        buffs = await active_buff_totals(self.db, gid, uid)
         now = time.time()
-        ready_at = await self.db.get_minigame_cooldown(gid, uid, "beg")
-        ready_at += formulas.BEG_COOLDOWN
+        last = await self.db.get_minigame_cooldown(gid, uid, "beg")
+        ready_at = last + apply_cooldown_buff(formulas.BEG_COOLDOWN, buffs)
         if now < ready_at:
             await ctx.send(
                 view=simple_panel(
@@ -118,6 +126,7 @@ class Economy(commands.Cog):
 
         await self.db.set_minigame_cooldown(gid, uid, "beg", now)
         gold, rep_delta = formulas.roll_beg(user["reputation"])
+        gold = round(apply_gold_buff(gold, buffs))
         balance = await self.db.add_gold(gid, uid, gold)
         if rep_delta:
             await self.db.add_reputation(gid, uid, rep_delta)
@@ -128,6 +137,9 @@ class Economy(commands.Cog):
         footer = f"Purse: {balance:,} gold"
         if rep_delta:
             footer += f" · 🌟 {rep_delta} fame (a little beneath you)"
+        buff_line = active_buff_summary(buffs)
+        if buff_line:
+            footer += f"\n✨ active: {buff_line}"
         panel.footer(footer)
         await ctx.send(view=panel)
 
