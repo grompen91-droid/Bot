@@ -63,17 +63,25 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
 - **Crafting** (`.recipes`, `.craft`): a standalone skill, not tied to
   any trade, anyone can craft regardless of their current job. Combine
   gathered goods from across multiple trades into one higher-value
-  crafted item, gated by Crafting skill level (10 recipes across 5
-  tiers). Every recipe mints the item itself, not gold, priced at
-  roughly 18x-49x the combined market value of its ingredients (the
-  market still lists what it's worth if you'd rather sell it). Crafting
-  itself levels the skill and counts toward total skill level like any
-  trade.
+  crafted item, gated by Crafting skill level (13 recipes across 5
+  tiers, and its own much steeper-than-a-trade XP curve -- recipes
+  unlock early but further Crafting levels are the hardest grind in
+  the game). Every recipe mints the item itself, not gold, priced tens
+  to well over a hundred times the combined market value of its
+  ingredients -- steepest for the XP-buff recipes, since an XP buff is
+  a direct shortcut on every trade's own grind and is gated and priced
+  accordingly (the market still lists what it's worth if you'd rather
+  sell it). Crafting itself levels the skill and counts toward total
+  skill level like any trade.
 - **Consumables** (`.use`, `.buffs`): potions and foods that grant a
   temporary buff, either -cooldown, +XP, or +gold, for a set duration.
-  A small chance drops from ordinary `.work` regardless of trade,
+  All of them are priced as a real gold sink, not pocket change --
+  cooldown/gold potions run into the thousands, and every XP potion
+  costs noticeably more than a cooldown/gold one of the same rarity,
+  from a quick +10% sip up to a top-tier +60% tonic worth tens of
+  thousands. A small chance drops from ordinary `.work` regardless of trade,
   Alchemists can also brew potions with `.brew` (guaranteed on a
-  flawless brew), and 6 of the 10 crafting recipes yield a buff food
+  flawless brew), and 9 of the 13 crafting recipes yield a buff food
   instead of a sellable good. `.use <item>` drinks/eats it; using the
   *same* item again extends the remaining time rather than resetting it
   (capped at 3x its base duration, so chaining a cheap item can't buy a

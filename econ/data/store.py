@@ -12,7 +12,7 @@ day.
 STORE_POOL is everything the shop could possibly stock: every potion
 and buff food (CONSUMABLES) plus every rare-or-better RAW gathered
 good (RARE_POOL, never crafted goods or consumables, never
-common/uncommon). Each UTC day, STORE_ITEMS_PER_DAY (18) of those ~34
+common/uncommon). Each UTC day, STORE_ITEMS_PER_DAY (18) of those ~37
 are picked at random -- deterministic and identical for every player
 in every guild, changes at UTC midnight, see
 formulas.store_daily_items -- and shown STORE_PAGE_SIZE (9) at a time.

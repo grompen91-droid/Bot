@@ -76,6 +76,20 @@ CONSUMABLES = {
         "effect": "gold", "magnitude": 0.50, "duration": 4 * 60 * 60,
         "description": "+50% gold for 4 hours", "source": "crafting",
     },
+    # ── more XP potions, smaller doses at earlier Crafting tiers, so the
+    # payoff scales with how hard each one is to unlock ─────────────────
+    "sip_of_insight": {
+        "effect": "xp", "magnitude": 0.10, "duration": 30 * 60,
+        "description": "+10% XP for 30 minutes", "source": "crafting",
+    },
+    "scholars_draught": {
+        "effect": "xp", "magnitude": 0.25, "duration": 60 * 60,
+        "description": "+25% XP for 1 hour", "source": "crafting",
+    },
+    "sages_elixir": {
+        "effect": "xp", "magnitude": 0.40, "duration": 90 * 60,
+        "description": "+40% XP for 1.5 hours", "source": "crafting",
+    },
 }
 
 # Random work-drop pool: a low chance on any .work to also find one of
