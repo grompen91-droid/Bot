@@ -37,17 +37,34 @@ from econ.buffs import (
 )
 from econ.data.jobs import JOBS, MAX_JOB_UNLOCK_LEVEL
 from econ.data.minigames import MINIGAMES
-from ui.panels import AMT_W, NAME_W, Palette, Panel, RoundPanel, chip, simple_panel
+from ui.panels import (
+    AMT_W,
+    NAME_W,
+    InteractionSender,
+    Palette,
+    Panel,
+    RoundPanel,
+    chip,
+    simple_panel,
+)
 
 
 class BaseMinigameSession:
     """Shared reward math, XP, and result-panel rendering for every
     per-job minigame. Subclasses only need to drive their own round
-    flow and call `_finish()` when the attempt ends."""
+    flow and call `_finish()` when the attempt ends.
+
+    `difficulty` ("easy"/"medium"/"hard", see formulas.DIFFICULTIES) is
+    chosen up front by the Easy/Medium/Hard picker every minigame
+    command shows first: it fixes this attempt's round count (via
+    formulas.difficulty_length) and is exposed as `self.tier` so
+    subclasses can also tighten their own timers or add their own
+    kind-specific extra challenge (self.tier["bonus"])."""
 
     def __init__(
         self, db, gid: int, uid: int, job_key: str, level: int, xp: int,
         last_work: float, *, dry_run: bool = False, buffs: dict | None = None,
+        difficulty: str = "easy",
     ):
         self.db = db
         self.gid = gid
@@ -59,9 +76,10 @@ class BaseMinigameSession:
         self.last_work = last_work
         self.dry_run = dry_run
         self.buffs = buffs or {}
-        self.length = formulas.minigame_length(
-            level, self.config["min_len"], self.config["max_len"],
-            self.config["level_per_step"],
+        self.difficulty = difficulty
+        self.tier = formulas.DIFFICULTIES[difficulty]
+        self.length = formulas.difficulty_length(
+            self.config["min_len"], self.config["max_len"], difficulty
         )
         self.correct = 0
         self.done = False
@@ -89,11 +107,12 @@ class BaseMinigameSession:
         unlock = self.config.get(
             "reward_tier_level", JOBS[self.job_key]["unlock_total_level"]
         )
-        extra_mult = (
+        rep_mult = (
             formulas.infamy_multiplier(formulas.reputation_infamy(user["reputation"]))
             if is_criminal
             else formulas.fame_multiplier(formulas.reputation_fame(user["reputation"]))
         )
+        extra_mult = rep_mult * self.tier["reward_mult"]
         reward, perfect = formulas.roll_minigame_reward(
             self.correct, self.length, unlock, MAX_JOB_UNLOCK_LEVEL,
             self.level, total, perfect_bonus=formulas.MINIGAME_PERFECT_BONUS,
@@ -164,7 +183,7 @@ class BaseMinigameSession:
         )
         panel.text(reward_line)
 
-        footer = f"{self.correct}/{self.length} rounds cleared"
+        footer = f"{self.tier['emoji']} {self.tier['label']} · {self.correct}/{self.length} rounds cleared"
         if xp_gain:
             footer += f" · +{xp_gain} XP"
         if levels_gained and not self.dry_run:
@@ -211,7 +230,9 @@ class MatchSession(BaseMinigameSession):
         options = self.config["options"]
         keys = list(options)
         self.target = random.choice(keys)
-        decoy_n = min(self.config["decoys"], len(keys) - 1)
+        # Harder tiers throw in extra decoys -- more to scan through in
+        # the same tight window, on top of that window itself shrinking.
+        decoy_n = min(self.config["decoys"] + self.tier["bonus"], len(keys) - 1)
         pool = [k for k in keys if k != self.target]
         self.choices = random.sample(pool, decoy_n) + [self.target]
         random.shuffle(self.choices)
@@ -219,7 +240,7 @@ class MatchSession(BaseMinigameSession):
     def round_panel(self) -> Panel:
         options = self.config["options"]
         dots = "🟢" * self.correct + "⚪" * (self.length - self.correct)
-        timeout = self.config["round_timeout"]
+        timeout = max(1.0, self.config["round_timeout"] * self.tier["timeout_mult"])
         panel = RoundPanel(self, accent=Palette.GOLD, author_id=self.uid, timeout=timeout)
         panel.header(self.config["title"])
         label = self.target.replace("_", " ").title()
@@ -233,7 +254,7 @@ class MatchSession(BaseMinigameSession):
         # Discord caps an ActionRow at 5 components; split across rows.
         for i in range(0, len(buttons), 5):
             panel.buttons(*buttons[i : i + 5])
-        deadline = int(time.time()) + timeout
+        deadline = int(time.time() + timeout)
         panel.footer(self._footer_text(f"⏱️ act by <t:{deadline}:R>"))
         self.current_panel = panel
         return panel
@@ -277,6 +298,8 @@ class FishSession(BaseMinigameSession):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.phase = "idle"  # idle -> biting -> resolved
+        # Harder tiers give a shorter window to reel it in.
+        self.reel_window = max(0.8, self.config["reel_window"] * self.tier["timeout_mult"])
 
     def _waiting_panel(self) -> Panel:
         dots = "🟢" * self.correct + "⚪" * (self.length - self.correct)
@@ -329,12 +352,12 @@ class FishSession(BaseMinigameSession):
             if self.done:
                 return
             self.phase = "biting"
-            deadline = int(time.time()) + self.config["reel_window"]
+            deadline = int(time.time() + self.reel_window)
             try:
                 await message.edit(view=self._biting_panel(deadline))
             except discord.HTTPException:
                 return
-            await asyncio.sleep(self.config["reel_window"])
+            await asyncio.sleep(self.reel_window)
             if self.done:
                 return
             if self.phase == "biting":  # never tapped in time
@@ -373,7 +396,7 @@ class BakeSession(BaseMinigameSession):
         return "Still thin, needs more."
 
     def round_panel(self) -> Panel:
-        timeout = self.config["step_timeout"]
+        timeout = max(1.0, self.config["step_timeout"] * self.tier["timeout_mult"])
         panel = RoundPanel(self, accent=Palette.GOLD, author_id=self.uid, timeout=timeout)
         panel.header(self.config["title"])
         panel.text(f"*{self._hint()}*")
@@ -384,7 +407,7 @@ class BakeSession(BaseMinigameSession):
         stop_btn = ui.Button(label="Into the Oven", emoji="🔥", style=discord.ButtonStyle.success)
         stop_btn.callback = self._on_stop
         panel.buttons(add_btn, stop_btn)
-        deadline = int(time.time()) + timeout
+        deadline = int(time.time() + timeout)
         panel.footer(self._footer_text(f"⏱️ decide by <t:{deadline}:R>"))
         self.current_panel = panel
         return panel
@@ -440,7 +463,9 @@ class SpotDiffSession(BaseMinigameSession):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.grid_size = self.config["grid_size"]
+        # Harder tiers add more tiles to scan through, on top of the
+        # shrinking round_timeout below.
+        self.grid_size = self.config["grid_size"] + self.tier["bonus"] * 2
         self.target_index = 0
         self.current_panel: RoundPanel | None = None
         self._roll_round()
@@ -451,7 +476,7 @@ class SpotDiffSession(BaseMinigameSession):
     def round_panel(self) -> Panel:
         cfg = self.config
         dots = "🟢" * self.correct + "⚪" * (self.length - self.correct)
-        timeout = cfg["round_timeout"]
+        timeout = max(1.0, cfg["round_timeout"] * self.tier["timeout_mult"])
         panel = RoundPanel(self, accent=Palette.GOLD, author_id=self.uid, timeout=timeout)
         panel.header(cfg["title"])
         panel.text("*One spot looks just a little different. Find it!*")
@@ -464,7 +489,7 @@ class SpotDiffSession(BaseMinigameSession):
             buttons.append(btn)
         for i in range(0, len(buttons), 5):
             panel.buttons(*buttons[i : i + 5])
-        deadline = int(time.time()) + timeout
+        deadline = int(time.time() + timeout)
         panel.footer(self._footer_text(f"⏱️ act by <t:{deadline}:R>"))
         self.current_panel = panel
         return panel
@@ -518,7 +543,7 @@ class PairsSession(BaseMinigameSession):
     def round_panel(self) -> Panel:
         cfg = self.config
         dots = "🟢" * self.correct + "⚪" * (self.length - self.correct)
-        timeout = cfg["round_timeout"]
+        timeout = max(2.0, cfg["round_timeout"] * self.tier["timeout_mult"])
         panel = RoundPanel(self, accent=Palette.GOLD, author_id=self.uid, timeout=timeout)
         panel.header(cfg["title"])
         hint = (
@@ -541,7 +566,7 @@ class PairsSession(BaseMinigameSession):
             buttons.append(btn)
         for i in range(0, len(buttons), 5):
             panel.buttons(*buttons[i : i + 5])
-        deadline = int(time.time()) + timeout
+        deadline = int(time.time() + timeout)
         panel.footer(self._footer_text(f"⏱️ act by <t:{deadline}:R>"))
         self.current_panel = panel
         return panel
@@ -589,19 +614,6 @@ SESSION_CLASSES = {
     "match": MatchSession, "reflex": FishSession, "pressluck": BakeSession,
     "spotdiff": SpotDiffSession, "pairs": PairsSession,
 }
-
-
-class _InteractionSender:
-    """Adapts a component interaction to the ctx.send(view=...) shape a
-    session's start-up expects, for the one-shot "confirm -> the game
-    replaces that same message" flow used by .rob."""
-
-    def __init__(self, interaction: discord.Interaction):
-        self.interaction = interaction
-
-    async def send(self, view=None, **kwargs) -> discord.Message:
-        await self.interaction.response.edit_message(view=view)
-        return self.interaction.message
 
 
 class Minigames(commands.Cog):
@@ -657,7 +669,7 @@ class Minigames(commands.Cog):
         config = MINIGAMES[job_key]
 
         if dry_run:
-            await self._send_session(ctx, gid, uid, job_key, config, level, 0, 0, dry_run=True)
+            await self._send_difficulty_picker(ctx, gid, uid, job_key, config, level, dry_run=True)
             return
 
         if not await self._check_access(ctx, job_key):
@@ -678,33 +690,108 @@ class Minigames(commands.Cog):
             )
             return
 
-        if config.get("requires_confirm"):
-            # Cooldown isn't burned until Confirm is actually pressed --
-            # declining, or just looking, shouldn't cost the attempt.
-            await self._send_confirm(ctx, job_key, config)
-            return
-
-        # The cooldown burns the moment the attempt starts, win or
-        # lose, so walking away mid-attempt can't reroll a bad run.
-        await self.db.set_minigame_cooldown(gid, uid, job_key, now)
+        # Cooldown isn't burned until a difficulty is actually picked --
+        # declining, or just looking, shouldn't cost the attempt.
         skill = await self.db.get_skill(gid, uid, job_key)
-        await self._send_session(
-            ctx, gid, uid, job_key, config,
-            skill["level"], skill["xp"], skill["last_work"], dry_run=False, buffs=buffs,
+        await self._send_difficulty_picker(
+            ctx, gid, uid, job_key, config, skill["level"], dry_run=False, buffs=buffs,
         )
+
+    async def _send_difficulty_picker(
+        self, ctx: commands.Context, gid: int, uid: int, job_key: str, config: dict,
+        skill_level: int, *, dry_run: bool, buffs: dict | None = None,
+    ) -> None:
+        """The first thing every minigame command shows: Easy is always
+        open, Medium and Hard unlock at formulas.DIFFICULTIES'
+        thresholds in that trade's own skill. Picking a tier is what
+        actually starts the attempt (and, for a real run, burns the
+        cooldown)."""
+        panel = Panel(accent=Palette.GOLD, author_id=uid, timeout=60)
+        panel.header(config["title"])
+        panel.text(
+            "*Pick your difficulty. Higher tiers run longer and hit "
+            "harder, but pay far better.*"
+        )
+        lines = []
+        buttons = []
+        for key in formulas.DIFFICULTY_ORDER:
+            tier = formulas.DIFFICULTIES[key]
+            length = formulas.difficulty_length(config["min_len"], config["max_len"], key)
+            unlocked = dry_run or formulas.difficulty_unlocked(skill_level, key)
+            if unlocked:
+                lines.append(
+                    f"{tier['emoji']} **{tier['label']}** · {length} rounds · "
+                    f"×{tier['reward_mult']:.2f} reward"
+                )
+            else:
+                lines.append(
+                    f"🔒 **{tier['label']}** · unlocks at level {tier['unlock_level']} "
+                    f"in this trade (you're {skill_level})"
+                )
+            btn = ui.Button(
+                label=tier["label"], emoji=tier["emoji"],
+                style=discord.ButtonStyle.secondary, disabled=not unlocked,
+            )
+            btn.callback = self._make_difficulty_handler(
+                job_key, config, key, dry_run=dry_run, buffs=buffs, level=skill_level,
+            )
+            buttons.append(btn)
+        panel.text("\n".join(lines))
+        panel.buttons(*buttons)
+        message = await ctx.send(view=panel)
+        panel.message = message
+
+    def _make_difficulty_handler(
+        self, job_key: str, config: dict, difficulty: str, *,
+        dry_run: bool, buffs: dict | None, level: int,
+    ):
+        async def handler(interaction: discord.Interaction) -> None:
+            gid, uid = interaction.guild_id, interaction.user.id
+            if dry_run:
+                await self._send_session(
+                    InteractionSender(interaction), gid, uid, job_key, config,
+                    level, 0, 0, dry_run=True, difficulty=difficulty,
+                )
+                return
+
+            now = time.time()
+            cooldown = apply_cooldown_buff(self._cooldown_for(job_key, config), buffs)
+            last = await self.db.get_minigame_cooldown(gid, uid, job_key)
+            if now < last + cooldown:
+                await interaction.response.edit_message(
+                    view=simple_panel(
+                        "Too late, the window's closed for now.", accent=Palette.RED
+                    )
+                )
+                return
+
+            if config.get("requires_confirm"):
+                await self._send_confirm(interaction, job_key, config, difficulty, buffs)
+                return
+
+            # The cooldown burns the moment the attempt starts, win or
+            # lose, so walking away mid-attempt can't reroll a bad run.
+            await self.db.set_minigame_cooldown(gid, uid, job_key, now)
+            skill = await self.db.get_skill(gid, uid, job_key)
+            await self._send_session(
+                InteractionSender(interaction), gid, uid, job_key, config,
+                skill["level"], skill["xp"], skill["last_work"],
+                dry_run=False, buffs=buffs, difficulty=difficulty,
+            )
+        return handler
 
     async def _send_session(
         self, sendable, gid: int, uid: int, job_key: str, config: dict,
         session_level: int, xp: int, last_work: float, *, dry_run: bool,
-        buffs: dict | None = None,
+        buffs: dict | None = None, difficulty: str = "easy",
     ) -> None:
         """`sendable` is anything with an async .send(view=...) -> Message
-        (commands.Context, or _InteractionSender for the .rob confirm
-        flow)."""
+        (commands.Context, or InteractionSender for the difficulty-pick
+        and .rob confirm flows)."""
         session_cls = SESSION_CLASSES[config["kind"]]
         session = session_cls(
             self.db, gid, uid, job_key, session_level, xp, last_work,
-            dry_run=dry_run, buffs=buffs,
+            dry_run=dry_run, buffs=buffs, difficulty=difficulty,
         )
 
         if dry_run:
@@ -724,27 +811,29 @@ class Minigames(commands.Cog):
             panel.message = message
 
     async def _send_confirm(
-        self, ctx: commands.Context, job_key: str, config: dict
+        self, interaction: discord.Interaction, job_key: str, config: dict,
+        difficulty: str, buffs: dict | None,
     ) -> None:
         """The one-way door before .rob: get caught and infamy resets to
         0, so make sure the player actually meant to press the button."""
-        panel = Panel(accent=Palette.RED, author_id=ctx.author.id, timeout=30)
+        gid, uid = interaction.guild_id, interaction.user.id
+        tier = formulas.DIFFICULTIES[difficulty]
+        panel = Panel(accent=Palette.RED, author_id=uid, timeout=30)
         panel.header(f"{config['title']} · Are You Sure?")
         panel.text(
-            "*This isn't like the others. Get caught, and everything "
-            "you've built goes up in smoke, your infamy resets to 0.*"
+            f"*{tier['emoji']} {tier['label']} difficulty. This isn't like the "
+            "others. Get caught, and everything you've built goes up in "
+            "smoke, your infamy resets to 0.*"
         )
         confirm_btn = ui.Button(label="Do It", emoji="🏦", style=discord.ButtonStyle.danger)
         cancel_btn = ui.Button(label="Walk Away", style=discord.ButtonStyle.secondary)
 
-        async def on_confirm(interaction: discord.Interaction) -> None:
-            gid, uid = interaction.guild_id, interaction.user.id
-            buffs = await active_buff_totals(self.db, gid, uid)
+        async def on_confirm(inner: discord.Interaction) -> None:
             now = time.time()
             cooldown = apply_cooldown_buff(self._cooldown_for(job_key, config), buffs)
             last = await self.db.get_minigame_cooldown(gid, uid, job_key)
             if now < last + cooldown:
-                await interaction.response.edit_message(
+                await inner.response.edit_message(
                     view=simple_panel(
                         "Too late, the window's closed for now.", accent=Palette.RED
                     )
@@ -753,12 +842,13 @@ class Minigames(commands.Cog):
             await self.db.set_minigame_cooldown(gid, uid, job_key, now)
             skill = await self.db.get_skill(gid, uid, job_key)
             await self._send_session(
-                _InteractionSender(interaction), gid, uid, job_key, config,
-                skill["level"], skill["xp"], skill["last_work"], dry_run=False, buffs=buffs,
+                InteractionSender(inner), gid, uid, job_key, config,
+                skill["level"], skill["xp"], skill["last_work"],
+                dry_run=False, buffs=buffs, difficulty=difficulty,
             )
 
-        async def on_cancel(interaction: discord.Interaction) -> None:
-            await interaction.response.edit_message(
+        async def on_cancel(inner: discord.Interaction) -> None:
+            await inner.response.edit_message(
                 view=simple_panel(
                     "You think better of it and walk away.", accent=Palette.GOLD
                 )
@@ -767,7 +857,8 @@ class Minigames(commands.Cog):
         confirm_btn.callback = on_confirm
         cancel_btn.callback = on_cancel
         panel.buttons(confirm_btn, cancel_btn)
-        panel.message = await ctx.send(view=panel)
+        await interaction.response.edit_message(view=panel)
+        panel.message = interaction.message
 
     # ── farmer: harvest ─────────────────────────────────────────────────
 

@@ -29,7 +29,9 @@ HELP_SECTIONS = [
     (
         "🎯 Job Minigames",
         ".harvest · .dig · .fish · .fell · .hunt · .bake · .tend · "
-        ".stretch · .facet · .brew · .rob",
+        ".stretch · .facet · .brew · .rob\n"
+        "🟢 Easy · 🟡 Medium (lvl 15+) · 🔴 Hard (lvl 35+) -- pick a "
+        "difficulty each time, harder pays much better",
     ),
     ("⏳ Cooldowns", ".cd · see every timer you're carrying, at a glance"),
 ]

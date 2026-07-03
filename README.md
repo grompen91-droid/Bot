@@ -99,14 +99,22 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
   if you have any (never pushes you into infamy), and does nothing at
   all if you're already neutral or infamous.
 - **Job minigames**: every trade has its own quick, timed challenge,
-  the real hands-on way to earn beyond `.work`. All ten share one
-  reward curve: pay scales with skill level (low at level 1, up to 6x
+  the real hands-on way to earn beyond `.work`. Running the command
+  first shows a 🟢 Easy / 🟡 Medium / 🔴 Hard picker instead of just
+  starting: Easy is always open, Medium unlocks at **level 15** in
+  that trade's own skill, Hard at **level 35** -- so a higher skill
+  level buys access to a longer, tougher, better-paying version of the
+  *same* minigame. Hard runs more rounds (up to the trade's own tuned
+  ceiling), tightens whichever timer that minigame uses by up to 38%,
+  throws in extra decoys/tiles to track, and pays up to **×1.85** on
+  top of the normal reward. All ten still share one underlying reward
+  curve too: pay scales with skill level (low at level 1, up to 6x
   that at max level) and with how late-game the trade was to unlock in
   the first place (Alchemist pays far more per round than Farmer from
-  square one), reward is proportional to how many rounds you clear, and
-  a flawless run earns a 50% bonus. Every one has a genuine fail state,
-  one mistake or a blown timer ends the attempt right there, and every
-  one has an admin-only `*test` twin (e.g. `.harvesttest`) to try it
+  square one), and a flawless run earns a 50% bonus on top of
+  everything else. Every one has a genuine fail state, one mistake or
+  a blown timer ends the attempt right there, and every one has an
+  admin-only `*test` twin (e.g. `.harvesttest`) to try any difficulty
   with no job, cooldown, or real reward. Access follows the same rule
   everywhere: your current job always qualifies, or skill level 5+ in
   that trade even without holding the job.

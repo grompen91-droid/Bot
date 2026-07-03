@@ -477,10 +477,50 @@ def roll_minigame_reward(
     return round(reward), perfect
 
 
-def minigame_length(level: int, min_len: int, max_len: int, level_per_step: int) -> int:
-    """Round count for a per-job minigame attempt: starts at min_len,
-    +1 round per level_per_step levels of skill, caps at max_len."""
-    return min(max_len, min_len + level // level_per_step)
+# ═══════════════════ minigame difficulty tiers ══════════════════════════
+# Every per-job minigame (and the cauldron brew) is picked, not auto-
+# scaled: running the command shows an Easy/Medium/Hard picker. Easy is
+# always open; Medium and Hard unlock at DIFFICULTY_UNLOCK_LEVEL in that
+# specific trade's skill, so a higher skill level buys access to a
+# harder, longer, better-paying version of the SAME minigame, on top of
+# minigame_round_base's existing per-round scaling by skill level.
+#
+# length_frac interpolates between a config's own min_len and max_len
+# (already tuned per job), so Easy always equals min_len and Hard
+# always equals max_len with zero extra per-job data needed. bonus is a
+# generic "how many extra units of raw challenge" knob each session
+# kind spends on whatever fits it (MatchSession: extra decoys,
+# SpotDiffSession: extra grid tiles). timeout_mult tightens whichever
+# timer that kind uses (round_timeout, step_timeout, reel_window, the
+# brew's reveal/answer timing). reward_mult is a straight multiplier
+# folded into roll_minigame_reward's extra_multiplier.
+
+DIFFICULTIES = {
+    "easy": {
+        "label": "Easy", "emoji": "🟢", "unlock_level": 1,
+        "length_frac": 0.0, "bonus": 0, "timeout_mult": 1.00, "reward_mult": 1.0,
+    },
+    "medium": {
+        "label": "Medium", "emoji": "🟡", "unlock_level": 15,
+        "length_frac": 0.5, "bonus": 1, "timeout_mult": 0.80, "reward_mult": 1.35,
+    },
+    "hard": {
+        "label": "Hard", "emoji": "🔴", "unlock_level": 35,
+        "length_frac": 1.0, "bonus": 2, "timeout_mult": 0.62, "reward_mult": 1.85,
+    },
+}
+DIFFICULTY_ORDER = ("easy", "medium", "hard")
+
+
+def difficulty_length(min_len: int, max_len: int, difficulty: str) -> int:
+    """Round count for a chosen difficulty tier: Easy = min_len exactly,
+    Hard = max_len exactly, Medium interpolates between them."""
+    frac = DIFFICULTIES[difficulty]["length_frac"]
+    return round(min_len + (max_len - min_len) * frac)
+
+
+def difficulty_unlocked(skill_level: int, difficulty: str) -> bool:
+    return skill_level >= DIFFICULTIES[difficulty]["unlock_level"]
 
 
 MINIGAME_XP_PER_ROUND = 3
@@ -569,7 +609,8 @@ def roll_criminal_work(level: int, tool_tier: int, infamy: int, total_level: int
 # loss, reward scales with how many you get right, with a bonus for a
 # flawless brew. A long cooldown and a bigger per-attempt payout than
 # .venture make it worth doing once a day's business is settled.
-# Sequence length grows with Alchemist skill level.
+# Sequence length is picked via the same Easy/Medium/Hard difficulty
+# tiers as every other per-job minigame (see DIFFICULTIES above).
 #
 # Access: current Alchemists can always brew. Anyone else needs at
 # least BREW_MIN_LEVEL_WITHOUT_JOB in the Alchemist skill (persists
@@ -580,13 +621,12 @@ BREW_COOLDOWN = 6 * 60 * 60  # 6 hours
 BREW_MIN_LEVEL_WITHOUT_JOB = 5
 BREW_MIN_LENGTH = 3
 BREW_MAX_LENGTH = 8
-BREW_LEVEL_PER_STEP = 15   # +1 reagent per 15 Alchemist levels
 BREW_PERFECT_BONUS = 1.5
 BREW_XP_PER_SYMBOL = 3
 
 
-def brew_sequence_length(level: int) -> int:
-    return minigame_length(level, BREW_MIN_LENGTH, BREW_MAX_LENGTH, BREW_LEVEL_PER_STEP)
+def brew_sequence_length(difficulty: str) -> int:
+    return difficulty_length(BREW_MIN_LENGTH, BREW_MAX_LENGTH, difficulty)
 
 
 def roll_brew_reward(

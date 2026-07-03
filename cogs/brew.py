@@ -30,24 +30,38 @@ from econ.buffs import (
 from econ.data.consumables import BREW_POTION_CHANCE, BREW_POTIONS
 from econ.data.items import ITEMS
 from econ.data.jobs import JOBS, MAX_JOB_UNLOCK_LEVEL
-from ui.panels import AMT_W, NAME_W, Palette, Panel, RoundPanel, chip, simple_panel
+from ui.panels import (
+    AMT_W,
+    NAME_W,
+    InteractionSender,
+    Palette,
+    Panel,
+    RoundPanel,
+    chip,
+    simple_panel,
+)
 
 REAGENTS = {
     "herb": "🌿", "water": "💧", "fire": "🔥", "flask": "⚗️",
     "spark": "✨", "shroom": "🍄", "venom": "💀",
 }
 REAGENT_KEYS = list(REAGENTS)
-REVEAL_DELAY = 1.1     # seconds between flashing each reagent
-ANSWER_TIMEOUT = 20    # seconds to tap each reagent before the view expires
+REVEAL_DELAY = 1.1     # seconds between flashing each reagent, at Easy
+ANSWER_TIMEOUT = 20    # seconds to tap each reagent before the view expires, at Easy
 
 
 class BrewSession:
     """One player's in-progress cauldron attempt: holds the target
-    sequence and how far they've correctly recalled it so far."""
+    sequence and how far they've correctly recalled it so far.
+
+    `difficulty` ("easy"/"medium"/"hard", see formulas.DIFFICULTIES) is
+    chosen up front by .brew's difficulty picker: it fixes the
+    sequence length and tightens both the reveal pace and the answer
+    timeout, same shape as every other per-job minigame."""
 
     def __init__(
         self, db, gid: int, uid: int, level: int, xp: int, last_work: float,
-        *, dry_run: bool = False, buffs: dict | None = None,
+        *, dry_run: bool = False, buffs: dict | None = None, difficulty: str = "easy",
     ):
         self.db = db
         self.gid = gid
@@ -57,7 +71,11 @@ class BrewSession:
         self.last_work = last_work
         self.dry_run = dry_run
         self.buffs = buffs or {}
-        self.length = formulas.brew_sequence_length(level)
+        self.difficulty = difficulty
+        self.tier = formulas.DIFFICULTIES[difficulty]
+        self.length = formulas.brew_sequence_length(difficulty)
+        self.reveal_delay = max(0.4, REVEAL_DELAY * self.tier["timeout_mult"])
+        self.answer_timeout = max(4, round(ANSWER_TIMEOUT * self.tier["timeout_mult"]))
         self.sequence = [random.choice(REAGENT_KEYS) for _ in range(self.length)]
         self.progress = 0
         self.done = False
@@ -65,7 +83,9 @@ class BrewSession:
 
     def answer_panel(self) -> Panel:
         dots = "🟢" * self.progress + "⚪" * (self.length - self.progress)
-        panel = RoundPanel(self, accent=Palette.GOLD, author_id=self.uid, timeout=ANSWER_TIMEOUT)
+        panel = RoundPanel(
+            self, accent=Palette.GOLD, author_id=self.uid, timeout=self.answer_timeout
+        )
         panel.header("🧪 Repeat the Sequence!")
         panel.text(f"`{dots}`  ({self.progress}/{self.length})")
         buttons = []
@@ -76,7 +96,7 @@ class BrewSession:
         # Discord caps an ActionRow at 5 components; split across rows.
         for i in range(0, len(buttons), 5):
             panel.buttons(*buttons[i : i + 5])
-        deadline = int(time.time()) + ANSWER_TIMEOUT
+        deadline = int(time.time()) + self.answer_timeout
         panel.footer(f"⏱️ answer by <t:{deadline}:R>")
         self.current_panel = panel
         return panel
@@ -134,10 +154,11 @@ class BrewSession:
     ) -> Panel:
         total = await self.db.total_level(self.gid, self.uid)
         user = await self.db.get_user(self.gid, self.uid)
+        fame_mult = formulas.fame_multiplier(formulas.reputation_fame(user["reputation"]))
         reward, perfect = formulas.roll_brew_reward(
             self.progress, self.length, self.level, total,
             JOBS["alchemist"]["unlock_total_level"], MAX_JOB_UNLOCK_LEVEL,
-            extra_multiplier=formulas.fame_multiplier(formulas.reputation_fame(user["reputation"])),
+            extra_multiplier=fame_mult * self.tier["reward_mult"],
         )
         reward = round(apply_gold_buff(reward, self.buffs))
         xp_gain = round(apply_xp_buff(self.progress * formulas.BREW_XP_PER_SYMBOL, self.buffs))
@@ -197,7 +218,7 @@ class BrewSession:
                 f"*(usable with `.use`)*"
             )
 
-        footer = f"{self.progress}/{self.length} recalled correctly"
+        footer = f"{self.tier['emoji']} {self.tier['label']} · {self.progress}/{self.length} recalled correctly"
         if xp_gain:
             footer += f" · +{xp_gain} XP"
         if levels_gained and not self.dry_run:
@@ -261,15 +282,12 @@ class Brew(commands.Cog):
             )
             return
 
-        # The cooldown burns the moment the brew starts, win or lose, so
-        # walking away mid-brew can't be used to reroll a bad sequence.
-        await self.db.set_last_brew(gid, uid, now)
-
+        # Cooldown isn't burned until a difficulty is actually picked --
+        # declining, or just looking, shouldn't cost the attempt.
         skill = await self.db.get_skill(gid, uid, "alchemist")
-        session = BrewSession(
-            self.db, gid, uid, skill["level"], skill["xp"], skill["last_work"], buffs=buffs
+        await self._send_difficulty_picker(
+            ctx, gid, uid, skill["level"], dry_run=False, buffs=buffs
         )
-        await self._run_brew(ctx, session)
 
     @commands.hybrid_command(
         name="brewtest",
@@ -281,25 +299,111 @@ class Brew(commands.Cog):
     async def brewtest(
         self, ctx: commands.Context, level: commands.Range[int, 1, formulas.MAX_LEVEL] = 1
     ):
-        session = BrewSession(
-            self.db, ctx.guild.id, ctx.author.id, level, 0, 0, dry_run=True
+        await self._send_difficulty_picker(
+            ctx, ctx.guild.id, ctx.author.id, level, dry_run=True
         )
-        await self._run_brew(ctx, session, test_mode=True)
+
+    async def _send_difficulty_picker(
+        self, ctx: commands.Context, gid: int, uid: int, skill_level: int,
+        *, dry_run: bool, buffs: dict | None = None,
+    ) -> None:
+        """Same Easy/Medium/Hard picker every other per-job minigame
+        shows first (see cogs/minigames.py): Easy is always open,
+        Medium/Hard unlock at formulas.DIFFICULTIES' thresholds in
+        Alchemist skill. Picking a tier is what starts the brew (and,
+        for a real run, burns the cooldown)."""
+        panel = Panel(accent=Palette.GOLD, author_id=uid, timeout=60)
+        panel.header("🧪 The Cauldron Brew")
+        panel.text(
+            "*Pick your difficulty. Higher tiers run longer and hit "
+            "harder, but pay far better.*"
+        )
+        lines = []
+        buttons = []
+        for key in formulas.DIFFICULTY_ORDER:
+            tier = formulas.DIFFICULTIES[key]
+            length = formulas.brew_sequence_length(key)
+            unlocked = dry_run or formulas.difficulty_unlocked(skill_level, key)
+            if unlocked:
+                lines.append(
+                    f"{tier['emoji']} **{tier['label']}** · {length} reagents · "
+                    f"×{tier['reward_mult']:.2f} reward"
+                )
+            else:
+                lines.append(
+                    f"🔒 **{tier['label']}** · unlocks at level {tier['unlock_level']} "
+                    f"in Alchemist (you're {skill_level})"
+                )
+            btn = ui.Button(
+                label=tier["label"], emoji=tier["emoji"],
+                style=discord.ButtonStyle.secondary, disabled=not unlocked,
+            )
+            btn.callback = self._make_difficulty_handler(
+                key, dry_run=dry_run, buffs=buffs, level=skill_level,
+            )
+            buttons.append(btn)
+        panel.text("\n".join(lines))
+        panel.buttons(*buttons)
+        message = await ctx.send(view=panel)
+        panel.message = message
+
+    def _make_difficulty_handler(
+        self, difficulty: str, *, dry_run: bool, buffs: dict | None, level: int,
+    ):
+        async def handler(interaction: discord.Interaction) -> None:
+            gid, uid = interaction.guild_id, interaction.user.id
+            if dry_run:
+                session = BrewSession(
+                    self.db, gid, uid, level, 0, 0, dry_run=True, difficulty=difficulty
+                )
+                await self._run_brew(
+                    InteractionSender(interaction), session, test_mode=True
+                )
+                return
+
+            now = time.time()
+            cooldown = apply_cooldown_buff(formulas.BREW_COOLDOWN, buffs)
+            user = await self.db.get_user(gid, uid)
+            if now < user["last_brew"] + cooldown:
+                await interaction.response.edit_message(
+                    view=simple_panel(
+                        "Too late, the cauldron's cooling again.", accent=Palette.RED
+                    )
+                )
+                return
+
+            # The cooldown burns the moment the brew starts, win or
+            # lose, so walking away mid-brew can't reroll a bad sequence.
+            await self.db.set_last_brew(gid, uid, now)
+            skill = await self.db.get_skill(gid, uid, "alchemist")
+            session = BrewSession(
+                self.db, gid, uid, skill["level"], skill["xp"], skill["last_work"],
+                buffs=buffs, difficulty=difficulty,
+            )
+            await self._run_brew(InteractionSender(interaction), session)
+        return handler
 
     async def _run_brew(
-        self, ctx: commands.Context, session: BrewSession, *, test_mode: bool = False
+        self, sendable, session: BrewSession, *, test_mode: bool = False
     ) -> None:
-        """Shared reveal-then-answer flow for both .brew and .brewtest."""
+        """Shared reveal-then-answer flow for both .brew and .brewtest.
+        `sendable` is anything with an async .send(view=...) -> Message
+        (commands.Context is never used here directly any more --
+        every call now arrives via InteractionSender from the
+        difficulty picker's button, but the shape is kept generic)."""
         panel = Panel(accent=Palette.PURPLE, timeout=None)
         panel.header("🧪 The Cauldron Brew")
         if test_mode:
             panel.text("🧪 *TEST MODE, no job, cooldown, or rewards apply.*")
-        panel.text(f"Sequence length: **{session.length}** reagents")
+        panel.text(
+            f"{session.tier['emoji']} {session.tier['label']} · "
+            f"Sequence length: **{session.length}** reagents"
+        )
         panel.footer("👀 watch closely, and remember the order")
-        message = await ctx.send(view=panel)
+        message = await sendable.send(view=panel)
 
         for revealed in range(1, session.length + 1):
-            await asyncio.sleep(REVEAL_DELAY)
+            await asyncio.sleep(session.reveal_delay)
             reagent = session.sequence[revealed - 1]
             flash = Panel(accent=Palette.PURPLE, timeout=None)
             flash.header("🧪 The Cauldron Brew")
@@ -309,7 +413,7 @@ class Brew(commands.Cog):
                 await message.edit(view=flash)
             except discord.HTTPException:
                 return
-        await asyncio.sleep(REVEAL_DELAY)
+        await asyncio.sleep(session.reveal_delay)
 
         answer_panel = session.answer_panel()
         answer_panel.message = message

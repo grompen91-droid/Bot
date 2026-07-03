@@ -1,8 +1,13 @@
 """Per-job minigame configuration: what each trade's minigame is
-called, the flavour text, and the round-count/timing knobs. Reward and
-round-count math lives in formulas.py (roll_minigame_reward,
-minigame_length, minigame_cooldown); this file is content, the same
-split as jobs.py (yields) vs formulas.py (yield math).
+called, the flavour text, and the round-count/timing knobs. Reward,
+difficulty-tier, and cooldown math lives in formulas.py
+(roll_minigame_reward, DIFFICULTIES/difficulty_length,
+minigame_cooldown); this file is content, the same split as jobs.py
+(yields) vs formulas.py (yield math).
+
+min_len/max_len are no longer a level-scaling curve -- they're the
+Easy (=min_len) and Hard (=max_len) bounds of the Easy/Medium/Hard
+difficulty picker every command shows first (see formulas.DIFFICULTIES).
 
 kind:
     "match"     bot names a target among a few decoys, tap the right
@@ -31,7 +36,7 @@ MINIGAMES = {
             "pumpkin": "🎃", "berry": "🫐", "cabbage": "🥬",
         },
         "decoys": 3, "round_timeout": 7,
-        "min_len": 4, "max_len": 10, "level_per_step": 12,
+        "min_len": 4, "max_len": 10,
         "prompt": "is ripe, pick it before it spoils!",
         "fail_text": "You reach for the wrong row and trample the seedlings.",
         "success_text": "Every basket filled before the sun set.",
@@ -41,7 +46,7 @@ MINIGAMES = {
         "kind": "match",
         "options": {"north": "⬆️", "south": "⬇️", "east": "➡️", "west": "⬅️"},
         "decoys": 3, "round_timeout": 6,
-        "min_len": 5, "max_len": 12, "level_per_step": 10,
+        "min_len": 5, "max_len": 12,
         "prompt": "the vein pulls that way, follow it!",
         "fail_text": "Your pick strikes solid rock, the vein is lost.",
         "success_text": "You break through into a glittering seam.",
@@ -51,7 +56,7 @@ MINIGAMES = {
         "kind": "match",
         "options": {"left": "⬅️", "right": "➡️"},
         "decoys": 1, "round_timeout": 5,
-        "min_len": 5, "max_len": 14, "level_per_step": 8,
+        "min_len": 5, "max_len": 14,
         "prompt": "the trunk leans, swing that side!",
         "fail_text": "You swing wide and the axe bites into empty air.",
         "success_text": "The great tree finally groans and falls.",
@@ -64,7 +69,7 @@ MINIGAMES = {
             "fox": "🦊", "wolf": "🐺",
         },
         "decoys": 3, "round_timeout": 6,
-        "min_len": 4, "max_len": 10, "level_per_step": 12,
+        "min_len": 4, "max_len": 10,
         "prompt": "breaks from the treeline, loose your arrow!",
         "fail_text": "You loose an arrow at the wrong shape in the brush.",
         "success_text": "A clean shot, the hunt is yours.",
@@ -74,7 +79,7 @@ MINIGAMES = {
         "kind": "match",
         "options": {"oak": "🛢️", "clay": "🫙", "iron": "🪣", "stone": "🪨"},
         "decoys": 3, "round_timeout": 6,
-        "min_len": 4, "max_len": 10, "level_per_step": 12,
+        "min_len": 4, "max_len": 10,
         "prompt": "is ready to tap, quick, before it spoils!",
         "fail_text": "You tap the wrong vat and sour ale floods the floor.",
         "success_text": "Every barrel tapped at its perfect moment.",
@@ -82,7 +87,7 @@ MINIGAMES = {
     "fisherman": {
         "command": "fish", "job_name": "Fisherman", "title": "🎣 The Bite",
         "kind": "reflex",
-        "min_len": 3, "max_len": 8, "level_per_step": 14,
+        "min_len": 3, "max_len": 8,
         "wait_min": 1.5, "wait_max": 3.5, "reel_window": 2.5,
         "fail_early_text": "You yank the line before anything's there. It swims off.",
         "fail_late_text": "Too slow, the fish spits the hook and vanishes.",
@@ -92,7 +97,7 @@ MINIGAMES = {
     "baker": {
         "command": "bake", "job_name": "Baker", "title": "🍞 The Batch",
         "kind": "pressluck",
-        "min_len": 4, "max_len": 12, "level_per_step": 9,
+        "min_len": 4, "max_len": 12,
         "step_timeout": 8,
         "fail_text": "One scoop too many, the batch is ruined.",
         "success_text": "A perfect batch, risen just right.",
@@ -102,7 +107,7 @@ MINIGAMES = {
         "kind": "spotdiff",
         "common_emoji": "🟤", "odd_emoji": "🟫",
         "grid_size": 9, "round_timeout": 6,
-        "min_len": 4, "max_len": 11, "level_per_step": 11,
+        "min_len": 4, "max_len": 11,
         "fail_text": "You press the wrong spot and the seam splits wide open.",
         "success_text": "Every weak spot caught and reinforced before it tore.",
     },
@@ -114,7 +119,7 @@ MINIGAMES = {
             "amethyst": "🟣", "onyx": "⚫", "pearl": "⚪",
         },
         "hidden_emoji": "🔳", "round_timeout": 15,
-        "min_len": 3, "max_len": 7, "level_per_step": 12,
+        "min_len": 3, "max_len": 7,
         "fail_text": "Wrong pair, the mismatched facets shatter under the loupe.",
         "success_text": "Every facet paired and polished to a brilliant shine.",
     },
@@ -135,7 +140,7 @@ MINIGAMES = {
             "north": "⬆️", "south": "⬇️", "east": "➡️", "west": "⬅️", "vault": "🔓",
         },
         "decoys": 3, "round_timeout": 5,
-        "min_len": 5, "max_len": 10, "level_per_step": 10,
+        "min_len": 5, "max_len": 10,
         "prompt": "the guard patrol shifts that way, move now!",
         "fail_text": "A guard turns and spots you mid-step. The alarm wails.",
         "success_text": "The vault door swings open. You're rich, and utterly infamous.",

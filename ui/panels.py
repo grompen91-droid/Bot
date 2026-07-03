@@ -204,6 +204,20 @@ def chip(*cols: tuple[str, int]) -> str:
     return "`" + " ".join(parts) + "`"
 
 
+class InteractionSender:
+    """Adapts a component interaction to the ctx.send(view=...) shape a
+    Panel-driven flow expects, for any "confirm/pick a button -> that
+    same message becomes the next screen" sequence (the difficulty
+    picker and .rob's confirm step, the cauldron brew's own picker)."""
+
+    def __init__(self, interaction: discord.Interaction):
+        self.interaction = interaction
+
+    async def send(self, view=None, **kwargs) -> discord.Message:
+        await self.interaction.response.edit_message(view=view)
+        return self.interaction.message
+
+
 def captcha_panel(code: str) -> Panel:
     """The town guard's letter challenge."""
     panel = Panel(accent=Palette.RED, timeout=None)
