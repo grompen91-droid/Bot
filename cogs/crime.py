@@ -6,6 +6,11 @@ current Criminals can always pickpocket, or anyone with Criminal
 skill level 5+ (persists across job switches). Odds and steal size
 both scale with that same skill level, and every attempt, win or
 lose, builds a little infamy.
+
+.surrender is the other direction: anyone, criminal or not, can pay a
+flat fine to wipe an infamy total (however it was built) clean back
+to 0 -- giving up the payout bonus it was earning in exchange for a
+clean slate.
 """
 
 from __future__ import annotations
@@ -14,12 +19,14 @@ import random
 import time
 
 import discord
-from discord import app_commands
+from discord import app_commands, ui
 from discord.ext import commands
 
 from econ import formulas
 from econ.buffs import active_buff_summary, active_buff_totals, apply_cooldown_buff, apply_gold_buff
 from ui.panels import Palette, Panel, simple_panel
+
+SURRENDER_FINE = 10_000
 
 
 class Crime(commands.Cog):
@@ -230,6 +237,66 @@ class Crime(commands.Cog):
         if buff_line:
             footer += f"\n✨ active: {buff_line}"
         panel.footer(footer)
+        await ctx.send(view=panel)
+
+    @commands.hybrid_command(
+        name="surrender", aliases=["turnin"],
+        description="Turn yourself in to the town guard, pay a fine, and wipe your infamy clean",
+    )
+    @commands.guild_only()
+    async def surrender(self, ctx: commands.Context):
+        gid, uid = ctx.guild.id, ctx.author.id
+        user = await self.db.get_user(gid, uid)
+        infamy = formulas.reputation_infamy(user["reputation"])
+        if infamy <= 0:
+            await ctx.send(
+                view=simple_panel(
+                    "You have no infamy to shed. The guard has no interest in you.",
+                    accent=Palette.RED,
+                ),
+                ephemeral=True,
+            )
+            return
+
+        panel = Panel(accent=Palette.RED, author_id=uid, timeout=30)
+        panel.header("🏛️ Turn Yourself In?")
+        panel.text(
+            f"🗡️ You currently carry **{infamy:,} infamy**. Surrendering pays "
+            f"a **{formulas.fmt_gold(SURRENDER_FINE)}** fine to the town guard "
+            "and wipes your reputation clean to 0 -- and with it, the payout "
+            "bonus your infamy was earning you."
+        )
+
+        async def on_confirm(interaction: discord.Interaction) -> None:
+            if not await self.db.spend_gold(gid, uid, SURRENDER_FINE):
+                purse = (await self.db.get_user(gid, uid))["gold"]
+                await interaction.response.edit_message(
+                    view=simple_panel(
+                        f"Turning yourself in costs {formulas.fmt_gold(SURRENDER_FINE)}, "
+                        f"but your purse holds only {formulas.fmt_gold(purse)}.",
+                        accent=Palette.RED,
+                    )
+                )
+                return
+            await self.db.set_reputation(gid, uid, 0)
+            await interaction.response.edit_message(
+                view=simple_panel(
+                    f"🏛️ You turn yourself in, pay {formulas.fmt_gold(SURRENDER_FINE)}, "
+                    "and walk out with a clean slate. Your infamy is reset to 0.",
+                    accent=Palette.GREEN,
+                )
+            )
+
+        async def on_cancel(interaction: discord.Interaction) -> None:
+            await interaction.response.edit_message(
+                view=simple_panel("You decide against it, for now.", accent=Palette.GOLD)
+            )
+
+        confirm_btn = ui.Button(label="Turn Yourself In", emoji="🏛️", style=discord.ButtonStyle.danger)
+        cancel_btn = ui.Button(label="Cancel", style=discord.ButtonStyle.secondary)
+        confirm_btn.callback = on_confirm
+        cancel_btn.callback = on_cancel
+        panel.buttons(confirm_btn, cancel_btn)
         await ctx.send(view=panel)
 
 

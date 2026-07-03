@@ -25,7 +25,7 @@ HELP_SECTIONS = [
     ("🗺️ Venture", ".venture"),
     ("💰 Gold", ".balance · .daily · .beg · .pay · .profile · .leaderboard"),
     ("🏦 Bank", ".bank · .deposit · .withdraw"),
-    ("🗡️ Crime", ".pickpocket · .smuggle"),
+    ("🗡️ Crime", ".pickpocket · .smuggle · .surrender"),
     # Every job-specific minigame lives in this one section, not a new
     # section per job, however many of these exist.
     (

@@ -118,6 +118,11 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
   reputation) -- a real payday on an hour cooldown, with a real chance
   the shipment gets seized and you pay a fine, but never the full
   reputation wipe a botched bank job carries.
+- **`.surrender`**: the voluntary, paid version of that same wipe --
+  anyone carrying infamy can turn themselves in for a flat 10,000 gold
+  fine (confirm-gated) and walk out with reputation reset to 0, giving
+  up the payout bonus that infamy was earning in exchange for a clean
+  slate on their own terms.
 - **`.beg`**: needs no job, no skill, no unlock -- just an 8-minute
   cooldown and a tiny, reliable trickle of gold. Costs a little fame
   if you have any (never pushes you into infamy), and does nothing at
@@ -182,6 +187,7 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
 | `.bank` / `.deposit [amount\|half\|all]` / `.withdraw [amount\|half\|all]` | Bank (`10k`/`1.5m` shorthand works) |
 | `.pickpocket <member>` | Try to lift coin from their pocket |
 | `.smuggle` | Move contraband for a real payday, real risk of losing it |
+| `.surrender` | Turn yourself in, pay a 10,000 gold fine, wipe your infamy to 0 (confirm-gated) |
 | `.beg` | A tiny, reliable trickle of gold, no job or skill needed |
 | `.harvest` / `.dig` / `.fish` / `.fell` / `.hunt` / `.bake` / `.tend` / `.stretch` / `.facet` / `.brew` | Job minigames (current job, or lvl 5+ in it) |
 | `.harvesttest` / `.digtest` / `.fishtest` / `.felltest` / `.hunttest` / `.baketest` / `.tendtest` / `.stretchtest` / `.facettest` / `.brewtest [level]` | Admin-only: try any minigame with no job/cooldown/rewards |
