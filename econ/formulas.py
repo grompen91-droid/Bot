@@ -225,6 +225,20 @@ def store_rare_stock(pool: list[str], size: int, day: int | None = None) -> list
     return list(_store_rare_stock(tuple(pool), size, day))
 
 
+@lru_cache(maxsize=8192)
+def store_daily_limit(
+    user_id: int, item_key: str, day: int, lo: int, hi: int
+) -> int:
+    """How many of `item_key` THIS player can buy from .store today --
+    unlike store_rare_stock (same for everyone), this is seeded per
+    player too, so two players see independently random stock on the
+    same item on the same day. Deterministic per (player, item, day):
+    asking twice gives the same number, but it reshuffles at UTC
+    midnight same as everything else in the store."""
+    rng = random.Random(f"store-limit:{user_id}:{item_key}:{day}")
+    return rng.randint(lo, hi)
+
+
 # ═══════════════════════════ daily stipend ═════════════════════════════
 
 DAILY_BASE = 100

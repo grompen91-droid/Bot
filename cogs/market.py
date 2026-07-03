@@ -15,9 +15,9 @@ from econ.data.store import (
     RARE_POOL,
     RARE_STOCK_SIZE,
     STORE_CONSUMABLE_MARKUP,
-    STORE_DAILY_LIMIT_CONSUMABLE,
-    STORE_DAILY_LIMIT_RARE,
     STORE_RARE_MARKUP,
+    STORE_STOCK_RANGE_CONSUMABLE,
+    STORE_STOCK_RANGE_RARE,
 )
 from econ.data.tools import MAX_TOOL_TIER, TOOLS, tool_name, tool_price
 from ui.panels import AMT_W, NAME_W, QTY_W, TOOL_W, Palette, Panel, chip, simple_panel
@@ -562,18 +562,22 @@ class Market(commands.Cog):
 
         buy_select = ui.Select(placeholder="🛒 Buy an item…")
 
+        # Stock isn't a flat number: it's rolled per (player, item, day),
+        # so the same potion can show 1 in stock for you and 2 for
+        # someone else, and neither of you sees the same number twice
+        # in a row (see formulas.store_daily_limit).
         potion_lines = []
         for key, buff in CONSUMABLES.items():
             info = ITEMS[key]
             price = round(info["value"] * STORE_CONSUMABLE_MARKUP)
-            left = STORE_DAILY_LIMIT_CONSUMABLE - bought_today.get(key, 0)
+            stock = formulas.store_daily_limit(uid, key, day, *STORE_STOCK_RANGE_CONSUMABLE)
+            left = stock - bought_today.get(key, 0)
             if left <= 0:
-                potion_lines.append(
-                    f"{info['emoji']} {chip((info['name'], NAME_W), ('maxed', -AMT_W))}"
-                )
+                potion_lines.append(f"{info['emoji']} **{info['name']}** · maxed for today")
                 continue
             potion_lines.append(
-                f"{info['emoji']} {chip((info['name'], NAME_W), (f'{price:,}', -AMT_W))} 🪙"
+                f"{info['emoji']} **{info['name']}** ({left} in stock) · {price:,} 🪙\n"
+                f"　✨ {buff['description']}"
             )
             buy_select.add_option(
                 label=f"{info['name']} · {price:,}g"[:100], value=key, emoji=info["emoji"],
@@ -587,15 +591,13 @@ class Market(commands.Cog):
             info = ITEMS[key]
             price = round(info["value"] * STORE_RARE_MARKUP)
             badge = rarity_badge(key).strip()
-            left = STORE_DAILY_LIMIT_RARE - bought_today.get(key, 0)
+            stock = formulas.store_daily_limit(uid, key, day, *STORE_STOCK_RANGE_RARE)
+            left = stock - bought_today.get(key, 0)
             if left <= 0:
-                rare_lines.append(
-                    f"{info['emoji']} {chip((info['name'], NAME_W), ('maxed', -AMT_W))}"
-                    + (f" {badge}" if badge else "")
-                )
+                rare_lines.append(f"{info['emoji']} **{info['name']}** · maxed for today")
                 continue
             rare_lines.append(
-                f"{info['emoji']} {chip((info['name'], NAME_W), (f'{price:,}', -AMT_W))} 🪙"
+                f"{info['emoji']} **{info['name']}** ({left} in stock) · {price:,} 🪙"
                 + (f" {badge}" if badge else "")
             )
             buy_select.add_option(
@@ -605,8 +607,7 @@ class Market(commands.Cog):
         panel.field("🌟 Rare Goods (today only)", "\n".join(rare_lines))
         panel.footer(
             f"Your purse: {user['gold']:,} gold · flat prices, not the daily market\n"
-            f"limit {STORE_DAILY_LIMIT_CONSUMABLE}/item/day (potions), "
-            f"{STORE_DAILY_LIMIT_RARE}/item/day (rare) · resets at UTC midnight"
+            "stock is random per player per item · resets at UTC midnight"
         )
 
         if not buy_select.options:
@@ -670,7 +671,7 @@ class Market(commands.Cog):
 
         if is_consumable:
             price = round(info["value"] * STORE_CONSUMABLE_MARKUP)
-            limit = STORE_DAILY_LIMIT_CONSUMABLE
+            limit = formulas.store_daily_limit(uid, item_key, day, *STORE_STOCK_RANGE_CONSUMABLE)
         else:
             # Re-check against today's stock: the rotation can only
             # ever change at UTC midnight, but a stale panel viewed
@@ -686,7 +687,7 @@ class Market(commands.Cog):
                 )
                 return
             price = round(info["value"] * STORE_RARE_MARKUP)
-            limit = STORE_DAILY_LIMIT_RARE
+            limit = formulas.store_daily_limit(uid, item_key, day, *STORE_STOCK_RANGE_RARE)
 
         # Reserve the day's purchase slot before spending gold, so a
         # stale select (rendered before today's limit was reached, or
