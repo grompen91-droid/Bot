@@ -192,6 +192,43 @@ class Economy(commands.Cog):
             )
         )
 
+    @commands.hybrid_command(
+        name="deduct", description="[Admin] Remove gold from a townsfolk's pocket purse"
+    )
+    @commands.guild_only()
+    @commands.has_permissions(administrator=True)
+    @app_commands.describe(
+        member="Whose purse to dock", amount="How much gold to remove"
+    )
+    async def deduct(
+        self,
+        ctx: commands.Context,
+        member: discord.Member,
+        amount: commands.Range[int, 1],
+    ):
+        gid = ctx.guild.id
+        user = await self.db.get_user(gid, member.id)
+        # A purse can't go negative, so an admin docking more than someone
+        # carries just takes everything they have, not more.
+        taken = min(amount, user["gold"])
+        if taken <= 0:
+            await ctx.send(
+                view=simple_panel(
+                    f"{member.display_name}'s pockets are already empty.",
+                    accent=Palette.RED,
+                ),
+                ephemeral=True,
+            )
+            return
+        new_balance = await self.db.add_gold(gid, member.id, -taken)
+        await ctx.send(
+            view=simple_panel(
+                f"🛡️ Docked **{formulas.fmt_gold(taken)}** from {member.mention}'s "
+                f"purse. They now carry **{formulas.fmt_gold(new_balance)}**.",
+                accent=Palette.BLUE,
+            )
+        )
+
     # ══════════════════════════════ bank ═══════════════════════════════
 
     @commands.hybrid_command(name="deposit", aliases=["dep"], description="Move gold from your pocket into the bank")
