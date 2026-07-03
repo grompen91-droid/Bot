@@ -8,7 +8,7 @@ from discord.ext import commands
 
 from econ import formulas
 from econ.data.consumables import CONSUMABLES
-from econ.data.items import ITEMS, item_label, rarity_badge
+from econ.data.items import ITEMS, item_label
 from econ.data.jobs import JOBS
 from econ.data.recipes import RECIPES
 from econ.data.store import (
@@ -22,8 +22,6 @@ from econ.data.store import (
 )
 from econ.data.tools import MAX_TOOL_TIER, TOOLS, tool_name, tool_price
 from ui.panels import AMT_W, NAME_W, QTY_W, Palette, Panel, chip, simple_panel
-
-BADGE_W = 2  # rarity badge column on .shop's item chips ("🔷", "🟣", "🌟")
 
 
 def resolve_item(query: str) -> str | None:
@@ -464,7 +462,9 @@ class Market(commands.Cog):
         # INSIDE the fixed-width chip (same fix as .inventory's usable-
         # tag wrap) so a name+count that would otherwise vary in length
         # can't push the trailing coin emoji onto its own line on
-        # narrow screens.
+        # narrow screens. No rarity badge here for the same reason: it
+        # was a second bit of trailing, sometimes-present text and wrapped
+        # the coin emoji onto its own line just like the count once did.
         lines = []
         buy_select = ui.Select(placeholder="🛒 Buy an item…")
         for key in page_items:
@@ -477,34 +477,28 @@ class Market(commands.Cog):
                 price = round(info["value"] * STORE_RARE_MARKUP)
                 stock = formulas.store_daily_limit(uid, key, day, *STORE_STOCK_RANGE_RARE)
             left = stock - bought_today.get(key, 0)
-            # The rarity badge only shows for rare+ goods, so it must live
-            # INSIDE the chip's own fixed-width column -- appending it
-            # after the chip only on some rows was the exact bug that
-            # wrapped .inventory's usable-tag and the stock count onto
-            # their own line before: a trailing bit of text whose
-            # presence varies row to row breaks mobile's wrapping.
-            badge = rarity_badge(key).strip() if not is_consumable else ""
 
             if left <= 0:
-                lines.append(
-                    f"{info['emoji']} "
-                    f"{chip((info['name'], NAME_W), ('maxed', -AMT_W), (badge, BADGE_W))}"
-                )
+                lines.append(f"{info['emoji']} {chip((info['name'], NAME_W), ('maxed', -AMT_W))}")
+                lines.append("")
                 continue
 
             lines.append(
                 f"{info['emoji']} "
-                f"{chip((info['name'], NAME_W), (f'x{left}', QTY_W), (f'{price:,}', -AMT_W), (badge, BADGE_W))} 🪙"
+                f"{chip((info['name'], NAME_W), (f'x{left}', QTY_W), (f'{price:,}', -AMT_W))} 🪙"
             )
             if is_consumable:
                 lines.append(f"　✨ {CONSUMABLES[key]['description']}")
                 option_desc = f"{left} left today · {CONSUMABLES[key]['description']}"
             else:
                 option_desc = f"{left} left today · today's stock"
+            lines.append("")
             buy_select.add_option(
                 label=f"{info['name']} · {price:,}g"[:100], value=key, emoji=info["emoji"],
                 description=option_desc[:100],
             )
+        if lines and lines[-1] == "":
+            lines.pop()
         panel.text("\n".join(lines) if lines else "*Nothing left on this page today.*")
         panel.footer(f"Your purse: {user['gold']:,} gold · stock resets at UTC midnight")
 
@@ -607,8 +601,7 @@ class Market(commands.Cog):
         if is_consumable:
             panel.text(f"✨ {CONSUMABLES[item_key]['description']} · usable with `.use`")
         else:
-            badge = rarity_badge(item_key).strip()
-            panel.text(f"{badge} Straight into your satchel." if badge else "Straight into your satchel.")
+            panel.text("Straight into your satchel.")
         await interaction.response.edit_message(view=panel)
 
     # ══════════════════════════ tool upgrades ═══════════════════════════
