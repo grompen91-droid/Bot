@@ -140,7 +140,10 @@ class Crime(commands.Cog):
                 "pocket and vanish into the crowd."
             )
         else:
-            fine = min(-delta, attacker["gold"])
+            # Capped at what's on hand, same as ever -- but never let
+            # already-negative gold (e.g. after an admin's `.deduct`) flip
+            # this negative too, which would turn a fine into a refund.
+            fine = max(0, min(-delta, attacker["gold"]))
             await self.db.add_gold(gid, uid, -fine)
             await self.db.incr_stat(gid, uid, "pickpockets_lost")
             panel = Panel(accent=Palette.RED, timeout=None)
@@ -218,7 +221,10 @@ class Crime(commands.Cog):
             panel.text(f"The goods change hands quietly. You pocket **{delta:,} 🪙**.")
             footer_extra = f"🗡️ +{infamy_gain} infamy ({new_infamy:,} total)"
         else:
-            fine = min(-delta, user["gold"])
+            # Same guard as .pickpocket's fine: capped at what's on hand,
+            # but never lets an already-negative purse flip this into a
+            # refund.
+            fine = max(0, min(-delta, user["gold"]))
             await self.db.add_gold(gid, uid, -fine)
             await self.db.incr_stat(gid, uid, "smuggles_lost")
             panel = Panel(accent=Palette.RED, timeout=None)
