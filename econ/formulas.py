@@ -206,6 +206,25 @@ def market_price(item_key: str, base_value: int, day: int | None = None) -> int:
     return max(1, round(base_value * market_factor(item_key, day)))
 
 
+# ═══════════════════════════ the general store ═════════════════════════
+# .store's Rare Goods section rotates daily, same "same for everyone,
+# changes at UTC midnight" mechanism as the market's own daily seed,
+# just picking a subset of a pool instead of a price factor.
+
+@lru_cache(maxsize=64)
+def _store_rare_stock(pool: tuple[str, ...], size: int, day: int) -> tuple[str, ...]:
+    rng = random.Random(f"store-rare:{day}")
+    return tuple(rng.sample(pool, min(size, len(pool))))
+
+
+def store_rare_stock(pool: list[str], size: int, day: int | None = None) -> list[str]:
+    """Today's rare-goods selection: deterministic and identical for
+    every player in every guild, so the store can never be relied on
+    to always carry any one item -- check back tomorrow."""
+    day = utc_day() if day is None else day
+    return list(_store_rare_stock(tuple(pool), size, day))
+
+
 # ═══════════════════════════ daily stipend ═════════════════════════════
 
 DAILY_BASE = 100

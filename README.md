@@ -44,6 +44,17 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
   irreversible action.
 - **The smithy** (`.shop`, `.buy`): five tool tiers per trade
   (300 → 30,000 gold), the main gold sink.
+- **`.store`**: a dropdown-driven browser, same shape as `.market`/
+  `.inventory`, with two tabs. **General Store** sells every potion
+  and buff food in the game outright (no more relying on a lucky
+  `.work` drop or a `.brew`/`.craft`) at a flat 4x markup over its
+  base value, plus a **Rare Goods** section: 4 rare-or-better raw
+  goods (never crafted goods, never common/uncommon) at a steep 12x
+  markup, rotating daily -- same for every player, changes at UTC
+  midnight, never guaranteed to carry any one item two days running.
+  **Job Store** is the exact same tool ladder `.shop` shows, just
+  reachable from the same dropdown. Everything here is a flat price,
+  it doesn't drift with the daily market the way `.market`/`.sell` do.
 - **Crafting** (`.recipes`, `.craft`): a standalone skill, not tied to
   any trade, anyone can craft regardless of their current job. Combine
   gathered goods from across multiple trades into one higher-value
@@ -149,6 +160,7 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
 | `.market` | Today's prices with ▲▼ trends, one category at a time via dropdown |
 | `.sell [item] [amount]` | Sell goods (`.sell` alone sells everything) |
 | `.shop` / `.buy` | The smithy, tool tiers with a buy button |
+| `.store` | General Store (potions/buffs + daily rare goods) or Job Store, via dropdown |
 | `.recipes [member]` / `.craft <recipe>` | Crafting: browse and craft, no trade required |
 | `.use <item>` / `.buffs [member]` | Drink/eat a consumable for its buff, or check what's active |
 | `.venture` | Risk a journey beyond the walls, no trade needed |
@@ -183,11 +195,13 @@ econ/
     recipes.py       crafting recipe registry (ingredients, output, unlock)
     consumables.py   which items are usable, their buff + duration, and
                      the work-drop / brew-potion pool odds
+    store.py         .store's General Store pool + markup (rare-goods
+                     pool derived from items.py + jobs.py at import)
 ui/
   panels.py          Components V2 medieval panel builder (fluent API)
 cogs/
   jobs.py            job board, work engine, skills
-  market.py          inventory, market, sell, smithy
+  market.py          inventory, market, sell, smithy, general store
   economy.py         balance, daily, pay, profile, leaderboards, bank
   venture.py         the .venture minigame
   crime.py           pickpocketing, smuggling
