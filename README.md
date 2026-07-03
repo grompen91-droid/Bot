@@ -110,13 +110,16 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
   laid out in whatever cosmetic theme you have equipped.
 - **Cosmetic profile themes** (`.theme`): a purely visual reward, no
   gold price and no gameplay effect -- each theme picks both an accent
-  colour AND a card layout (a flat "banner" strip, a reference-style
-  "dashboard" with a centred LEVEL/RANK badge, a portrait "ticket" ID
-  card, or a wide-spined "scroll"), so equipping a different one
-  rearranges `.profile`, not just recolours it. Everyone starts with
-  the default look; every other theme is unlocked only by an admin's
-  `.granttheme` (bug bounties, events, whatever a mod wants
-  to hand out), then equipped with `.theme`'s dropdown.
+  colour AND a card layout (see ui/profile_card.py for the full set:
+  a flat "banner" strip, a "dashboard" with a centred LEVEL/RANK
+  badge, a portrait "ticket" ID card, and a wide-spined "scroll"), so
+  equipping a different one rearranges `.profile`, not just recolours
+  it. Just two themes exist right now: everyone starts with
+  "Parchment & Gold" (the default look), and "Bug Finder" -- a
+  green dashboard-layout card an admin can hand out with `.granttheme`
+  to anyone who reports a genuine bug, then the player equips it with
+  `.theme`'s dropdown. More themes can be added straight into
+  econ/data/themes.py whenever there's something worth rewarding.
 - **The bank** (`.bank`, `.deposit`, `.withdraw`): banked gold is safe
   from pickpocketing. Starts with a 5,000 gold capacity, upgradeable
   through 5 tiers up to 750,000. Amounts accept plain numbers, `10k` /

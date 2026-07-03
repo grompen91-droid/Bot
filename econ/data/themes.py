@@ -25,35 +25,11 @@ THEMES = {
         "flair": None,
         "description": "The town's everyday look. Everyone starts here.",
     },
-    "crimson_seal": {
-        "name": "Crimson Seal", "emoji": "🩸", "layout": "dashboard",
-        "accent": discord.Colour(0xB4232F),
-        "flair": "bears the Crimson Seal of the town's gratitude",
-        "description": "A deep red dashboard card, level & rank front and centre.",
-    },
-    "azure_crest": {
-        "name": "Azure Crest", "emoji": "🔷", "layout": "ticket",
-        "accent": discord.Colour(0x2E86DE),
-        "flair": "flies the Azure Crest of a trusted friend of the crown",
-        "description": "A vivid blue portrait-style ID card.",
-    },
-    "emerald_veil": {
-        "name": "Emerald Veil", "emoji": "🌿", "layout": "scroll",
-        "accent": discord.Colour(0x1FA97C),
-        "flair": "wrapped in the Emerald Veil of the wildwood",
-        "description": "A rich green scroll, avatar set into a wide spine.",
-    },
-    "obsidian_crown": {
-        "name": "Obsidian Crown", "emoji": "👑", "layout": "dashboard",
-        "accent": discord.Colour(0x1A1A2E),
-        "flair": "crowned in Obsidian, a legend of the town",
-        "description": "Near-black dashboard card, unmistakably rare.",
-    },
-    "starlight_mantle": {
-        "name": "Starlight Mantle", "emoji": "✨", "layout": "ticket",
-        "accent": discord.Colour(0xB8A9E0),
-        "flair": "wears the Starlight Mantle, blessed by fortune",
-        "description": "A pale lavender portrait-style ID card.",
+    "bug_finder": {
+        "name": "Bug Finder", "emoji": "🐛", "layout": "dashboard",
+        "accent": discord.Colour(0x39B54A),
+        "flair": "credited by the town for hunting down a genuine bug",
+        "description": "Awarded for reporting a real bug. Admin-granted only.",
     },
 }
 
