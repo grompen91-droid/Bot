@@ -476,13 +476,16 @@ class Market(commands.Cog):
         buy_btn.callback = self._buy_button
         return buy_btn
 
-    @commands.hybrid_command(name="shop", aliases=["smithy"], description="Browse tools for your trade")
+    @commands.hybrid_command(
+        name="shop", aliases=["smithy"],
+        description="Browse tools for your trade, or switch to the general store",
+    )
     @commands.guild_only()
     async def shop(self, ctx: commands.Context):
-        panel = Panel(accent=Palette.IRON, author_id=ctx.author.id)
-        buy_btn = await self._fill_job_store(panel, ctx.guild.id, ctx.author.id)
-        if buy_btn is not None:
-            panel.buttons(buy_btn)
+        # Same dropdown-driven panel .store shows, just opened on the
+        # Job Store tab by default -- .store opens on General Store by
+        # default. Same two tabs either way, just a different door in.
+        panel = await self._build_store_panel("jobstore", ctx.guild.id, ctx.author.id)
         panel.message = await ctx.send(view=panel)
 
     async def _buy_button(self, interaction: discord.Interaction) -> None:
