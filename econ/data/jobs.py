@@ -19,7 +19,7 @@ from .items import ITEMS
 
 JOBS = {
     "farmer": {
-        "name": "Farmer", "emoji": "🌾", "cooldown": 60, "tip": (2, 6),
+        "name": "Farmer", "emoji": "🌾", "cooldown": 60, "tip": (10, 30),
         "unlock_total_level": 0, "category": "guild", "max_infamy": None,
         "description": "Till the fields and bring in the harvest.",
         "yields": [
@@ -34,7 +34,7 @@ JOBS = {
         ],
     },
     "miner": {
-        "name": "Miner", "emoji": "⛏️", "cooldown": 60, "tip": (2, 6),
+        "name": "Miner", "emoji": "⛏️", "cooldown": 60, "tip": (10, 30),
         "unlock_total_level": 0, "category": "guild", "max_infamy": None,
         "description": "Delve into the mountain for ore and gems.",
         "yields": [
@@ -49,7 +49,7 @@ JOBS = {
         ],
     },
     "fisherman": {
-        "name": "Fisherman", "emoji": "🎣", "cooldown": 60, "tip": (2, 6),
+        "name": "Fisherman", "emoji": "🎣", "cooldown": 60, "tip": (10, 30),
         "unlock_total_level": 0, "category": "guild", "max_infamy": None,
         "description": "Cast your line into river and sea.",
         "yields": [
@@ -64,7 +64,7 @@ JOBS = {
         ],
     },
     "lumberjack": {
-        "name": "Lumberjack", "emoji": "🪓", "cooldown": 60, "tip": (2, 6),
+        "name": "Lumberjack", "emoji": "🪓", "cooldown": 60, "tip": (10, 30),
         "unlock_total_level": 7, "category": "guild", "max_infamy": 250,
         "description": "Fell the great trees of the king's forest.",
         "yields": [
@@ -79,7 +79,7 @@ JOBS = {
         ],
     },
     "hunter": {
-        "name": "Hunter", "emoji": "🏹", "cooldown": 65, "tip": (3, 7),
+        "name": "Hunter", "emoji": "🏹", "cooldown": 65, "tip": (15, 35),
         "unlock_total_level": 14, "category": "guild", "max_infamy": 180,
         "description": "Stalk game through wood and moor.",
         "yields": [
@@ -94,7 +94,7 @@ JOBS = {
         ],
     },
     "baker": {
-        "name": "Baker", "emoji": "🍞", "cooldown": 70, "tip": (3, 8),
+        "name": "Baker", "emoji": "🍞", "cooldown": 70, "tip": (15, 40),
         "unlock_total_level": 21, "category": "guild", "max_infamy": 100,
         "description": "Fill the town square with the smell of fresh bread.",
         "yields": [
@@ -109,7 +109,7 @@ JOBS = {
         ],
     },
     "brewer": {
-        "name": "Brewer", "emoji": "🍺", "cooldown": 75, "tip": (3, 9),
+        "name": "Brewer", "emoji": "🍺", "cooldown": 75, "tip": (15, 45),
         "unlock_total_level": 29, "category": "guild", "max_infamy": 70,
         "description": "Brew ale and mead for thirsty townsfolk.",
         "yields": [
@@ -124,7 +124,7 @@ JOBS = {
         ],
     },
     "tanner": {
-        "name": "Tanner", "emoji": "🥾", "cooldown": 80, "tip": (3, 9),
+        "name": "Tanner", "emoji": "🥾", "cooldown": 80, "tip": (15, 45),
         "unlock_total_level": 36, "category": "guild", "max_infamy": 55,
         "description": "Cure hides into supple leather for saddle and boot.",
         "yields": [
@@ -139,7 +139,7 @@ JOBS = {
         ],
     },
     "jeweler": {
-        "name": "Jeweler", "emoji": "🔍", "cooldown": 85, "tip": (4, 10),
+        "name": "Jeweler", "emoji": "🔍", "cooldown": 85, "tip": (20, 50),
         "unlock_total_level": 43, "category": "guild", "max_infamy": 48,
         "description": "Cut and polish gemstones fit for a crown.",
         "yields": [
@@ -154,7 +154,7 @@ JOBS = {
         ],
     },
     "alchemist": {
-        "name": "Alchemist", "emoji": "🧪", "cooldown": 90, "tip": (4, 10),
+        "name": "Alchemist", "emoji": "🧪", "cooldown": 90, "tip": (20, 50),
         "unlock_total_level": 50, "category": "guild", "max_infamy": 40,
         "description": "Brew potions and strange tinctures in your tower.",
         "yields": [

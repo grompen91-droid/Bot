@@ -240,12 +240,15 @@ def store_daily_limit(
 
 
 # ═══════════════════════════ daily stipend ═════════════════════════════
+# Sized against the week-to-mid-game pace (~500k gold in ~7 active
+# days): logging in every day should fund a meaningful slice of that,
+# not pocket change next to one minigame run.
 
-DAILY_BASE = 100
-DAILY_STREAK_BONUS = 8
+DAILY_BASE = 1_000
+DAILY_STREAK_BONUS = 40
 DAILY_STREAK_CAP = 30
-DAILY_LEVEL_BONUS = 1
-DAILY_LEVEL_BONUS_CAP = 660  # 100 base + 240 max streak + 660 = 1,000 max
+DAILY_LEVEL_BONUS = 5
+DAILY_LEVEL_BONUS_CAP = 7_800  # 1,000 base + 1,200 max streak + 7,800 = 10,000 max
 
 
 def daily_payout(streak: int, total_level: int) -> tuple[int, int, int]:
@@ -368,9 +371,9 @@ PICKPOCKET_STEAL_MAX_CAP = 0.75      # ceiling at high skill
 
 PICKPOCKET_COOLDOWN = 20 * 60        # 20 minutes between attempts
 PICKPOCKET_VICTIM_SHIELD = 10 * 60   # victim is safe for 10 minutes after
-PICKPOCKET_MIN_TARGET_POCKET = 50    # not worth targeting below this
-PICKPOCKET_FAIL_FINE_MIN = 10
-PICKPOCKET_FAIL_FINE_MAX = 30
+PICKPOCKET_MIN_TARGET_POCKET = 250   # not worth targeting below this
+PICKPOCKET_FAIL_FINE_MIN = 60
+PICKPOCKET_FAIL_FINE_MAX = 150
 
 PICKPOCKET_INFAMY_MIN = 1            # every attempt builds a little
 PICKPOCKET_INFAMY_MAX = 3            # notoriety, win or lose
@@ -414,8 +417,8 @@ SMUGGLE_SUCCESS_BASE = 0.45
 SMUGGLE_SUCCESS_PER_LEVEL = 0.003
 SMUGGLE_SUCCESS_CAP = 0.75
 
-SMUGGLE_GOLD_MIN, SMUGGLE_GOLD_MAX = 80, 200
-SMUGGLE_FAIL_FINE_MIN, SMUGGLE_FAIL_FINE_MAX = 20, 50
+SMUGGLE_GOLD_MIN, SMUGGLE_GOLD_MAX = 700, 1_800
+SMUGGLE_FAIL_FINE_MIN, SMUGGLE_FAIL_FINE_MAX = 150, 400
 
 SMUGGLE_INFAMY_MIN = 4   # a real haul, but still less notoriety than a
 SMUGGLE_INFAMY_MAX = 8   # successful bank job (see ROB_SUCCESS_INFAMY_*)
@@ -449,7 +452,7 @@ def roll_smuggle(skill_level: int, infamy: int, total_level: int) -> tuple[bool,
 # at neutral (0) if you're already there or already infamous.
 
 BEG_COOLDOWN = 8 * 60   # 8 minutes
-BEG_GOLD_MIN, BEG_GOLD_MAX = 5, 20
+BEG_GOLD_MIN, BEG_GOLD_MAX = 25, 100
 BEG_REPUTATION_LOSS_MIN, BEG_REPUTATION_LOSS_MAX = 1, 3
 
 
@@ -478,10 +481,18 @@ def roll_beg(reputation: int) -> tuple[int, int]:
 # skill across every trade), and a flawless run gets a perfect bonus.
 # This is what every per-job minigame's roll_*_reward() should build on.
 
-MINIGAME_BASE_MIN = 50            # starter-trade floor, at skill level 1
+MINIGAME_BASE_MIN = 80            # starter-trade floor, at skill level 1
 MINIGAME_BASE_MIN_HARDEST = 400   # floor for the hardest trade to unlock
 MINIGAME_MAX_MULTIPLIER = 6       # floor grows to this many times itself
 MINIGAME_VARIANCE = 0.15          # +/- randomness applied on top
+
+# A run pays as if it were this many rounds, scaled by the FRACTION of
+# rounds actually cleared -- NOT by the raw round count. Session length
+# varies per job and difficulty (3 to 10+ rounds), and paying per round
+# let the longest games compound with reward_mult and the perfect
+# bonus into most of the whole economy's income. Difficulty pays
+# through reward_mult; length pays through XP (which stays per-round).
+MINIGAME_PAID_ROUNDS = 4
 
 
 def minigame_round_base(unlock_level: int, max_unlock_level: int, skill_level: int) -> float:
@@ -501,16 +512,21 @@ def roll_minigame_reward(
     perfect_bonus: float = 1.5, extra_multiplier: float = 1.0,
 ) -> tuple[int, bool]:
     """Returns (gold, was_perfect) for one attempt at a per-job
-    minigame. Reward is proportional to rounds correctly cleared; a
-    flawless run gets `perfect_bonus` on top. `extra_multiplier` is for
-    a caller-specific bonus on top of everything else (infamy for the
-    Criminal trade, fame for every other trade's minigame)."""
-    if correct <= 0:
+    minigame. Reward is proportional to the FRACTION of rounds cleared
+    (see MINIGAME_PAID_ROUNDS); a flawless run gets `perfect_bonus` on
+    top. `extra_multiplier` is for a caller-specific bonus on top of
+    everything else (infamy for the Criminal trade, fame for every
+    other trade's minigame, and the difficulty tier's reward_mult)."""
+    if correct <= 0 or length <= 0:
         return 0, False
     base = minigame_round_base(unlock_level, max_unlock_level, skill_level)
     variance = random.uniform(1 - MINIGAME_VARIANCE, 1 + MINIGAME_VARIANCE)
-    reward = base * variance * correct * coin_multiplier(total_level) * extra_multiplier
-    perfect = correct >= length > 0
+    completion = min(1.0, correct / length)
+    reward = (
+        base * variance * MINIGAME_PAID_ROUNDS * completion
+        * coin_multiplier(total_level) * extra_multiplier
+    )
+    perfect = correct >= length
     if perfect:
         reward *= perfect_bonus
     return round(reward), perfect
@@ -589,10 +605,10 @@ def minigame_cooldown(unlock_level: int, max_unlock_level: int) -> int:
 # .rob) snaps it straight back to 0 -- the one real risk in the whole
 # system, and it costs whichever direction you'd built up.
 
-INFAMY_BONUS_PER_POINT = 0.006
-INFAMY_BONUS_CAP_POINTS = 300   # +180% at the cap, matching coin_multiplier's scale
+INFAMY_BONUS_PER_POINT = 0.003
+INFAMY_BONUS_CAP_POINTS = 300   # +90% at the cap
 
-FAME_BONUS_PER_POINT = 0.006
+FAME_BONUS_PER_POINT = 0.003
 FAME_BONUS_CAP_POINTS = 300
 
 
@@ -630,7 +646,7 @@ ROB_SUCCESS_INFAMY_MAX = 20    # notoriety than an honest day's crime
 # every other trade), infamy (the whole point of playing dirty), and
 # total skill level across every trade, same as everyone else.
 
-CRIMINAL_WORK_MIN, CRIMINAL_WORK_MAX = 10, 24
+CRIMINAL_WORK_MIN, CRIMINAL_WORK_MAX = 90, 220
 
 
 def roll_criminal_work(level: int, tool_tier: int, infamy: int, total_level: int) -> int:

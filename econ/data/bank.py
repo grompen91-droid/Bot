@@ -4,8 +4,12 @@ Tier 0 is free and every player starts there. Tiers 1+ are paid
 upgrades unlocked in order, mirroring the tool tiers at the smithy.
 """
 
-BANK_CAPACITIES = [5_000, 15_000, 40_000, 100_000, 250_000, 750_000]
-BANK_UPGRADE_COSTS = [3_000, 10_000, 30_000, 75_000, 200_000]
+# Sized against the week-to-mid-game pace: the free tier holds a
+# day-one purse, the middle tiers keep up with a growing bankroll, and
+# the 3M vault (500k to unlock) is a mid-game project -- by the time
+# you can afford it, you've crossed the ~500k early-game boundary.
+BANK_CAPACITIES = [10_000, 40_000, 120_000, 350_000, 1_000_000, 3_000_000]
+BANK_UPGRADE_COSTS = [8_000, 25_000, 75_000, 200_000, 500_000]
 
 MAX_BANK_TIER = len(BANK_CAPACITIES) - 1
 

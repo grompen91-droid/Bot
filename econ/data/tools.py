@@ -7,7 +7,11 @@ Each list entry is (display_name, price) for tiers 1..5.
 
 from .jobs import JOBS
 
-TOOL_PRICES = [300, 1_000, 3_200, 10_000, 30_000]
+# Tuned so finishing your main trade's full ladder (~222k total, the
+# 150k top tool being most of it) is the marquee purchase of the early
+# game -- the same ~500k window a week of active play spans. Tooling
+# up a second and third trade is mid-game spending.
+TOOL_PRICES = [1_500, 5_000, 16_000, 50_000, 150_000]
 
 TOOLS = {
     "farmer": [

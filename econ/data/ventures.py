@@ -8,7 +8,7 @@ loss    = (min, max) gold lost on failure (0, 0) for a safe miss
 VENTURE_PATHS = {
     "road": {
         "name": "Old Trade Road", "emoji": "🌾", "risk": "Low risk",
-        "success": 0.90, "reward": (50, 110), "loss": (0, 15),
+        "success": 0.90, "reward": (400, 900), "loss": (0, 120),
         "success_flavour": [
             "A merchant caravan pays well for your escort.",
             "You find a coin purse dropped along the roadside.",
@@ -21,7 +21,7 @@ VENTURE_PATHS = {
     },
     "forest": {
         "name": "Shadowed Forest", "emoji": "🌲", "risk": "Medium risk",
-        "success": 0.68, "reward": (120, 260), "loss": (20, 50),
+        "success": 0.68, "reward": (950, 2_100), "loss": (160, 400),
         "success_flavour": [
             "You stumble upon an abandoned smuggler's cache.",
             "A woodland shrine rewards your courage with old coin.",
@@ -34,7 +34,7 @@ VENTURE_PATHS = {
     },
     "ruins": {
         "name": "Ancient Ruins", "emoji": "🏚️", "risk": "High risk",
-        "success": 0.45, "reward": (280, 600), "loss": (40, 90),
+        "success": 0.45, "reward": (2_200, 4_800), "loss": (320, 720),
         "success_flavour": [
             "Beneath collapsed stone you find a forgotten hoard.",
             "An ancient vault finally yields to your persistence.",

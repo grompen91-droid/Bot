@@ -56,7 +56,7 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
   the same as the next player's, or the same as yesterday's. Buying is
   a single click from the "🛒 Buy an item…" dropdown.
 - **⚒️ Upgrade Tool** (the button on `.shop`, or run `.buy` directly):
-  the trade-specific gear, five tool tiers per trade (300 → 30,000
+  the trade-specific gear, five tool tiers per trade (1,500 → 150,000
   gold), the main gold sink. Always asks you to confirm first --
   current tool, next tool, price, and the yield you'd get for it --
   before spending anything.
@@ -101,7 +101,7 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
   you're an Alchemist or Alchemist level 5+), so it doesn't turn into a
   wall of things you can't do yet.
 - **Daily stipend** (`.daily`): base + streak bonus + a bonus for total
-  skill level across every trade, capped at 1,000 gold a day. `.pay`,
+  skill level across every trade, capped at 10,000 gold a day. `.pay`,
   `.leaderboard` for gold and skills (ranked by pocket + bank
   combined).
 - **`.profile`**: a rendered PNG card, not a text panel -- avatar,
@@ -121,8 +121,8 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
   `.theme`'s dropdown. More themes can be added straight into
   econ/data/themes.py whenever there's something worth rewarding.
 - **The bank** (`.bank`, `.deposit`, `.withdraw`): banked gold is safe
-  from pickpocketing. Starts with a 5,000 gold capacity, upgradeable
-  through 5 tiers up to 750,000. Amounts accept plain numbers, `10k` /
+  from pickpocketing. Starts with a 10,000 gold capacity, upgradeable
+  through 5 tiers up to 3,000,000. Amounts accept plain numbers, `10k` /
   `1.5m` shorthand, `half`, and `all`.
 - **`.pickpocket`**: lift a chunk of another player's *pocket* gold
   only, never their bank. 20-minute cooldown per attacker, and a
