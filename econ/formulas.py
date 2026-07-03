@@ -11,6 +11,7 @@ from __future__ import annotations
 import math
 import random
 import zlib
+from collections.abc import Callable
 from datetime import datetime, timezone
 from functools import lru_cache
 
@@ -39,15 +40,20 @@ def xp_to_next(level: int) -> int:
     return round(XP_BASE * level**XP_EXPONENT)
 
 
-def apply_xp(level: int, xp: int, gained: int) -> tuple[int, int, int]:
-    """Return (new_level, new_xp, levels_gained) after adding XP."""
+def apply_xp(
+    level: int, xp: int, gained: int, *, curve: Callable[[int], int] = xp_to_next,
+) -> tuple[int, int, int]:
+    """Return (new_level, new_xp, levels_gained) after adding XP.
+    `curve` defaults to the normal trade XP curve; pass
+    craft_xp_to_next for the standalone Crafting skill, which uses its
+    own much gentler pace (see the crafting section below)."""
     xp += gained
     start = level
-    while level < MAX_LEVEL and xp >= xp_to_next(level):
-        xp -= xp_to_next(level)
+    while level < MAX_LEVEL and xp >= curve(level):
+        xp -= curve(level)
         level += 1
     if level >= MAX_LEVEL:
-        xp = min(xp, xp_to_next(MAX_LEVEL))
+        xp = min(xp, curve(MAX_LEVEL))
     return level, xp, level - start
 
 
@@ -643,10 +649,25 @@ def roll_brew_reward(
 
 # ═══════════════════════════════ crafting ═══════════════════════════════
 # A standalone skill, not tied to any trade -- anyone can craft
-# regardless of their current job. Cooldown and XP reuse the same
-# effective_cooldown()/roll_work_xp() every trade's .work uses; the
-# real incentive is the recipes themselves (see econ/data/recipes.py),
-# each priced well above its ingredients' combined market value.
+# regardless of their current job. Cooldown and XP-per-craft reuse the
+# same effective_cooldown()/roll_work_xp() every trade's .work uses,
+# but the LEVEL CURVE doesn't: the shared xp_to_next() is a steep
+# polynomial tuned around trades that also get a yield/cooldown payoff
+# from levelling, and applying it to Crafting made even low levels
+# take dozens of crafts. Crafting's payoff is almost entirely the
+# recipe unlocks (level 1/15/30/50/75, see econ/data/recipes.py), so
+# its curve is small and linear instead, every level costs only a
+# little more than the last.
+
+CRAFT_XP_BASE = 25
+CRAFT_XP_PER_LEVEL = 3
+
+
+@lru_cache(maxsize=None)
+def craft_xp_to_next(level: int) -> int:
+    """XP required to advance Crafting from `level` to `level + 1`."""
+    return CRAFT_XP_BASE + CRAFT_XP_PER_LEVEL * (level - 1)
+
 
 CRAFTING_COOLDOWN = 90   # seconds; shorter than gathering, it's assembly
 

@@ -613,7 +613,14 @@ class Jobs(commands.Cog):
                 info = JOBS.get(row["job"]) or NON_JOB_SKILL_DISPLAY.get(row["job"])
                 if not info:
                     continue
-                needed = formulas.xp_to_next(row["level"])
+                # Crafting runs on its own much gentler XP curve (see
+                # formulas.craft_xp_to_next), not the trade curve every
+                # JOBS entry uses.
+                needed = (
+                    formulas.craft_xp_to_next(row["level"])
+                    if row["job"] == "crafting"
+                    else formulas.xp_to_next(row["level"])
+                )
                 lines.append(
                     f"{info['emoji']} **{info['name']}** Lv **{row['level']}**\n"
                     f"`{formulas.progress_bar(row['xp'], needed)}` "

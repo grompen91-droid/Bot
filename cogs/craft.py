@@ -151,7 +151,7 @@ class Craft(commands.Cog):
         await self.db.get_skill(gid, uid, CRAFTING_SKILL)
         xp_gain = round(apply_xp_buff(formulas.roll_work_xp(formulas.CRAFTING_COOLDOWN), buffs))
         new_level, new_xp, levels_gained = formulas.apply_xp(
-            skill["level"], skill["xp"], xp_gain
+            skill["level"], skill["xp"], xp_gain, curve=formulas.craft_xp_to_next
         )
         await self.db.update_skill(gid, uid, CRAFTING_SKILL, new_level, new_xp, now)
         await self.db.add_item(gid, uid, r["output_item"], 1)
@@ -182,7 +182,7 @@ class Craft(commands.Cog):
         if levels_gained:
             panel.text(f"⭐ **Level up!** Crafting is now level **{new_level}**")
 
-        needed = formulas.xp_to_next(new_level)
+        needed = formulas.craft_xp_to_next(new_level)
         ready = int(
             now + apply_cooldown_buff(
                 formulas.effective_cooldown(formulas.CRAFTING_COOLDOWN, new_level), buffs
