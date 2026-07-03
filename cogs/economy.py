@@ -6,15 +6,21 @@ import time
 from datetime import datetime, time as dtime, timedelta, timezone
 
 import discord
-from discord import app_commands
+from discord import app_commands, ui
 from discord.ext import commands
 
 from econ import formulas
 from econ.buffs import active_buff_summary, active_buff_totals, apply_cooldown_buff, apply_gold_buff
 from econ.data.bank import MAX_BANK_TIER, bank_capacity, bank_upgrade_cost
 from econ.data.jobs import JOBS
+from econ.data.themes import DEFAULT_THEME, THEMES, resolve_theme
 from econ.data.tools import tool_name
 from ui.panels import AMT_W, NAME_W, WEALTH_W, Palette, Panel, chip, simple_panel
+
+GRANTABLE_THEME_CHOICES = [
+    app_commands.Choice(name=f"{t['emoji']} {t['name']}", value=key)
+    for key, t in THEMES.items() if key != DEFAULT_THEME
+]
 
 
 def _resolve_amount(text: str, available: int) -> int | None:
@@ -400,13 +406,16 @@ class Economy(commands.Cog):
             trade_lines = ["*No trade yet, see* `.job`"]
 
         rank_emoji, rank_title = formulas.town_rank(total_level)
-        panel = Panel(timeout=None)
+        theme = THEMES.get(user["theme"], THEMES[DEFAULT_THEME])
+        panel = Panel(accent=theme["accent"], timeout=None)
         panel.header(f"🏰 {target.display_name} of the Town")
         panel.section(
             f"{rank_emoji} **{rank_title}**",
             f"👛 **{formulas.fmt_gold(user['gold'])}** · 🏦 **{formulas.fmt_gold(user['bank_gold'])}**",
             thumbnail=target.display_avatar.url,
         )
+        if theme["flair"]:
+            panel.text(f"*{theme['flair']}*")
         panel.text("\n".join(trade_lines))
         reputation = user["reputation"]
         if reputation < 0:
@@ -432,6 +441,89 @@ class Economy(commands.Cog):
         if footer_bits:
             panel.footer("\n".join(footer_bits))
         await ctx.send(view=panel)
+
+    @commands.hybrid_command(
+        name="theme", aliases=["themes"],
+        description="View and equip your unlocked cosmetic profile themes",
+    )
+    @commands.guild_only()
+    async def theme(self, ctx: commands.Context):
+        gid, uid = ctx.guild.id, ctx.author.id
+        user = await self.db.get_user(gid, uid)
+        equipped = user["theme"]
+        unlocked = {DEFAULT_THEME} | set(await self.db.get_unlocked_themes(gid, uid))
+
+        panel = Panel(accent=THEMES[equipped]["accent"], author_id=uid, timeout=120)
+        panel.header("🎨 Profile Themes")
+        lines = []
+        for key, t in THEMES.items():
+            if key == equipped:
+                mark = "✅"
+            elif key in unlocked:
+                mark = "🔓"
+            else:
+                mark = "🔒"
+            lines.append(f"{mark} {t['emoji']} **{t['name']}** -- {t['description']}")
+        panel.text("\n".join(lines))
+        panel.footer("Purely cosmetic, no gameplay effect · unlocked themes are admin-granted")
+
+        select = ui.Select(placeholder="🎨 Equip a theme…")
+        for key in THEMES:
+            if key not in unlocked:
+                continue
+            t = THEMES[key]
+            select.add_option(
+                label=t["name"], value=key, emoji=t["emoji"], default=(key == equipped)
+            )
+        select.callback = self._equip_theme
+        panel.select(select)
+        await ctx.send(view=panel)
+
+    async def _equip_theme(self, interaction: discord.Interaction) -> None:
+        gid, uid = interaction.guild_id, interaction.user.id
+        key = interaction.data["values"][0]
+        unlocked = {DEFAULT_THEME} | set(await self.db.get_unlocked_themes(gid, uid))
+        if key not in unlocked:
+            await interaction.response.edit_message(
+                view=simple_panel("You don't own that theme.", accent=Palette.RED)
+            )
+            return
+        await self.db.set_theme(gid, uid, key)
+        t = THEMES[key]
+        await interaction.response.edit_message(
+            view=simple_panel(
+                f"{t['emoji']} Equipped **{t['name']}**. Check it out with `.profile`.",
+                accent=t["accent"],
+            )
+        )
+
+    @commands.hybrid_command(
+        name="granttheme", description="[Admin] Unlock a cosmetic profile theme for a townsfolk"
+    )
+    @commands.guild_only()
+    @commands.has_permissions(administrator=True)
+    @app_commands.describe(member="Who receives the theme", theme="Which theme to unlock")
+    @app_commands.choices(theme=GRANTABLE_THEME_CHOICES)
+    async def granttheme(
+        self, ctx: commands.Context, member: discord.Member, *, theme: str
+    ):
+        key = resolve_theme(theme)
+        if key is None or key == DEFAULT_THEME:
+            await ctx.send(
+                view=simple_panel(f"No such theme: **{theme}**.", accent=Palette.RED),
+                ephemeral=True,
+            )
+            return
+        gid = ctx.guild.id
+        await self.db.unlock_theme(gid, member.id, key)
+        t = THEMES[key]
+        await ctx.send(
+            view=simple_panel(
+                f"🎁 Unlocked {t['emoji']} **{t['name']}** for {member.mention}. "
+                "They can equip it with `.theme`.",
+                accent=t["accent"],
+            )
+        )
 
     @commands.hybrid_command(name="leaderboard", aliases=["lb", "top"], description="The wealthiest and most skilled in town")
     @commands.guild_only()

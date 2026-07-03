@@ -23,7 +23,7 @@ HELP_SECTIONS = [
     ("🛠️ Crafting", ".recipes · .craft"),
     ("✨ Consumables", ".use · .buffs"),
     ("🗺️ Venture", ".venture"),
-    ("💰 Gold", ".balance · .daily · .beg · .pay · .profile · .leaderboard"),
+    ("💰 Gold", ".balance · .daily · .beg · .pay · .profile · .theme · .leaderboard"),
     ("🏦 Bank", ".bank · .deposit · .withdraw"),
     ("🗡️ Crime", ".pickpocket · .smuggle · .surrender"),
     # Every job-specific minigame lives in this one section, not a new

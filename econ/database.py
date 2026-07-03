@@ -130,6 +130,19 @@ MIGRATIONS: list[str] = [
         PRIMARY KEY (guild_id, user_id, item, day)
     );
     """,
+    # v11, cosmetic .profile themes: a purely visual reward (accent
+    # colour + a flair line), unlocked by an admin's .granttheme, never
+    # bought or farmed. Everyone owns the default ('parchment') without
+    # a row here; unlocked_themes only tracks the extra ones.
+    """
+    ALTER TABLE users ADD COLUMN theme TEXT NOT NULL DEFAULT 'parchment';
+    CREATE TABLE IF NOT EXISTS unlocked_themes (
+        guild_id BIGINT NOT NULL,
+        user_id  BIGINT NOT NULL,
+        theme    TEXT   NOT NULL,
+        PRIMARY KEY (guild_id, user_id, theme)
+    );
+    """,
 ]
 
 
@@ -512,6 +525,28 @@ class Database:
             "UPDATE store_purchases SET qty = qty - ? "
             "WHERE guild_id = ? AND user_id = ? AND item = ? AND day = ?",
             qty, guild_id, user_id, item, day,
+        )
+
+    # ── cosmetic profile themes ─────────────────────────────────────────
+
+    async def get_unlocked_themes(self, guild_id: int, user_id: int) -> list[str]:
+        rows = await self.fetchall(
+            "SELECT theme FROM unlocked_themes WHERE guild_id = ? AND user_id = ?",
+            guild_id, user_id,
+        )
+        return [row["theme"] for row in rows]
+
+    async def unlock_theme(self, guild_id: int, user_id: int, theme: str) -> None:
+        await self.execute(
+            "INSERT INTO unlocked_themes (guild_id, user_id, theme) VALUES (?, ?, ?) "
+            "ON CONFLICT (guild_id, user_id, theme) DO NOTHING",
+            guild_id, user_id, theme,
+        )
+
+    async def set_theme(self, guild_id: int, user_id: int, theme: str) -> None:
+        await self.execute(
+            "UPDATE users SET theme = ? WHERE guild_id = ? AND user_id = ?",
+            theme, guild_id, user_id,
         )
 
     # ── the other per-job minigames ─────────────────────────────────────

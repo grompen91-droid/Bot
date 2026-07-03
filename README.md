@@ -104,6 +104,12 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
   skill level across every trade, capped at 1,000 gold a day. `.pay`,
   `.profile` (with lifetime deed stats), `.leaderboard` for gold and
   skills (ranked by pocket + bank combined).
+- **Cosmetic profile themes** (`.theme`): a purely visual reward, no
+  gold price and no gameplay effect -- swaps `.profile`'s accent
+  colour and adds a one-line flair underneath your rank. Everyone
+  starts with the default look; every other theme is unlocked only by
+  an admin's `.granttheme` (bug bounties, events, whatever a mod wants
+  to hand out), then equipped with `.theme`'s dropdown.
 - **The bank** (`.bank`, `.deposit`, `.withdraw`): banked gold is safe
   from pickpocketing. Starts with a 5,000 gold capacity, upgradeable
   through 5 tiers up to 750,000. Amounts accept plain numbers, `10k` /
@@ -185,6 +191,8 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
 | `.use <item>` / `.buffs [member]` | Drink/eat a consumable for its buff, or check what's active |
 | `.venture` | Risk a journey beyond the walls, no trade needed |
 | `.balance` / `.daily` / `.pay` / `.profile` / `.leaderboard` | Gold |
+| `.theme` | View/equip your unlocked cosmetic profile themes |
+| `.granttheme <member> <theme>` | Admin-only: unlock a cosmetic profile theme for a townsfolk |
 | `.bank` / `.deposit [amount\|half\|all]` / `.withdraw [amount\|half\|all]` | Bank (`10k`/`1.5m` shorthand works) |
 | `.pickpocket <member>` | Try to lift coin from their pocket |
 | `.smuggle` | Move contraband for a real payday, real risk of losing it |
