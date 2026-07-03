@@ -66,13 +66,13 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
   crafted item, gated by Crafting skill level (13 recipes across 5
   tiers, and its own much steeper-than-a-trade XP curve -- recipes
   unlock early but further Crafting levels are the hardest grind in
-  the game). Every recipe mints the item itself, not gold, priced tens
-  to well over a hundred times the combined market value of its
-  ingredients -- steepest for the XP-buff recipes, since an XP buff is
-  a direct shortcut on every trade's own grind and is gated and priced
-  accordingly (the market still lists what it's worth if you'd rather
-  sell it). Crafting itself levels the skill and counts toward total
-  skill level like any trade.
+  the game). Every recipe mints the item itself, not gold, priced
+  roughly 4x-10x the combined market value of its ingredients --
+  ingredient quantities are tuned per recipe to hold that ratio, so a
+  recipe whose output is worth more in the shop asks for proportionally
+  more materials, not just a higher Crafting level (the market still
+  lists what it's worth if you'd rather sell it). Crafting itself
+  levels the skill and counts toward total skill level like any trade.
 - **Consumables** (`.use`, `.buffs`): potions and foods that grant a
   temporary buff, either -cooldown, +XP, or +gold, for a set duration.
   All of them are priced as a real gold sink, not pocket change --

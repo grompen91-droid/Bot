@@ -10,14 +10,21 @@ a successful craft; output_item is minted x1 in return.
 
 Every recipe here prices its output far above the combined market
 value of its ingredients -- a serious payout for actually finishing a
-recipe, growing steeper at higher tiers. XP-buff recipes in
-particular sit a tier above a cooldown/gold recipe of the same rank:
-an XP buff is a direct shortcut on every trade's own grind, so it's
-gated to unlock later and paid off bigger, not just priced higher in
-the shop (see econ/data/consumables.py and STORE_CONSUMABLE_MARKUP in
-econ/data/store.py). Crafting always mints the actual output item
-into your satchel, never gold directly; .market and .recipes show its
-market value just so you know what it's worth before you sell it.
+recipe. Ingredient quantities are tuned so that markup stays in a
+roughly 5x-10x range regardless of tier: the moment a shop-sold
+consumable's own price goes up (see econ/data/store.py's markup), the
+gap between "cheap to craft" and "expensive to buy" widens right
+along with it, and a recipe whose ingredients cost a trivial fraction
+of its mint value turns crafting-then-reselling into free money (this
+happened for real: Fisherman's Basket cost ~21 gold in herring/bread
+and minted a 2,750 gold item). So the highest-markup offenders get
+the biggest quantity bump, not a flat multiplier -- ingredient cost
+is meant to track sale value, not just recipe tier. XP-buff recipes
+also sit a tier above a cooldown/gold recipe of the same rank to
+unlock: an XP buff is a direct shortcut on every trade's own grind.
+Crafting always mints the actual output item into your satchel, never
+gold directly; .market and .recipes show its market value just so you
+know what it's worth before you sell it.
 """
 
 from .items import ITEMS
@@ -25,67 +32,67 @@ from .items import ITEMS
 RECIPES = {
     "hearty_stew": {
         "name": "Hearty Stew", "output_item": "hearty_stew",
-        "ingredients": [("wheat", 3), ("venison", 1)],
+        "ingredients": [("wheat", 15), ("venison", 5)],
         "unlock_level": 1,
     },
     "sip_of_insight": {
         "name": "Sip of Insight", "output_item": "sip_of_insight",
-        "ingredients": [("herbs", 3), ("minor_potion", 1)],
+        "ingredients": [("herbs", 15), ("minor_potion", 5)],
         "unlock_level": 1,
     },
     "reinforced_toolkit": {
         "name": "Reinforced Toolkit", "output_item": "reinforced_toolkit",
-        "ingredients": [("stone", 4), ("iron_ore", 2), ("oak_log", 2)],
+        "ingredients": [("stone", 20), ("iron_ore", 10), ("oak_log", 10)],
         "unlock_level": 2,
     },
     "spiced_mead_cask": {
         "name": "Spiced Mead Cask", "output_item": "spiced_mead_cask",
-        "ingredients": [("mead", 3), ("honey_cake", 2), ("maple_log", 1)],
+        "ingredients": [("mead", 15), ("honey_cake", 10), ("maple_log", 5)],
         "unlock_level": 2,
     },
     "scholars_draught": {
         "name": "Scholar's Draught", "output_item": "scholars_draught",
-        "ingredients": [("herbs", 2), ("minor_potion", 2), ("bread", 3)],
+        "ingredients": [("herbs", 10), ("minor_potion", 10), ("bread", 15)],
         "unlock_level": 2,
     },
     "huntsmans_cloak": {
         "name": "Huntsman's Cloak", "output_item": "huntsmans_cloak",
-        "ingredients": [("pelt", 4), ("boar", 2), ("elixir", 1)],
+        "ingredients": [("pelt", 20), ("boar", 10), ("elixir", 5)],
         "unlock_level": 3,
     },
     "fishermans_basket": {
         "name": "Fisherman's Basket", "output_item": "fishermans_basket",
-        "ingredients": [("herring", 3), ("bread", 2)],
+        "ingredients": [("herring", 48), ("bread", 32)],
         "unlock_level": 3,
     },
     "feast_of_kings": {
         "name": "Feast of Kings", "output_item": "feast_of_kings",
-        "ingredients": [("kings_feast", 1), ("royal_wine", 1), ("white_stag", 1)],
+        "ingredients": [("kings_feast", 5), ("royal_wine", 5), ("white_stag", 5)],
         "unlock_level": 4,
     },
     "dragonforged_blade": {
         "name": "Dragonforged Blade", "output_item": "dragonforged_blade",
-        "ingredients": [("dragon_gem", 1), ("iron_ore", 5), ("heartwood", 2)],
+        "ingredients": [("dragon_gem", 5), ("iron_ore", 25), ("heartwood", 10)],
         "unlock_level": 4,
     },
     "sages_elixir": {
         "name": "Sage's Elixir", "output_item": "sages_elixir",
-        "ingredients": [("minor_potion", 3), ("elixir", 1), ("honey_cake", 2)],
+        "ingredients": [("minor_potion", 18), ("elixir", 6), ("honey_cake", 12)],
         "unlock_level": 4,
     },
     "krakens_bounty": {
         "name": "Kraken's Bounty", "output_item": "krakens_bounty",
-        "ingredients": [("kraken_scale", 1), ("royal_sturgeon", 2), ("philosophers_dust", 1)],
+        "ingredients": [("kraken_scale", 5), ("royal_sturgeon", 10), ("philosophers_dust", 5)],
         "unlock_level": 5,
     },
     "philosophers_masterwork": {
         "name": "Philosopher's Masterwork", "output_item": "philosophers_masterwork",
-        "ingredients": [("philosophers_dust", 2), ("elixir", 2), ("dragon_gem", 1)],
+        "ingredients": [("philosophers_dust", 10), ("elixir", 10), ("dragon_gem", 5)],
         "unlock_level": 5,
     },
     "alchemical_tonic": {
         "name": "Alchemical Tonic", "output_item": "alchemical_tonic",
-        "ingredients": [("herbs", 3), ("minor_potion", 2), ("ruby", 1)],
+        "ingredients": [("herbs", 36), ("minor_potion", 24), ("ruby", 12)],
         "unlock_level": 5,
     },
 }
