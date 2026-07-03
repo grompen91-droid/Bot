@@ -742,3 +742,31 @@ class Database:
             "ORDER BY total_level DESC LIMIT ?",
             guild_id, limit,
         )
+
+    async def gold_rank(self, guild_id: int, user_id: int) -> int:
+        """1-indexed rank by total wealth (pocket + bank), for the
+        profile card -- unlike top_gold, this reaches every player, not
+        just the top `limit`."""
+        row = await self.fetchone(
+            "SELECT COUNT(*) + 1 AS rank FROM users "
+            "WHERE guild_id = ? AND (gold + bank_gold) > ("
+            "  SELECT gold + bank_gold FROM users WHERE guild_id = ? AND user_id = ?"
+            ")",
+            guild_id, guild_id, user_id,
+        )
+        return int(row["rank"])
+
+    async def skill_rank(self, guild_id: int, user_id: int) -> int:
+        """1-indexed rank by total skill level, same reach-everyone
+        shape as gold_rank."""
+        row = await self.fetchone(
+            "SELECT COUNT(*) + 1 AS rank FROM ("
+            "  SELECT user_id, CAST(SUM(level) AS BIGINT) AS total_level "
+            "  FROM skills WHERE guild_id = ? GROUP BY user_id"
+            ") t WHERE t.total_level > ("
+            "  SELECT COALESCE(CAST(SUM(level) AS BIGINT), 0) FROM skills "
+            "  WHERE guild_id = ? AND user_id = ?"
+            ")",
+            guild_id, guild_id, user_id,
+        )
+        return int(row["rank"])

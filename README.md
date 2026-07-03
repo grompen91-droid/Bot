@@ -102,10 +102,14 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
   wall of things you can't do yet.
 - **Daily stipend** (`.daily`): base + streak bonus + a bonus for total
   skill level across every trade, capped at 1,000 gold a day. `.pay`,
-  `.profile` (with lifetime deed stats), `.leaderboard` for gold and
-  skills (ranked by pocket + bank combined).
+  `.leaderboard` for gold and skills (ranked by pocket + bank
+  combined).
+- **`.profile`**: a rendered PNG card, not a text panel -- avatar,
+  total gold, best trade (highest-level skill, not just your current
+  job), and where you rank server-wide by wealth and by skill, all
+  laid out in whatever cosmetic theme you have equipped.
 - **Cosmetic profile themes** (`.theme`): a purely visual reward, no
-  gold price and no gameplay effect -- swaps `.profile`'s accent
+  gold price and no gameplay effect -- swaps `.profile` card's accent
   colour and adds a one-line flair underneath your rank. Everyone
   starts with the default look; every other theme is unlocked only by
   an admin's `.granttheme` (bug bounties, events, whatever a mod wants
@@ -190,7 +194,8 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
 | `.recipes [member]` / `.craft <recipe>` | Crafting: browse and craft, no trade required |
 | `.use <item>` / `.buffs [member]` | Drink/eat a consumable for its buff, or check what's active |
 | `.venture` | Risk a journey beyond the walls, no trade needed |
-| `.balance` / `.daily` / `.pay` / `.profile` / `.leaderboard` | Gold |
+| `.balance` / `.daily` / `.pay` / `.leaderboard` | Gold |
+| `.profile [member]` | A rendered PNG card: avatar, gold, best trade, wealth/skill rank, themed |
 | `.theme` | View/equip your unlocked cosmetic profile themes |
 | `.granttheme <member> <theme>` | Admin-only: unlock a cosmetic profile theme for a townsfolk |
 | `.bank` / `.deposit [amount\|half\|all]` / `.withdraw [amount\|half\|all]` | Bank (`10k`/`1.5m` shorthand works) |
@@ -226,13 +231,18 @@ econ/
                      the work-drop / brew-potion pool odds
     store.py         .shop's stock pool + markup (rare-goods pool
                      derived from items.py + jobs.py at import)
+    themes.py        cosmetic .profile theme registry (accent colour +
+                     flair, admin-granted, no gold price)
 ui/
   panels.py          Components V2 medieval panel builder (fluent API)
+  profile_card.py    renders .profile as a PNG via Pillow (avatar,
+                     gold, best trade, leaderboard rank, theme colours)
 cogs/
   jobs.py            job board, work engine, skills
   market.py          inventory, market, sell, the shop (goods + tool
                      upgrade)
-  economy.py         balance, daily, pay, profile, leaderboards, bank
+  economy.py         balance, daily, pay, profile (PNG card), themes,
+                     leaderboards, bank
   venture.py         the .venture minigame
   crime.py           pickpocketing, smuggling
   brew.py            the .brew cauldron memory minigame

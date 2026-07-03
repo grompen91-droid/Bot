@@ -9,13 +9,14 @@ import discord
 from discord import app_commands, ui
 from discord.ext import commands
 
+from cogs.jobs import NON_JOB_SKILL_DISPLAY
 from econ import formulas
 from econ.buffs import active_buff_summary, active_buff_totals, apply_cooldown_buff, apply_gold_buff
 from econ.data.bank import MAX_BANK_TIER, bank_capacity, bank_upgrade_cost
 from econ.data.jobs import JOBS
 from econ.data.themes import DEFAULT_THEME, THEMES, resolve_theme
-from econ.data.tools import tool_name
 from ui.panels import AMT_W, NAME_W, WEALTH_W, Palette, Panel, chip, simple_panel
+from ui.profile_card import ProfileCardData, render_profile_card
 
 GRANTABLE_THEME_CHOICES = [
     app_commands.Choice(name=f"{t['emoji']} {t['name']}", value=key)
@@ -380,7 +381,7 @@ class Economy(commands.Cog):
         )
         await interaction.response.send_message(view=panel)
 
-    @commands.hybrid_command(name="profile", description="Your standing in the town")
+    @commands.hybrid_command(name="profile", description="Your standing in the town, as a card")
     @commands.guild_only()
     @app_commands.describe(member="Whose profile to view (default: you)")
     async def profile(
@@ -391,56 +392,39 @@ class Economy(commands.Cog):
         user = await self.db.get_user(gid, target.id)
         total_level = await self.db.total_level(gid, target.id)
 
-        if user["job"]:
-            info = JOBS[user["job"]]
-            skill = await self.db.get_skill(gid, target.id, user["job"])
-            tier = await self.db.get_tool_tier(gid, target.id, user["job"])
-            needed = formulas.xp_to_next(skill["level"])
-            trade_lines = [
-                f"{info['emoji']} **{info['name']}** Lv **{skill['level']}** · "
-                f"🔧 {tool_name(user['job'], tier)}",
-                f"`{formulas.progress_bar(skill['xp'], needed)}` "
-                f"{skill['xp']}/{needed} XP",
-            ]
+        skills = await self.db.get_all_skills(gid, target.id)
+        if skills:
+            best = max(skills, key=lambda row: row["level"])
+            info = JOBS.get(best["job"]) or NON_JOB_SKILL_DISPLAY.get(best["job"])
+            best_trade_label = f"{info['name']} Lv {best['level']}" if info else "No trade yet"
         else:
-            trade_lines = ["*No trade yet, see* `.job`"]
+            best_trade_label = "No trade yet"
 
-        rank_emoji, rank_title = formulas.town_rank(total_level)
+        gold_rank = await self.db.gold_rank(gid, target.id)
+        skill_rank = await self.db.skill_rank(gid, target.id)
+        _rank_emoji, rank_title = formulas.town_rank(total_level)
         theme = THEMES.get(user["theme"], THEMES[DEFAULT_THEME])
-        panel = Panel(accent=theme["accent"], timeout=None)
-        panel.header(f"🏰 {target.display_name} of the Town")
-        panel.section(
-            f"{rank_emoji} **{rank_title}**",
-            f"👛 **{formulas.fmt_gold(user['gold'])}** · 🏦 **{formulas.fmt_gold(user['bank_gold'])}**",
-            thumbnail=target.display_avatar.url,
-        )
-        if theme["flair"]:
-            panel.text(f"*{theme['flair']}*")
-        panel.text("\n".join(trade_lines))
-        reputation = user["reputation"]
-        if reputation < 0:
-            panel.text(f"🗡️ {formulas.reputation_infamy(reputation):,} infamy")
-        elif reputation > 0:
-            panel.text(f"🌟 {formulas.reputation_fame(reputation):,} fame")
 
-        stats = await self.db.get_stats(gid, target.id)
-        deeds = [
-            f"{stats[key]:,} {label}"
-            for key, label in (
-                ("works", "works"), ("items_gathered", "goods gathered"),
-                ("items_sold", "sold"), ("items_crafted", "crafted"),
-                ("ventures_won", "ventures won"),
-            )
-            if stats.get(key)
-        ]
-        footer_bits = []
-        if deeds:
-            footer_bits.append("📜 " + " · ".join(deeds))
-        if user["daily_streak"]:
-            footer_bits.append(f"🔥 {user['daily_streak']} day streak")
-        if footer_bits:
-            panel.footer("\n".join(footer_bits))
-        await ctx.send(view=panel)
+        try:
+            avatar_bytes = await target.display_avatar.replace(size=256).read()
+        except Exception:
+            # A card missing its avatar (a placeholder circle instead)
+            # beats the whole command failing over a flaky CDN fetch.
+            avatar_bytes = None
+
+        card = render_profile_card(ProfileCardData(
+            display_name=target.display_name,
+            avatar_bytes=avatar_bytes,
+            accent_rgb=theme["accent"].to_rgb(),
+            rank_title=rank_title,
+            flair=theme["flair"],
+            pocket_gold=user["gold"],
+            bank_gold=user["bank_gold"],
+            best_trade_label=best_trade_label,
+            gold_rank=gold_rank,
+            skill_rank=skill_rank,
+        ))
+        await ctx.send(file=discord.File(card, filename="profile.png"))
 
     @commands.hybrid_command(
         name="theme", aliases=["themes"],
