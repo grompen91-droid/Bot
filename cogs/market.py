@@ -479,7 +479,9 @@ class Market(commands.Cog):
             left = stock - bought_today.get(key, 0)
 
             if left <= 0:
-                lines.append(f"{info['emoji']} {chip((info['name'], NAME_W), ('maxed', -AMT_W))}")
+                lines.append(
+                    f"{info['emoji']} {chip((info['name'], NAME_W), ('out of stock', -13))}"
+                )
                 lines.append("")
                 continue
 
