@@ -565,7 +565,11 @@ class Market(commands.Cog):
         # Stock isn't a flat number: it's rolled per (player, item, day),
         # so the same potion can show 1 in stock for you and 2 for
         # someone else, and neither of you sees the same number twice
-        # in a row (see formulas.store_daily_limit).
+        # in a row (see formulas.store_daily_limit). The stock count
+        # lives INSIDE the fixed-width chip (same fix as .inventory's
+        # usable-tag wrap) so a name+count that would otherwise vary in
+        # length can't push the trailing coin emoji onto its own line
+        # on narrow screens.
         potion_lines = []
         for key, buff in CONSUMABLES.items():
             info = ITEMS[key]
@@ -573,10 +577,13 @@ class Market(commands.Cog):
             stock = formulas.store_daily_limit(uid, key, day, *STORE_STOCK_RANGE_CONSUMABLE)
             left = stock - bought_today.get(key, 0)
             if left <= 0:
-                potion_lines.append(f"{info['emoji']} **{info['name']}** · maxed for today")
+                potion_lines.append(
+                    f"{info['emoji']} {chip((info['name'], NAME_W), ('maxed', -AMT_W))}"
+                )
                 continue
             potion_lines.append(
-                f"{info['emoji']} **{info['name']}** ({left} in stock) · {price:,} 🪙\n"
+                f"{info['emoji']} "
+                f"{chip((info['name'], NAME_W), (f'x{left}', QTY_W), (f'{price:,}', -AMT_W))} 🪙\n"
                 f"　✨ {buff['description']}"
             )
             buy_select.add_option(
@@ -594,10 +601,13 @@ class Market(commands.Cog):
             stock = formulas.store_daily_limit(uid, key, day, *STORE_STOCK_RANGE_RARE)
             left = stock - bought_today.get(key, 0)
             if left <= 0:
-                rare_lines.append(f"{info['emoji']} **{info['name']}** · maxed for today")
+                rare_lines.append(
+                    f"{info['emoji']} {chip((info['name'], NAME_W), ('maxed', -AMT_W))}"
+                )
                 continue
             rare_lines.append(
-                f"{info['emoji']} **{info['name']}** ({left} in stock) · {price:,} 🪙"
+                f"{info['emoji']} "
+                f"{chip((info['name'], NAME_W), (f'x{left}', QTY_W), (f'{price:,}', -AMT_W))} 🪙"
                 + (f" {badge}" if badge else "")
             )
             buy_select.add_option(
