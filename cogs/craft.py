@@ -63,14 +63,15 @@ class Craft(commands.Cog):
                 f"{ITEMS[i]['emoji']} x{q}" for i, q in r["ingredients"]
             )
             buff = CONSUMABLES.get(r["output_item"])
-            yield_text = (
+            effect_text = (
                 f"✨ {buff['description']}"
                 if buff
                 else f"worth ~{formulas.fmt_gold(out['value'])}"
             )
             lines.append(
                 f"{status} {out['emoji']} **{r['name']}** (Lv {r['unlock_level']})\n"
-                f"　needs {ing_text} · yields the item · {yield_text}"
+                f"　needs {ing_text}\n"
+                f"　{effect_text}"
             )
         panel.text("\n\n".join(lines))
         panel.footer(
@@ -165,12 +166,18 @@ class Craft(commands.Cog):
         )
         panel.text(ing_lines)
         buff = CONSUMABLES.get(r["output_item"])
-        flavour = f"✨ {buff['description']}" if buff else f"worth ~{formulas.fmt_gold(out['value'])}"
-        panel.text(
-            f"{out['emoji']} {chip((out['name'], NAME_W), ('+1', -QTY_W))} *({flavour})*"
+        # Same "item line, then an indented effect line below" shape as
+        # .inventory's Consumables tab, instead of cramming it all
+        # into one line with the item.
+        effect_text = (
+            f"✨ {buff['description']} · usable with `.use`"
+            if buff
+            else f"worth ~{formulas.fmt_gold(out['value'])}"
         )
-        if buff:
-            panel.text("*usable with `.use`*")
+        panel.text(
+            f"{out['emoji']} {chip((out['name'], NAME_W), ('+1', -QTY_W))}\n"
+            f"　{effect_text}"
+        )
 
         if levels_gained:
             panel.text(f"⭐ **Level up!** Crafting is now level **{new_level}**")
