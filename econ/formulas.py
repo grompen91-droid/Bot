@@ -655,9 +655,9 @@ def roll_brew_reward(
 # polynomial tuned around trades that also get a yield/cooldown payoff
 # from levelling, and applying it to Crafting made even low levels
 # take dozens of crafts. Crafting's payoff is almost entirely the
-# recipe unlocks (level 1/2/3/4/5, see econ/data/recipes.py), so its
-# curve is small and linear instead, every level costs only a little
-# more than the last.
+# recipe unlocks (level 1/5/10/15/20, see econ/data/recipes.py), so
+# its curve is small and linear instead, every level costs only a
+# little more than the last.
 
 CRAFT_XP_BASE = 25
 CRAFT_XP_PER_LEVEL = 3
