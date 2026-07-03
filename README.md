@@ -109,10 +109,13 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
   job), and where you rank server-wide by wealth and by skill, all
   laid out in whatever cosmetic theme you have equipped.
 - **Cosmetic profile themes** (`.theme`): a purely visual reward, no
-  gold price and no gameplay effect -- swaps `.profile` card's accent
-  colour and adds a one-line flair underneath your rank. Everyone
-  starts with the default look; every other theme is unlocked only by
-  an admin's `.granttheme` (bug bounties, events, whatever a mod wants
+  gold price and no gameplay effect -- each theme picks both an accent
+  colour AND a card layout (a flat "banner" strip, a reference-style
+  "dashboard" with a centred LEVEL/RANK badge, a portrait "ticket" ID
+  card, or a wide-spined "scroll"), so equipping a different one
+  rearranges `.profile`, not just recolours it. Everyone starts with
+  the default look; every other theme is unlocked only by an admin's
+  `.granttheme` (bug bounties, events, whatever a mod wants
   to hand out), then equipped with `.theme`'s dropdown.
 - **The bank** (`.bank`, `.deposit`, `.withdraw`): banked gold is safe
   from pickpocketing. Starts with a 5,000 gold capacity, upgradeable
