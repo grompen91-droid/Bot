@@ -65,7 +65,7 @@ JOBS = {
     },
     "lumberjack": {
         "name": "Lumberjack", "emoji": "🪓", "cooldown": 60, "tip": (2, 6),
-        "unlock_total_level": 5, "category": "guild", "max_infamy": 250,
+        "unlock_total_level": 7, "category": "guild", "max_infamy": 250,
         "description": "Fell the great trees of the king's forest.",
         "yields": [
             ("birch_log", 3, 7, 42), ("oak_log", 2, 5, 32), ("maple_log", 1, 3, 18),
@@ -79,8 +79,8 @@ JOBS = {
         ],
     },
     "hunter": {
-        "name": "Hunter", "emoji": "🏹", "cooldown": 70, "tip": (3, 7),
-        "unlock_total_level": 12, "category": "guild", "max_infamy": 180,
+        "name": "Hunter", "emoji": "🏹", "cooldown": 65, "tip": (3, 7),
+        "unlock_total_level": 14, "category": "guild", "max_infamy": 180,
         "description": "Stalk game through wood and moor.",
         "yields": [
             ("rabbit", 1, 3, 36), ("pelt", 1, 3, 30), ("venison", 1, 2, 22),
@@ -94,8 +94,8 @@ JOBS = {
         ],
     },
     "baker": {
-        "name": "Baker", "emoji": "🍞", "cooldown": 75, "tip": (3, 8),
-        "unlock_total_level": 22, "category": "guild", "max_infamy": 100,
+        "name": "Baker", "emoji": "🍞", "cooldown": 70, "tip": (3, 8),
+        "unlock_total_level": 21, "category": "guild", "max_infamy": 100,
         "description": "Fill the town square with the smell of fresh bread.",
         "yields": [
             ("bread", 2, 4, 48), ("meat_pie", 1, 3, 34),
@@ -109,8 +109,8 @@ JOBS = {
         ],
     },
     "brewer": {
-        "name": "Brewer", "emoji": "🍺", "cooldown": 80, "tip": (3, 9),
-        "unlock_total_level": 35, "category": "guild", "max_infamy": 70,
+        "name": "Brewer", "emoji": "🍺", "cooldown": 75, "tip": (3, 9),
+        "unlock_total_level": 29, "category": "guild", "max_infamy": 70,
         "description": "Brew ale and mead for thirsty townsfolk.",
         "yields": [
             ("ale", 2, 4, 50), ("mead", 1, 3, 36),
@@ -124,8 +124,8 @@ JOBS = {
         ],
     },
     "tanner": {
-        "name": "Tanner", "emoji": "🥾", "cooldown": 83, "tip": (3, 9),
-        "unlock_total_level": 40, "category": "guild", "max_infamy": 55,
+        "name": "Tanner", "emoji": "🥾", "cooldown": 80, "tip": (3, 9),
+        "unlock_total_level": 36, "category": "guild", "max_infamy": 55,
         "description": "Cure hides into supple leather for saddle and boot.",
         "yields": [
             ("hide", 3, 7, 48), ("cured_leather", 2, 4, 34),
@@ -139,8 +139,8 @@ JOBS = {
         ],
     },
     "jeweler": {
-        "name": "Jeweler", "emoji": "🔍", "cooldown": 87, "tip": (4, 10),
-        "unlock_total_level": 45, "category": "guild", "max_infamy": 48,
+        "name": "Jeweler", "emoji": "🔍", "cooldown": 85, "tip": (4, 10),
+        "unlock_total_level": 43, "category": "guild", "max_infamy": 48,
         "description": "Cut and polish gemstones fit for a crown.",
         "yields": [
             ("rough_gem", 2, 4, 48), ("cut_gem", 1, 3, 34),
