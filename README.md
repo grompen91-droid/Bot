@@ -56,7 +56,10 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
   markup, rotating daily -- same for every player, changes at UTC
   midnight, never guaranteed to carry any one item two days running.
   Everything here is a flat price, it doesn't drift with the daily
-  market the way `.market`/`.sell` do.
+  market the way `.market`/`.sell` do. Every item also caps at 3
+  purchases per player per day (1 for Rare Goods), resetting at UTC
+  midnight, so the store stays a convenience, not a replacement for
+  actually working a trade.
 - **Crafting** (`.recipes`, `.craft`): a standalone skill, not tied to
   any trade, anyone can craft regardless of their current job. Combine
   gathered goods from across multiple trades into one higher-value

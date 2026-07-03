@@ -115,6 +115,21 @@ MIGRATIONS: list[str] = [
         PRIMARY KEY (guild_id, user_id, item)
     );
     """,
+    # v10, .store's per-item daily purchase limit. `day` is a UTC
+    # ordinal day (formulas.utc_day()), not a timestamp, so "today's"
+    # row is a plain equality lookup; old days' rows are simply never
+    # matched again, same "leave it, don't sweep it" approach as
+    # active_buffs above.
+    """
+    CREATE TABLE IF NOT EXISTS store_purchases (
+        guild_id BIGINT NOT NULL,
+        user_id  BIGINT NOT NULL,
+        item     TEXT   NOT NULL,
+        day      BIGINT NOT NULL,
+        qty      BIGINT NOT NULL DEFAULT 0,
+        PRIMARY KEY (guild_id, user_id, item, day)
+    );
+    """,
 ]
 
 
@@ -450,6 +465,53 @@ class Database:
             "SELECT item, expires_at FROM active_buffs "
             "WHERE guild_id = ? AND user_id = ? AND expires_at > ?",
             guild_id, user_id, now,
+        )
+
+    # ── .store's daily purchase limit ───────────────────────────────────
+
+    async def get_store_purchases_today(
+        self, guild_id: int, user_id: int, day: int
+    ) -> dict[str, int]:
+        """Everything bought from .store today, one query instead of one
+        per item when rendering the buy list."""
+        rows = await self.fetchall(
+            "SELECT item, qty FROM store_purchases "
+            "WHERE guild_id = ? AND user_id = ? AND day = ?",
+            guild_id, user_id, day,
+        )
+        return {row["item"]: row["qty"] for row in rows}
+
+    async def try_reserve_store_purchase(
+        self, guild_id: int, user_id: int, item: str, day: int, qty: int, limit: int
+    ) -> bool:
+        """Atomically records `qty` more of `item` bought today, but only
+        if that wouldn't push the day's total over `limit`; returns
+        False (and changes nothing) otherwise. Conditional update, same
+        pattern as spend_gold/remove_item, so two rapid clicks on the
+        same item can't both slip under the cap. Call release_store_
+        purchase to undo the reservation if the purchase then fails for
+        some other reason (e.g. not enough gold)."""
+        await self.execute(
+            "INSERT INTO store_purchases (guild_id, user_id, item, day, qty) "
+            "VALUES (?, ?, ?, ?, 0) ON CONFLICT (guild_id, user_id, item, day) "
+            "DO NOTHING",
+            guild_id, user_id, item, day,
+        )
+        reserved = await self.execute_rowcount(
+            "UPDATE store_purchases SET qty = qty + ? "
+            "WHERE guild_id = ? AND user_id = ? AND item = ? AND day = ? "
+            "AND qty + ? <= ?",
+            qty, guild_id, user_id, item, day, qty, limit,
+        )
+        return bool(reserved)
+
+    async def release_store_purchase(
+        self, guild_id: int, user_id: int, item: str, day: int, qty: int
+    ) -> None:
+        await self.execute(
+            "UPDATE store_purchases SET qty = qty - ? "
+            "WHERE guild_id = ? AND user_id = ? AND item = ? AND day = ?",
+            qty, guild_id, user_id, item, day,
         )
 
     # ── the other per-job minigames ─────────────────────────────────────

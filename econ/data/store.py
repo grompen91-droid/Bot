@@ -21,6 +21,11 @@ Two sections:
   grind or a rare-drop-luck away, and the rotation (same for every
   player, changes at UTC midnight, see formulas.store_rare_stock)
   means the store is never a guaranteed way to buy any one of them.
+
+Both sections are also capped per player per item per UTC day (see
+econ/database.py's store_purchases table) -- the store is a
+convenience valve, not a replacement for actually working a trade, so
+nobody can just buy out unlimited potions or camp a rare item.
 """
 
 from .items import ITEMS
@@ -29,6 +34,9 @@ from .jobs import JOBS
 STORE_CONSUMABLE_MARKUP = 4.0    # potions/foods: 4x their base value
 STORE_RARE_MARKUP = 12.0         # rare-stock goods: 12x, a real splurge
 RARE_STOCK_SIZE = 4              # how many rare goods are in stock at once
+
+STORE_DAILY_LIMIT_CONSUMABLE = 3  # max buys of any one potion/food per day
+STORE_DAILY_LIMIT_RARE = 1        # max buys of any one rare good per day
 
 _RAW_ITEM_KEYS = {item for info in JOBS.values() for item, *_rest in info["yields"]}
 

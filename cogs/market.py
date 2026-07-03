@@ -15,6 +15,8 @@ from econ.data.store import (
     RARE_POOL,
     RARE_STOCK_SIZE,
     STORE_CONSUMABLE_MARKUP,
+    STORE_DAILY_LIMIT_CONSUMABLE,
+    STORE_DAILY_LIMIT_RARE,
     STORE_RARE_MARKUP,
 )
 from econ.data.tools import MAX_TOOL_TIER, TOOLS, tool_name, tool_price
@@ -549,8 +551,12 @@ class Market(commands.Cog):
     # _fill_job_store -- the exact same content .shop shows -- so
     # there's one place, not two, that ever needs to change.
 
-    async def _fill_general_store(self, panel: Panel, gid: int, uid: int) -> ui.Select:
+    async def _fill_general_store(
+        self, panel: Panel, gid: int, uid: int
+    ) -> ui.Select | None:
         user = await self.db.get_user(gid, uid)
+        day = formulas.utc_day()
+        bought_today = await self.db.get_store_purchases_today(gid, uid, day)
         panel.header("🏬 The General Store")
         panel.text("*Ready-made goods, for those who'd rather pay gold than gather.*")
 
@@ -560,12 +566,18 @@ class Market(commands.Cog):
         for key, buff in CONSUMABLES.items():
             info = ITEMS[key]
             price = round(info["value"] * STORE_CONSUMABLE_MARKUP)
+            left = STORE_DAILY_LIMIT_CONSUMABLE - bought_today.get(key, 0)
+            if left <= 0:
+                potion_lines.append(
+                    f"{info['emoji']} {chip((info['name'], NAME_W), ('maxed', -AMT_W))}"
+                )
+                continue
             potion_lines.append(
                 f"{info['emoji']} {chip((info['name'], NAME_W), (f'{price:,}', -AMT_W))} 🪙"
             )
             buy_select.add_option(
                 label=f"{info['name']} · {price:,}g"[:100], value=key, emoji=info["emoji"],
-                description=buff["description"][:100],
+                description=f"{left} left today · {buff['description']}"[:100],
             )
         panel.field("✨ Potions & Foods", "\n".join(potion_lines))
 
@@ -575,17 +587,30 @@ class Market(commands.Cog):
             info = ITEMS[key]
             price = round(info["value"] * STORE_RARE_MARKUP)
             badge = rarity_badge(key).strip()
+            left = STORE_DAILY_LIMIT_RARE - bought_today.get(key, 0)
+            if left <= 0:
+                rare_lines.append(
+                    f"{info['emoji']} {chip((info['name'], NAME_W), ('maxed', -AMT_W))}"
+                    + (f" {badge}" if badge else "")
+                )
+                continue
             rare_lines.append(
                 f"{info['emoji']} {chip((info['name'], NAME_W), (f'{price:,}', -AMT_W))} 🪙"
                 + (f" {badge}" if badge else "")
             )
             buy_select.add_option(
                 label=f"{info['name']} · {price:,}g"[:100], value=key, emoji=info["emoji"],
-                description="Today's rare stock, gone tomorrow",
+                description=f"{left} left today · today's rare stock"[:100],
             )
         panel.field("🌟 Rare Goods (today only)", "\n".join(rare_lines))
-        panel.footer(f"Your purse: {user['gold']:,} gold · flat prices, not the daily market")
+        panel.footer(
+            f"Your purse: {user['gold']:,} gold · flat prices, not the daily market\n"
+            f"limit {STORE_DAILY_LIMIT_CONSUMABLE}/item/day (potions), "
+            f"{STORE_DAILY_LIMIT_RARE}/item/day (rare) · resets at UTC midnight"
+        )
 
+        if not buy_select.options:
+            return None
         buy_select.callback = self._store_buy_select
         return buy_select
 
@@ -641,9 +666,11 @@ class Market(commands.Cog):
         gid, uid = interaction.guild_id, interaction.user.id
         info = ITEMS[item_key]
         is_consumable = item_key in CONSUMABLES
+        day = formulas.utc_day()
 
         if is_consumable:
             price = round(info["value"] * STORE_CONSUMABLE_MARKUP)
+            limit = STORE_DAILY_LIMIT_CONSUMABLE
         else:
             # Re-check against today's stock: the rotation can only
             # ever change at UTC midnight, but a stale panel viewed
@@ -659,8 +686,24 @@ class Market(commands.Cog):
                 )
                 return
             price = round(info["value"] * STORE_RARE_MARKUP)
+            limit = STORE_DAILY_LIMIT_RARE
+
+        # Reserve the day's purchase slot before spending gold, so a
+        # stale select (rendered before today's limit was reached, or
+        # raced by a second rapid click) can't be used to buy past the
+        # cap. If paying then fails, release the slot back.
+        if not await self.db.try_reserve_store_purchase(gid, uid, item_key, day, 1, limit):
+            await interaction.response.edit_message(
+                view=simple_panel(
+                    f"You've already bought your limit of **{info['name']}** "
+                    "for today. Check back after UTC midnight.",
+                    accent=Palette.RED,
+                )
+            )
+            return
 
         if not await self.db.spend_gold(gid, uid, price):
+            await self.db.release_store_purchase(gid, uid, item_key, day, 1)
             user = await self.db.get_user(gid, uid)
             await interaction.response.edit_message(
                 view=simple_panel(
