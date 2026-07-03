@@ -25,15 +25,13 @@ HELP_SECTIONS = [
     ("🗺️ Venture", ".venture"),
     ("💰 Gold", ".balance · .daily · .beg · .pay · .profile · .leaderboard"),
     ("🏦 Bank", ".bank · .deposit · .withdraw"),
-    ("🗡️ Crime", ".pickpocket · .smuggle (both need Criminal, or lvl 5 in it)"),
+    ("🗡️ Crime", ".pickpocket · .smuggle"),
     # Every job-specific minigame lives in this one section, not a new
     # section per job, however many of these exist.
     (
         "🎯 Job Minigames",
         ".harvest · .dig · .fish · .fell · .hunt · .bake · .tend · "
-        ".stretch · .facet · .brew · .rob\n"
-        "🟢 Easy · 🟡 Medium (lvl 15+) · 🔴 Hard (lvl 35+) -- pick a "
-        "difficulty each time, harder pays much better",
+        ".stretch · .facet · .brew · .rob",
     ),
     ("⏳ Cooldowns", ".cd · see every timer you're carrying, at a glance"),
 ]
