@@ -207,30 +207,30 @@ def market_price(item_key: str, base_value: int, day: int | None = None) -> int:
 
 
 # ═══════════════════════════ the general store ═════════════════════════
-# .store's Rare Goods section rotates daily, same "same for everyone,
-# changes at UTC midnight" mechanism as the market's own daily seed,
-# just picking a subset of a pool instead of a price factor.
+# .shop's stock rotates daily, same "same for everyone, changes at UTC
+# midnight" mechanism as the market's own daily seed, just picking a
+# subset of a pool instead of a price factor.
 
 @lru_cache(maxsize=64)
-def _store_rare_stock(pool: tuple[str, ...], size: int, day: int) -> tuple[str, ...]:
-    rng = random.Random(f"store-rare:{day}")
+def _store_daily_items(pool: tuple[str, ...], size: int, day: int) -> tuple[str, ...]:
+    rng = random.Random(f"store-items:{day}")
     return tuple(rng.sample(pool, min(size, len(pool))))
 
 
-def store_rare_stock(pool: list[str], size: int, day: int | None = None) -> list[str]:
-    """Today's rare-goods selection: deterministic and identical for
-    every player in every guild, so the store can never be relied on
-    to always carry any one item -- check back tomorrow."""
+def store_daily_items(pool: list[str], size: int, day: int | None = None) -> list[str]:
+    """Today's shop selection: deterministic and identical for every
+    player in every guild, so the shop can never be relied on to
+    always carry any one item -- check back tomorrow."""
     day = utc_day() if day is None else day
-    return list(_store_rare_stock(tuple(pool), size, day))
+    return list(_store_daily_items(tuple(pool), size, day))
 
 
 @lru_cache(maxsize=8192)
 def store_daily_limit(
     user_id: int, item_key: str, day: int, lo: int, hi: int
 ) -> int:
-    """How many of `item_key` THIS player can buy from .store today --
-    unlike store_rare_stock (same for everyone), this is seeded per
+    """How many of `item_key` THIS player can buy from .shop today --
+    unlike store_daily_items (same for everyone), this is seeded per
     player too, so two players see independently random stock on the
     same item on the same day. Deterministic per (player, item, day):
     asking twice gives the same number, but it reshuffles at UTC

@@ -42,27 +42,24 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
   a single named item is instant; `.sell` with no item (or `all`) asks
   "sell everything?" with Yes/No buttons first, since it's a one-shot,
   irreversible action.
-- **The smithy** (`.shop`, `.buy`): five tool tiers per trade
-  (300 → 30,000 gold), the main gold sink.
-- **`.shop` / `.store`**: the same dropdown-driven two-tab browser,
-  same shape as `.market`/`.inventory` -- just opened on a different
-  tab by default (`.shop` on Job Store, `.store` on General Store),
-  switchable either way from the dropdown on either command.
-  **Job Store** is the tool ladder above. **General Store** sells
-  every potion and buff food in the game outright (no more relying on
-  a lucky `.work` drop or a `.brew`/`.craft`) at a flat 4x markup over
-  its base value, plus a **Rare Goods** section: 4 rare-or-better raw
-  goods (never crafted goods, never common/uncommon) at a steep 12x
-  markup, rotating daily -- same for every player, changes at UTC
-  midnight, never guaranteed to carry any one item two days running.
-  Everything here is a flat price, it doesn't drift with the daily
-  market the way `.market`/`.sell` do. Every item also shows an
-  "(N in stock)" cap next to its name -- not a flat number, a fresh
-  1-2 for Potions & Foods and 1-3 for Rare Goods, rolled per player
-  per item per day, so your stock on any given potion is never the
-  same as the next player's, or the same as yesterday's. Resets at
-  UTC midnight, so the store stays a convenience, not a replacement
-  for actually working a trade.
+- **`.shop`**: one paginated, dropdown-driven browser (same shape as
+  `.market`/`.inventory`). A fresh **18 goods** rotate in daily out of
+  a pool of every potion/buff food plus a broad set of rare-or-better
+  raw goods (never crafted goods, never common/uncommon) -- shown
+  **9 to a page**, same for every player, changes at UTC midnight, so
+  the lineup is never a guaranteed way to buy any one item. Prices are
+  a flat markup over base value (4x for potions/foods, 12x for rare
+  goods), not the daily-drifting `.market` price. Every item also
+  shows an "(N in stock)" cap next to its name -- not a flat number, a
+  fresh 1-2 for potions/foods and 1-3 for rare goods, rolled per
+  player per item per day, so your stock on any given item is never
+  the same as the next player's, or the same as yesterday's. Buying is
+  a single click from the "🛒 Buy an item…" dropdown.
+- **⚒️ Upgrade Tool** (the button on `.shop`, or run `.buy` directly):
+  the trade-specific gear, five tool tiers per trade (300 → 30,000
+  gold), the main gold sink. Always asks you to confirm first --
+  current tool, next tool, price, and the yield you'd get for it --
+  before spending anything.
 - **Crafting** (`.recipes`, `.craft`): a standalone skill, not tied to
   any trade, anyone can craft regardless of their current job. Combine
   gathered goods from across multiple trades into one higher-value
@@ -167,8 +164,8 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
 | `.inventory [member]` | A satchel with a category dropdown (All / Consumables / per-trade) |
 | `.market` | Today's prices with ▲▼ trends, one category at a time via dropdown |
 | `.sell [item] [amount]` | Sell goods (`.sell` alone sells everything) |
-| `.shop` / `.buy` | Job Store: tool tiers with a buy button (`.shop`'s default tab; `.buy` skips straight to the next tier) |
-| `.store` | Same two-tab browser as `.shop`, opens on General Store instead (potions/buffs + daily rare goods) |
+| `.shop` | Today's 18 goods, 9/page, with an Upgrade Tool button (confirm-gated) |
+| `.buy` | Straight to the tool-upgrade confirm popup, skipping `.shop`'s item list |
 | `.recipes [member]` / `.craft <recipe>` | Crafting: browse and craft, no trade required |
 | `.use <item>` / `.buffs [member]` | Drink/eat a consumable for its buff, or check what's active |
 | `.venture` | Risk a journey beyond the walls, no trade needed |
@@ -203,13 +200,14 @@ econ/
     recipes.py       crafting recipe registry (ingredients, output, unlock)
     consumables.py   which items are usable, their buff + duration, and
                      the work-drop / brew-potion pool odds
-    store.py         .store's General Store pool + markup (rare-goods
-                     pool derived from items.py + jobs.py at import)
+    store.py         .shop's stock pool + markup (rare-goods pool
+                     derived from items.py + jobs.py at import)
 ui/
   panels.py          Components V2 medieval panel builder (fluent API)
 cogs/
   jobs.py            job board, work engine, skills
-  market.py          inventory, market, sell, smithy, general store
+  market.py          inventory, market, sell, the shop (goods + tool
+                     upgrade)
   economy.py         balance, daily, pay, profile, leaderboards, bank
   venture.py         the .venture minigame
   crime.py           pickpocketing, smuggling

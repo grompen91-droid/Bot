@@ -12,15 +12,16 @@ from econ.data.items import ITEMS, item_label, rarity_badge
 from econ.data.jobs import JOBS
 from econ.data.recipes import RECIPES
 from econ.data.store import (
-    RARE_POOL,
-    RARE_STOCK_SIZE,
     STORE_CONSUMABLE_MARKUP,
+    STORE_ITEMS_PER_DAY,
+    STORE_PAGE_SIZE,
+    STORE_POOL,
     STORE_RARE_MARKUP,
     STORE_STOCK_RANGE_CONSUMABLE,
     STORE_STOCK_RANGE_RARE,
 )
 from econ.data.tools import MAX_TOOL_TIER, TOOLS, tool_name, tool_price
-from ui.panels import AMT_W, NAME_W, QTY_W, TOOL_W, Palette, Panel, chip, simple_panel
+from ui.panels import AMT_W, NAME_W, QTY_W, Palette, Panel, chip, simple_panel
 
 
 def resolve_item(query: str) -> str | None:
@@ -428,274 +429,133 @@ class Market(commands.Cog):
         panel.footer(f"Purse: {balance:,} gold")
         return panel
 
-    # ══════════════════════════ the smithy ═════════════════════════════
+    # ══════════════════════════════ .shop ═══════════════════════════════
+    # One command, one dropdown-driven browser (same shape as .market/
+    # .inventory): 18 goods a day drawn at random from STORE_POOL (every
+    # potion/food plus a broad set of rare raw goods), 9 per page,
+    # rotating at UTC midnight, with an Upgrade Tool button for the
+    # trade-specific gear that used to be its own tab. Buying an item is
+    # still a single-click select (like .job's trade picker); the tool
+    # upgrade is the one purchase that gets an explicit Confirm/Cancel
+    # step, since it's the real gold sink, not a cheap potion.
 
-    async def _fill_job_store(self, panel: Panel, gid: int, uid: int) -> ui.Button | None:
-        """Renders the tool ladder for whichever trade the player
-        currently holds into `panel` (header/text/footer), returning a
-        'buy next tier' button to attach -- or None if there's no job,
-        or nothing left to buy. Shared by .shop and .store's Job Store
-        tab, so there's exactly one place that knows how to draw this."""
-        user = await self.db.get_user(gid, uid)
-        if not user["job"]:
-            panel.header("⚒️ The Smithy")
-            panel.text(
-                "The smith only sells to working folk. Take a trade "
-                "with `.job` first."
-            )
-            return None
-        job_key = user["job"]
-        info = JOBS[job_key]
-        tier = await self.db.get_tool_tier(gid, uid, job_key)
-
-        panel.header(f"⚒️ The Smithy · {info['emoji']} {info['name']}")
-        panel.text(
-            f"You carry: **{tool_name(job_key, tier)}** "
-            f"*(×{formulas.tool_multiplier(tier):.2f})*"
-        )
-        lines = []
-        for t in range(1, MAX_TOOL_TIER + 1):
-            name = TOOLS[job_key][t - 1]
-            if t <= tier:
-                lines.append(f"✅ {chip((name, TOOL_W), ('owned', -AMT_W))}")
-            else:
-                icon = "⚒️" if t == tier + 1 else "🔒"
-                lines.append(
-                    f"{icon} {chip((name, TOOL_W), (f'{tool_price(t):,}', -AMT_W))} 🪙"
-                )
-        panel.text("\n".join(lines))
-        panel.footer(f"Your purse: {user['gold']:,} gold")
-
-        if tier >= MAX_TOOL_TIER:
-            return None
-        next_name = TOOLS[job_key][tier]
-        next_mult = formulas.tool_multiplier(tier + 1)
-        buy_btn = ui.Button(
-            label=f"Buy {next_name} · ×{next_mult:.2f} · {tool_price(tier + 1):,} gold",
-            emoji="⚒️",
-            style=discord.ButtonStyle.primary,
-        )
-        buy_btn.callback = self._buy_button
-        return buy_btn
-
-    @commands.hybrid_command(
-        name="shop", aliases=["smithy"],
-        description="Browse tools for your trade, or switch to the general store",
-    )
-    @commands.guild_only()
-    async def shop(self, ctx: commands.Context):
-        # Same dropdown-driven panel .store shows, just opened on the
-        # Job Store tab by default -- .store opens on General Store by
-        # default. Same two tabs either way, just a different door in.
-        panel = await self._build_store_panel("jobstore", ctx.guild.id, ctx.author.id)
-        panel.message = await ctx.send(view=panel)
-
-    async def _buy_button(self, interaction: discord.Interaction) -> None:
-        panel = await self._buy_next_tool(interaction.guild_id, interaction.user)
-        await interaction.response.send_message(
-            view=panel, ephemeral=getattr(panel, "is_error", False)
-        )
-
-    async def _buy_next_tool(
-        self, guild_id: int, member: discord.abc.User
-    ) -> Panel:
-        user = await self.db.get_user(guild_id, member.id)
-        if not user["job"]:
-            panel = simple_panel("Take a trade first with `.job`.", accent=Palette.RED)
-            panel.is_error = True
-            return panel
-        job_key = user["job"]
-        tier = await self.db.get_tool_tier(guild_id, member.id, job_key)
-        if tier >= MAX_TOOL_TIER:
-            panel = simple_panel(
-                "You already own the finest tool a master could wish for!",
-                accent=Palette.RED,
-            )
-            panel.is_error = True
-            return panel
-        name = TOOLS[job_key][tier]
-        price = tool_price(tier + 1)
-        if not await self.db.spend_gold(guild_id, member.id, price):
-            panel = simple_panel(
-                f"**{name}** costs {formulas.fmt_gold(price)}, but your purse "
-                f"holds only {formulas.fmt_gold(user['gold'])}.",
-                accent=Palette.RED,
-            )
-            panel.is_error = True
-            return panel
-
-        await self.db.set_tool_tier(guild_id, member.id, job_key, tier + 1)
-        await self.db.incr_stat(guild_id, member.id, "gold_spent_tools", price)
-
-        panel = Panel(accent=Palette.GREEN, timeout=None)
-        panel.is_error = False
-        panel.header("⚒️ A Fine Purchase!")
-        panel.text(
-            f"The smith hands {member.mention} a **{name}** for "
-            f"{formulas.fmt_gold(price)}.\n"
-            f"Yields are now **×{formulas.tool_multiplier(tier + 1):.2f}** from tools alone."
-        )
-        return panel
-
-    @commands.hybrid_command(name="buy", description="Buy the next tool tier for your trade")
-    @commands.guild_only()
-    async def buy(self, ctx: commands.Context):
-        panel = await self._buy_next_tool(ctx.guild.id, ctx.author)
-        await ctx.send(view=panel, ephemeral=getattr(panel, "is_error", False))
-
-    # ══════════════════════════ the general store ══════════════════════
-    # .store: a second dropdown-driven browser, same shape as .market
-    # and .inventory. General Store sells potions/foods and a daily
-    # rotation of rare raw goods, all at a flat markup over their base
-    # value (see econ/data/store.py). Job Store just re-renders
-    # _fill_job_store -- the exact same content .shop shows -- so
-    # there's one place, not two, that ever needs to change.
-
-    async def _fill_general_store(
-        self, panel: Panel, gid: int, uid: int
-    ) -> ui.Select | None:
-        user = await self.db.get_user(gid, uid)
+    async def _build_shop_panel(self, gid: int, uid: int, page: int) -> Panel:
         day = formulas.utc_day()
-        bought_today = await self.db.get_store_purchases_today(gid, uid, day)
-        panel.header("🏬 The General Store")
-        panel.text("*Ready-made goods, for those who'd rather pay gold than gather.*")
+        today_items = formulas.store_daily_items(STORE_POOL, STORE_ITEMS_PER_DAY, day)
+        pages = [
+            today_items[i : i + STORE_PAGE_SIZE]
+            for i in range(0, len(today_items), STORE_PAGE_SIZE)
+        ] or [[]]
+        page = max(0, min(page, len(pages) - 1))
+        page_items = pages[page]
 
-        buy_select = ui.Select(placeholder="🛒 Buy an item…")
+        user = await self.db.get_user(gid, uid)
+        bought_today = await self.db.get_store_purchases_today(gid, uid, day)
+
+        panel = Panel(accent=Palette.GOLD, author_id=uid, timeout=180)
+        panel.header(f"🏬 The Shop · Page {page + 1}/{len(pages)}")
+        panel.text("*Today's stock, a fresh lineup rotating in at UTC midnight.*")
 
         # Stock isn't a flat number: it's rolled per (player, item, day),
         # so the same potion can show 1 in stock for you and 2 for
-        # someone else, and neither of you sees the same number twice
-        # in a row (see formulas.store_daily_limit). The stock count
-        # lives INSIDE the fixed-width chip (same fix as .inventory's
-        # usable-tag wrap) so a name+count that would otherwise vary in
-        # length can't push the trailing coin emoji onto its own line
-        # on narrow screens.
-        potion_lines = []
-        for key, buff in CONSUMABLES.items():
+        # someone else (see formulas.store_daily_limit). The count lives
+        # INSIDE the fixed-width chip (same fix as .inventory's usable-
+        # tag wrap) so a name+count that would otherwise vary in length
+        # can't push the trailing coin emoji onto its own line on
+        # narrow screens.
+        lines = []
+        buy_select = ui.Select(placeholder="🛒 Buy an item…")
+        for key in page_items:
             info = ITEMS[key]
-            price = round(info["value"] * STORE_CONSUMABLE_MARKUP)
-            stock = formulas.store_daily_limit(uid, key, day, *STORE_STOCK_RANGE_CONSUMABLE)
+            is_consumable = key in CONSUMABLES
+            if is_consumable:
+                price = round(info["value"] * STORE_CONSUMABLE_MARKUP)
+                stock = formulas.store_daily_limit(uid, key, day, *STORE_STOCK_RANGE_CONSUMABLE)
+            else:
+                price = round(info["value"] * STORE_RARE_MARKUP)
+                stock = formulas.store_daily_limit(uid, key, day, *STORE_STOCK_RANGE_RARE)
             left = stock - bought_today.get(key, 0)
-            if left <= 0:
-                potion_lines.append(
-                    f"{info['emoji']} {chip((info['name'], NAME_W), ('maxed', -AMT_W))}"
-                )
-                continue
-            potion_lines.append(
-                f"{info['emoji']} "
-                f"{chip((info['name'], NAME_W), (f'x{left}', QTY_W), (f'{price:,}', -AMT_W))} 🪙\n"
-                f"　✨ {buff['description']}"
-            )
-            buy_select.add_option(
-                label=f"{info['name']} · {price:,}g"[:100], value=key, emoji=info["emoji"],
-                description=f"{left} left today · {buff['description']}"[:100],
-            )
-        panel.field("✨ Potions & Foods", "\n".join(potion_lines))
 
-        rare_keys = formulas.store_rare_stock(RARE_POOL, RARE_STOCK_SIZE)
-        rare_lines = []
-        for key in rare_keys:
-            info = ITEMS[key]
-            price = round(info["value"] * STORE_RARE_MARKUP)
-            badge = rarity_badge(key).strip()
-            stock = formulas.store_daily_limit(uid, key, day, *STORE_STOCK_RANGE_RARE)
-            left = stock - bought_today.get(key, 0)
             if left <= 0:
-                rare_lines.append(
-                    f"{info['emoji']} {chip((info['name'], NAME_W), ('maxed', -AMT_W))}"
-                )
+                lines.append(f"{info['emoji']} {chip((info['name'], NAME_W), ('maxed', -AMT_W))}")
                 continue
-            rare_lines.append(
+
+            badge = rarity_badge(key).strip()
+            lines.append(
                 f"{info['emoji']} "
                 f"{chip((info['name'], NAME_W), (f'x{left}', QTY_W), (f'{price:,}', -AMT_W))} 🪙"
-                + (f" {badge}" if badge else "")
+                + (f" {badge}" if not is_consumable and badge else "")
             )
+            if is_consumable:
+                lines.append(f"　✨ {CONSUMABLES[key]['description']}")
+                option_desc = f"{left} left today · {CONSUMABLES[key]['description']}"
+            else:
+                option_desc = f"{left} left today · today's stock"
             buy_select.add_option(
                 label=f"{info['name']} · {price:,}g"[:100], value=key, emoji=info["emoji"],
-                description=f"{left} left today · today's rare stock"[:100],
+                description=option_desc[:100],
             )
-        panel.field("🌟 Rare Goods (today only)", "\n".join(rare_lines))
-        panel.footer(
-            f"Your purse: {user['gold']:,} gold · flat prices, not the daily market\n"
-            "stock is random per player per item · resets at UTC midnight"
+        panel.text("\n".join(lines) if lines else "*Nothing left on this page today.*")
+        panel.footer(f"Your purse: {user['gold']:,} gold · stock resets at UTC midnight")
+
+        if buy_select.options:
+            buy_select.callback = self._shop_buy_select
+            panel.select(buy_select)
+
+        prev_btn = ui.Button(emoji="◀️", style=discord.ButtonStyle.secondary, disabled=(page == 0))
+        next_btn = ui.Button(
+            emoji="▶️", style=discord.ButtonStyle.secondary, disabled=(page >= len(pages) - 1)
         )
+        prev_btn.callback = self._make_shop_page_handler(page - 1)
+        next_btn.callback = self._make_shop_page_handler(page + 1)
+        panel.buttons(prev_btn, next_btn)
 
-        if not buy_select.options:
-            return None
-        buy_select.callback = self._store_buy_select
-        return buy_select
+        upgrade_btn = ui.Button(label="Upgrade Tool", emoji="⚒️", style=discord.ButtonStyle.primary)
+        upgrade_btn.callback = self._on_upgrade_tool_button
+        panel.buttons(upgrade_btn)
 
-    def _build_store_top_select(self, section: str) -> ui.Select:
-        select = ui.Select(placeholder="🏬 Browse…")
-        select.add_option(
-            label="General Store", value="general", emoji="🏬",
-            description="Potions, foods, and today's rare goods",
-            default=(section == "general"),
-        )
-        select.add_option(
-            label="Job Store", value="jobstore", emoji="⚒️",
-            description="Tool tiers for your current trade",
-            default=(section == "jobstore"),
-        )
-        select.callback = self._store_top_select
-        return select
-
-    async def _build_store_panel(self, section: str, gid: int, uid: int) -> Panel:
-        accent = Palette.GOLD if section == "general" else Palette.IRON
-        panel = Panel(accent=accent, author_id=uid, timeout=180)
-
-        if section == "jobstore":
-            extra = await self._fill_job_store(panel, gid, uid)
-        else:
-            extra = await self._fill_general_store(panel, gid, uid)
-
-        if isinstance(extra, ui.Select):
-            panel.select(extra)
-        elif extra is not None:
-            panel.buttons(extra)
-        panel.select(self._build_store_top_select(section))
         return panel
 
+    def _make_shop_page_handler(self, page: int):
+        async def handler(interaction: discord.Interaction) -> None:
+            panel = await self._build_shop_panel(interaction.guild_id, interaction.user.id, page)
+            panel.message = interaction.message
+            await interaction.response.edit_message(view=panel)
+        return handler
+
     @commands.hybrid_command(
-        name="store", description="The general store, and your trade's tool ladder"
+        name="shop", aliases=["smithy"],
+        description="The shop: today's stock, and your trade's tool upgrade",
     )
     @commands.guild_only()
-    async def store(self, ctx: commands.Context):
-        panel = await self._build_store_panel("general", ctx.guild.id, ctx.author.id)
+    async def shop(self, ctx: commands.Context):
+        panel = await self._build_shop_panel(ctx.guild.id, ctx.author.id, 0)
         panel.message = await ctx.send(view=panel)
 
-    async def _store_top_select(self, interaction: discord.Interaction) -> None:
-        section = interaction.data["values"][0]
-        panel = await self._build_store_panel(
-            section, interaction.guild_id, interaction.user.id
-        )
-        panel.message = interaction.message
-        await interaction.response.edit_message(view=panel)
-
-    async def _store_buy_select(self, interaction: discord.Interaction) -> None:
+    async def _shop_buy_select(self, interaction: discord.Interaction) -> None:
         item_key = interaction.data["values"][0]
         gid, uid = interaction.guild_id, interaction.user.id
         info = ITEMS[item_key]
         is_consumable = item_key in CONSUMABLES
         day = formulas.utc_day()
 
+        # Re-check against today's stock: the rotation can only ever
+        # change at UTC midnight, but a stale panel viewed right across
+        # that boundary shouldn't be able to buy yesterday's goods.
+        if item_key not in formulas.store_daily_items(STORE_POOL, STORE_ITEMS_PER_DAY, day):
+            await interaction.response.edit_message(
+                view=simple_panel(
+                    "Today's stock has already turned over. Run `.shop` "
+                    "again to see what's in today.",
+                    accent=Palette.RED,
+                )
+            )
+            return
+
         if is_consumable:
             price = round(info["value"] * STORE_CONSUMABLE_MARKUP)
             limit = formulas.store_daily_limit(uid, item_key, day, *STORE_STOCK_RANGE_CONSUMABLE)
         else:
-            # Re-check against today's stock: the rotation can only
-            # ever change at UTC midnight, but a stale panel viewed
-            # right across that boundary shouldn't be able to buy
-            # yesterday's rare goods.
-            if item_key not in formulas.store_rare_stock(RARE_POOL, RARE_STOCK_SIZE):
-                await interaction.response.edit_message(
-                    view=simple_panel(
-                        "That rare stock has already turned over for the "
-                        "day. Run `.store` again to see what's in today.",
-                        accent=Palette.RED,
-                    )
-                )
-                return
             price = round(info["value"] * STORE_RARE_MARKUP)
             limit = formulas.store_daily_limit(uid, item_key, day, *STORE_STOCK_RANGE_RARE)
 
@@ -740,6 +600,101 @@ class Market(commands.Cog):
             badge = rarity_badge(item_key).strip()
             panel.text(f"{badge} Straight into your satchel." if badge else "Straight into your satchel.")
         await interaction.response.edit_message(view=panel)
+
+    # ══════════════════════════ tool upgrades ═══════════════════════════
+    # A real gold sink, so unlike a potion this always gets an explicit
+    # Confirm/Cancel step -- current tool, next tool, price, and the
+    # yield you'd get for it -- whether you get here via .shop's
+    # Upgrade Tool button or by running .buy directly.
+
+    async def _build_upgrade_confirm(self, gid: int, uid: int) -> Panel:
+        user = await self.db.get_user(gid, uid)
+        if not user["job"]:
+            return simple_panel("Take a trade first with `.job`.", accent=Palette.RED)
+        job_key = user["job"]
+        info = JOBS[job_key]
+        tier = await self.db.get_tool_tier(gid, uid, job_key)
+        if tier >= MAX_TOOL_TIER:
+            return simple_panel(
+                "You already own the finest tool a master could wish for!",
+                accent=Palette.RED,
+            )
+        next_name = TOOLS[job_key][tier]
+        price = tool_price(tier + 1)
+
+        panel = Panel(accent=Palette.IRON, author_id=uid, timeout=60)
+        panel.header(f"⚒️ Upgrade to {next_name}?")
+        panel.text(
+            f"{info['emoji']} **{info['name']}** · you carry "
+            f"**{tool_name(job_key, tier)}** (×{formulas.tool_multiplier(tier):.2f})"
+        )
+        panel.text(
+            f"Upgrade to **{next_name}** for **{formulas.fmt_gold(price)}**, "
+            f"raising your yield to **×{formulas.tool_multiplier(tier + 1):.2f}**."
+        )
+        confirm_btn = ui.Button(label="Confirm", emoji="✅", style=discord.ButtonStyle.success)
+        cancel_btn = ui.Button(label="Cancel", style=discord.ButtonStyle.danger)
+        confirm_btn.callback = self._on_upgrade_confirm
+        cancel_btn.callback = self._on_upgrade_cancel
+        panel.buttons(confirm_btn, cancel_btn)
+        return panel
+
+    async def _on_upgrade_tool_button(self, interaction: discord.Interaction) -> None:
+        panel = await self._build_upgrade_confirm(interaction.guild_id, interaction.user.id)
+        await interaction.response.edit_message(view=panel)
+        panel.message = interaction.message
+
+    async def _on_upgrade_confirm(self, interaction: discord.Interaction) -> None:
+        result = await self._buy_next_tool(interaction.guild_id, interaction.user)
+        await interaction.response.edit_message(view=result)
+
+    async def _on_upgrade_cancel(self, interaction: discord.Interaction) -> None:
+        await interaction.response.edit_message(
+            view=simple_panel("You decide against it, for now.", accent=Palette.GOLD)
+        )
+
+    async def _buy_next_tool(
+        self, guild_id: int, member: discord.abc.User
+    ) -> Panel:
+        user = await self.db.get_user(guild_id, member.id)
+        if not user["job"]:
+            return simple_panel("Take a trade first with `.job`.", accent=Palette.RED)
+        job_key = user["job"]
+        tier = await self.db.get_tool_tier(guild_id, member.id, job_key)
+        if tier >= MAX_TOOL_TIER:
+            return simple_panel(
+                "You already own the finest tool a master could wish for!",
+                accent=Palette.RED,
+            )
+        name = TOOLS[job_key][tier]
+        price = tool_price(tier + 1)
+        if not await self.db.spend_gold(guild_id, member.id, price):
+            user = await self.db.get_user(guild_id, member.id)
+            return simple_panel(
+                f"**{name}** costs {formulas.fmt_gold(price)}, but your purse "
+                f"holds only {formulas.fmt_gold(user['gold'])}.",
+                accent=Palette.RED,
+            )
+
+        await self.db.set_tool_tier(guild_id, member.id, job_key, tier + 1)
+        await self.db.incr_stat(guild_id, member.id, "gold_spent_tools", price)
+
+        panel = Panel(accent=Palette.GREEN, timeout=None)
+        panel.header("⚒️ A Fine Purchase!")
+        panel.text(
+            f"The smith hands {member.mention} a **{name}** for "
+            f"{formulas.fmt_gold(price)}.\n"
+            f"Yields are now **×{formulas.tool_multiplier(tier + 1):.2f}** from tools alone."
+        )
+        return panel
+
+    @commands.hybrid_command(
+        name="buy", description="Upgrade the next tool tier for your trade (asks to confirm)"
+    )
+    @commands.guild_only()
+    async def buy(self, ctx: commands.Context):
+        panel = await self._build_upgrade_confirm(ctx.guild.id, ctx.author.id)
+        panel.message = await ctx.send(view=panel)
 
 
 async def setup(bot: commands.Bot):

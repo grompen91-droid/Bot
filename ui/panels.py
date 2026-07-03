@@ -187,8 +187,7 @@ def simple_panel(body: str, *, accent: discord.Colour = Palette.GOLD) -> Panel:
 # column widths, giving every list a clean aligned coin column.
 # Column = (text, width); positive width = left-aligned, negative = right.
 
-NAME_W = 16   # item names (all data names are kept to 16 chars max)
-TOOL_W = 16   # tool names (same cap, enforced in econ/data/tools.py)
+NAME_W = 16   # item/tool names (all data names are kept to 16 chars max)
 QTY_W = 4     # "x999"
 AMT_W = 6     # "30,000"
 WEALTH_W = 10  # "999,999,999" — leaderboard totals, bank balances

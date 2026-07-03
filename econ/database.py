@@ -115,7 +115,7 @@ MIGRATIONS: list[str] = [
         PRIMARY KEY (guild_id, user_id, item)
     );
     """,
-    # v10, .store's per-item daily purchase limit. `day` is a UTC
+    # v10, .shop's per-item daily purchase limit. `day` is a UTC
     # ordinal day (formulas.utc_day()), not a timestamp, so "today's"
     # row is a plain equality lookup; old days' rows are simply never
     # matched again, same "leave it, don't sweep it" approach as
@@ -467,12 +467,12 @@ class Database:
             guild_id, user_id, now,
         )
 
-    # ── .store's daily purchase limit ───────────────────────────────────
+    # ── .shop's daily purchase limit ────────────────────────────────────
 
     async def get_store_purchases_today(
         self, guild_id: int, user_id: int, day: int
     ) -> dict[str, int]:
-        """Everything bought from .store today, one query instead of one
+        """Everything bought from .shop today, one query instead of one
         per item when rendering the buy list."""
         rows = await self.fetchall(
             "SELECT item, qty FROM store_purchases "

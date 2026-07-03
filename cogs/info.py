@@ -19,7 +19,7 @@ from ui.panels import NAME_W, Palette, Panel, chip
 
 HELP_SECTIONS = [
     ("⚒️ Trade", ".job · .work · .skills"),
-    ("🏪 Market", ".inventory · .market · .sell · .shop · .buy · .store"),
+    ("🏪 Market", ".inventory · .market · .sell · .shop · .buy"),
     ("🛠️ Crafting", ".recipes · .craft"),
     ("✨ Consumables", ".use · .buffs"),
     ("🗺️ Venture", ".venture"),
