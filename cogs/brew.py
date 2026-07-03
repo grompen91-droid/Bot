@@ -318,21 +318,25 @@ class Brew(commands.Cog):
             "*Pick your difficulty. Higher tiers run longer and hit "
             "harder, but pay far better.*"
         )
+        # Same list style as .shop's tool ladder: icon, then a
+        # fixed-width chip so the reward multiplier column lines up
+        # down the page, whether a tier is open or still locked.
         lines = []
         buttons = []
         for key in formulas.DIFFICULTY_ORDER:
             tier = formulas.DIFFICULTIES[key]
             length = formulas.brew_sequence_length(key)
             unlocked = dry_run or formulas.difficulty_unlocked(skill_level, key)
+            mult = f"×{tier['reward_mult']:.2f}"
             if unlocked:
                 lines.append(
-                    f"{tier['emoji']} **{tier['label']}** · {length} reagents · "
-                    f"×{tier['reward_mult']:.2f} reward"
+                    f"{tier['emoji']} {chip((tier['label'], NAME_W), (mult, -AMT_W))} "
+                    f"· {length} reagents"
                 )
             else:
                 lines.append(
-                    f"🔒 **{tier['label']}** · unlocks at level {tier['unlock_level']} "
-                    f"in Alchemist (you're {skill_level})"
+                    f"🔒 {chip((tier['label'], NAME_W), (mult, -AMT_W))} "
+                    f"· unlocks lvl {tier['unlock_level']} (you're {skill_level})"
                 )
             btn = ui.Button(
                 label=tier["label"], emoji=tier["emoji"],
