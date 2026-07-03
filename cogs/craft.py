@@ -42,10 +42,14 @@ class Craft(commands.Cog):
     def db(self):
         return self.bot.db
 
-    @commands.hybrid_command(name="recipes", description="See what you can craft")
+    @commands.hybrid_command(name="recipes", description="See what you (or someone else) can craft")
     @commands.guild_only()
-    async def recipes(self, ctx: commands.Context):
-        gid, uid = ctx.guild.id, ctx.author.id
+    @app_commands.describe(member="Whose Crafting progress to check (default: you)")
+    async def recipes(
+        self, ctx: commands.Context, member: discord.Member | None = None
+    ):
+        target = member or ctx.author
+        gid, uid = ctx.guild.id, target.id
         # Read-only: peeking must never create a phantom Crafting skill
         # row for a player who has never crafted, same bug .job info
         # had before peek_skill existed.
@@ -74,8 +78,9 @@ class Craft(commands.Cog):
                 f"　{effect_text}"
             )
         panel.text("\n\n".join(lines))
+        who = "Crafting" if target.id == ctx.author.id else f"{target.display_name}'s Crafting"
         panel.footer(
-            f"🛠️ Crafting Lv {level} · craft with .craft <recipe> · "
+            f"🛠️ {who} Lv {level} · craft with .craft <recipe> · "
             "you get the item itself, not gold"
         )
         await ctx.send(view=panel)

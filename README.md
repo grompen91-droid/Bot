@@ -145,12 +145,12 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
 | `.job choose <trade>` / `.job quit` / `.job info <trade>` | Manage your trade |
 | `.work` | Labour for goods, coin, and XP (⚒️ Work Again button) |
 | `.skills [member]` | Skill levels in every trade |
-| `.inventory` | Your satchel with a category dropdown (All / Consumables / per-trade) |
+| `.inventory [member]` | A satchel with a category dropdown (All / Consumables / per-trade) |
 | `.market` | Today's prices with ▲▼ trends, one category at a time via dropdown |
 | `.sell [item] [amount]` | Sell goods (`.sell` alone sells everything) |
 | `.shop` / `.buy` | The smithy, tool tiers with a buy button |
-| `.recipes` / `.craft <recipe>` | Crafting: browse and craft, no trade required |
-| `.use <item>` / `.buffs` | Drink/eat a consumable for its buff, or check what's active |
+| `.recipes [member]` / `.craft <recipe>` | Crafting: browse and craft, no trade required |
+| `.use <item>` / `.buffs [member]` | Drink/eat a consumable for its buff, or check what's active |
 | `.venture` | Risk a journey beyond the walls, no trade needed |
 | `.balance` / `.daily` / `.pay` / `.profile` / `.leaderboard` | Gold |
 | `.bank` / `.deposit [amount\|half\|all]` / `.withdraw [amount\|half\|all]` | Bank (`10k`/`1.5m` shorthand works) |
@@ -159,7 +159,7 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
 | `.beg` | A tiny, reliable trickle of gold, no job or skill needed |
 | `.harvest` / `.dig` / `.fish` / `.fell` / `.hunt` / `.bake` / `.tend` / `.stretch` / `.facet` / `.brew` | Job minigames (current job, or lvl 5+ in it) |
 | `.harvesttest` / `.digtest` / `.fishtest` / `.felltest` / `.hunttest` / `.baketest` / `.tendtest` / `.stretchtest` / `.facettest` / `.brewtest [level]` | Admin-only: try any minigame with no job/cooldown/rewards |
-| `.cd` / `.cooldown` | Every cooldown you're currently carrying, at a glance |
+| `.cd [member]` / `.cooldown` | Every cooldown someone is currently carrying, at a glance |
 | `.help` / `.about` | Guidance |
 
 ## Architecture (how to expand it)

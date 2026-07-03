@@ -5,6 +5,8 @@ from __future__ import annotations
 import time
 from datetime import datetime, time as dtime, timedelta, timezone
 
+import discord
+from discord import app_commands
 from discord.ext import commands
 
 from econ import formulas
@@ -75,11 +77,15 @@ class Info(commands.Cog):
 
     @commands.hybrid_command(
         name="cd", aliases=["cooldown", "cooldowns"],
-        description="See every cooldown you're currently carrying",
+        description="See every cooldown someone is currently carrying",
     )
     @commands.guild_only()
-    async def cooldowns(self, ctx: commands.Context):
-        gid, uid = ctx.guild.id, ctx.author.id
+    @app_commands.describe(member="Whose cooldowns to check (default: you)")
+    async def cooldowns(
+        self, ctx: commands.Context, member: discord.Member | None = None
+    ):
+        target = member or ctx.author
+        gid, uid = ctx.guild.id, target.id
         user = await self.db.get_user(gid, uid)
         skills = {s["job"]: s for s in await self.db.get_all_skills(gid, uid)}
         mg_last = await self.db.get_minigame_cooldowns(gid, uid)
@@ -193,7 +199,7 @@ class Info(commands.Cog):
             )
 
         panel = Panel(timeout=None)
-        panel.header(f"⏳ {ctx.author.display_name}'s Cooldowns")
+        panel.header(f"⏳ {target.display_name}'s Cooldowns")
         panel.text("\n".join(lines))
         buff_line = active_buff_summary(buffs)
         if buff_line:

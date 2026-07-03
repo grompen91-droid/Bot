@@ -69,7 +69,8 @@ class Market(commands.Cog):
     # ══════════════════════════ inventory ══════════════════════════════
 
     def _build_inventory_panel(
-        self, category_key: str, owned: dict[str, int], display_name: str, author_id: int
+        self, category_key: str, owned: dict[str, int], display_name: str,
+        author_id: int, target_id: int,
     ) -> Panel:
         cats = _inventory_categories()
         by_key = {key: (emoji, name, items) for key, emoji, name, items in cats}
@@ -130,27 +131,40 @@ class Market(commands.Cog):
         select = ui.Select(placeholder="🎒 Browse a category…")
         for key, e, n, _items in cats:
             select.add_option(label=n, value=key, emoji=e, default=(key == category_key))
-        select.callback = self._inventory_select
+        select.callback = self._make_inventory_select_handler(target_id, display_name)
         panel.select(select)
         return panel
 
-    @commands.hybrid_command(name="inventory", aliases=["inv", "satchel"], description="Look inside your satchel")
+    @commands.hybrid_command(name="inventory", aliases=["inv", "satchel"], description="Look inside a satchel")
     @commands.guild_only()
-    async def inventory(self, ctx: commands.Context):
-        rows = await self.db.get_inventory(ctx.guild.id, ctx.author.id)
-        owned = {r["item"]: r["qty"] for r in rows if r["item"] in ITEMS}
-        panel = self._build_inventory_panel("all", owned, ctx.author.display_name, ctx.author.id)
-        panel.message = await ctx.send(view=panel)
-
-    async def _inventory_select(self, interaction: discord.Interaction) -> None:
-        category_key = interaction.data["values"][0]
-        rows = await self.db.get_inventory(interaction.guild_id, interaction.user.id)
+    @app_commands.describe(member="Whose satchel to look inside (default: you)")
+    async def inventory(
+        self, ctx: commands.Context, member: discord.Member | None = None
+    ):
+        target = member or ctx.author
+        rows = await self.db.get_inventory(ctx.guild.id, target.id)
         owned = {r["item"]: r["qty"] for r in rows if r["item"] in ITEMS}
         panel = self._build_inventory_panel(
-            category_key, owned, interaction.user.display_name, interaction.user.id
+            "all", owned, target.display_name, ctx.author.id, target.id
         )
-        panel.message = interaction.message
-        await interaction.response.edit_message(view=panel)
+        panel.message = await ctx.send(view=panel)
+
+    def _make_inventory_select_handler(self, target_id: int, display_name: str):
+        """Bound to whichever satchel the panel is showing, so switching
+        category with the dropdown keeps browsing THAT satchel -- not
+        silently flipping to the clicker's own once someone else's
+        `.inventory <member>` panel is on screen (the panel's author_id
+        already restricts clicks to whoever ran the command)."""
+        async def handler(interaction: discord.Interaction) -> None:
+            category_key = interaction.data["values"][0]
+            rows = await self.db.get_inventory(interaction.guild_id, target_id)
+            owned = {r["item"]: r["qty"] for r in rows if r["item"] in ITEMS}
+            panel = self._build_inventory_panel(
+                category_key, owned, display_name, interaction.user.id, target_id
+            )
+            panel.message = interaction.message
+            await interaction.response.edit_message(view=panel)
+        return handler
 
     # ══════════════════════════ the market ═════════════════════════════
 

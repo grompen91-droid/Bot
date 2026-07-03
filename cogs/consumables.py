@@ -101,13 +101,17 @@ class Consumables(commands.Cog):
         panel.footer(footer)
         await ctx.send(view=panel)
 
-    @commands.hybrid_command(name="buffs", description="See your currently active buffs")
+    @commands.hybrid_command(name="buffs", description="See currently active buffs")
     @commands.guild_only()
-    async def buffs(self, ctx: commands.Context):
-        rows = await self.db.get_active_buffs(ctx.guild.id, ctx.author.id, time.time())
+    @app_commands.describe(member="Whose active buffs to check (default: you)")
+    async def buffs(
+        self, ctx: commands.Context, member: discord.Member | None = None
+    ):
+        target = member or ctx.author
+        rows = await self.db.get_active_buffs(ctx.guild.id, target.id, time.time())
 
         panel = Panel(timeout=None)
-        panel.header(f"✨ {ctx.author.display_name}'s Active Buffs")
+        panel.header(f"✨ {target.display_name}'s Active Buffs")
         if not rows:
             panel.text("*Nothing active. Use a potion or food with `.use`.*")
         else:
