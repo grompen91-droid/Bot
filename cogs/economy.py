@@ -437,6 +437,13 @@ class Economy(commands.Cog):
         gid, uid = ctx.guild.id, ctx.author.id
         user = await self.db.get_user(gid, uid)
         equipped = user["theme"]
+        if equipped not in THEMES:
+            # Whatever they had equipped no longer exists in the
+            # registry (e.g. a theme that's since been retired) -- fall
+            # back to the default and heal the row so this doesn't have
+            # to happen again next time.
+            equipped = DEFAULT_THEME
+            await self.db.set_theme(gid, uid, DEFAULT_THEME)
         unlocked = {DEFAULT_THEME} | set(await self.db.get_unlocked_themes(gid, uid))
 
         panel = Panel(accent=THEMES[equipped]["accent"], author_id=uid, timeout=120)
