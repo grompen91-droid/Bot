@@ -33,42 +33,42 @@ RECIPES = {
     "reinforced_toolkit": {
         "name": "Reinforced Toolkit", "output_item": "reinforced_toolkit",
         "ingredients": [("stone", 4), ("iron_ore", 2), ("oak_log", 2)],
-        "unlock_level": 5,
+        "unlock_level": 2,
     },
     "spiced_mead_cask": {
         "name": "Spiced Mead Cask", "output_item": "spiced_mead_cask",
         "ingredients": [("mead", 3), ("honey_cake", 2), ("maple_log", 1)],
-        "unlock_level": 5,
+        "unlock_level": 2,
     },
     "alchemical_tonic": {
         "name": "Alchemical Tonic", "output_item": "alchemical_tonic",
         "ingredients": [("herbs", 3), ("minor_potion", 2), ("ruby", 1)],
-        "unlock_level": 10,
+        "unlock_level": 3,
     },
     "huntsmans_cloak": {
         "name": "Huntsman's Cloak", "output_item": "huntsmans_cloak",
         "ingredients": [("pelt", 4), ("boar", 2), ("elixir", 1)],
-        "unlock_level": 10,
+        "unlock_level": 3,
     },
     "feast_of_kings": {
         "name": "Feast of Kings", "output_item": "feast_of_kings",
         "ingredients": [("kings_feast", 1), ("royal_wine", 1), ("white_stag", 1)],
-        "unlock_level": 15,
+        "unlock_level": 4,
     },
     "dragonforged_blade": {
         "name": "Dragonforged Blade", "output_item": "dragonforged_blade",
         "ingredients": [("dragon_gem", 1), ("iron_ore", 5), ("heartwood", 2)],
-        "unlock_level": 15,
+        "unlock_level": 4,
     },
     "krakens_bounty": {
         "name": "Kraken's Bounty", "output_item": "krakens_bounty",
         "ingredients": [("kraken_scale", 1), ("royal_sturgeon", 2), ("philosophers_dust", 1)],
-        "unlock_level": 20,
+        "unlock_level": 5,
     },
     "philosophers_masterwork": {
         "name": "Philosopher's Masterwork", "output_item": "philosophers_masterwork",
         "ingredients": [("philosophers_dust", 2), ("elixir", 2), ("dragon_gem", 1)],
-        "unlock_level": 20,
+        "unlock_level": 5,
     },
 }
 

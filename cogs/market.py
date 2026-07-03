@@ -23,6 +23,8 @@ from econ.data.store import (
 from econ.data.tools import MAX_TOOL_TIER, TOOLS, tool_name, tool_price
 from ui.panels import AMT_W, NAME_W, QTY_W, Palette, Panel, chip, simple_panel
 
+BADGE_W = 2  # rarity badge column on .shop's item chips ("🔷", "🟣", "🌟")
+
 
 def resolve_item(query: str) -> str | None:
     """Fuzzy-match a user-typed item name ('wheat', 'Iron Ore', 'iron')."""
@@ -475,16 +477,24 @@ class Market(commands.Cog):
                 price = round(info["value"] * STORE_RARE_MARKUP)
                 stock = formulas.store_daily_limit(uid, key, day, *STORE_STOCK_RANGE_RARE)
             left = stock - bought_today.get(key, 0)
+            # The rarity badge only shows for rare+ goods, so it must live
+            # INSIDE the chip's own fixed-width column -- appending it
+            # after the chip only on some rows was the exact bug that
+            # wrapped .inventory's usable-tag and the stock count onto
+            # their own line before: a trailing bit of text whose
+            # presence varies row to row breaks mobile's wrapping.
+            badge = rarity_badge(key).strip() if not is_consumable else ""
 
             if left <= 0:
-                lines.append(f"{info['emoji']} {chip((info['name'], NAME_W), ('maxed', -AMT_W))}")
+                lines.append(
+                    f"{info['emoji']} "
+                    f"{chip((info['name'], NAME_W), ('maxed', -AMT_W), (badge, BADGE_W))}"
+                )
                 continue
 
-            badge = rarity_badge(key).strip()
             lines.append(
                 f"{info['emoji']} "
-                f"{chip((info['name'], NAME_W), (f'x{left}', QTY_W), (f'{price:,}', -AMT_W))} 🪙"
-                + (f" {badge}" if not is_consumable and badge else "")
+                f"{chip((info['name'], NAME_W), (f'x{left}', QTY_W), (f'{price:,}', -AMT_W), (badge, BADGE_W))} 🪙"
             )
             if is_consumable:
                 lines.append(f"　✨ {CONSUMABLES[key]['description']}")

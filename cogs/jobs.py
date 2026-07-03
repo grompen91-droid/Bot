@@ -45,6 +45,21 @@ NON_JOB_SKILL_DISPLAY = {
     "crafting": {"name": "Crafting", "emoji": "🛠️"},
 }
 
+# .resetskill needs to reach every row the skills table can hold, not
+# just the trades in JOBS, so its choice list and resolver also cover
+# the standalone Crafting skill.
+SKILL_RESET_CHOICES = JOB_CHOICES + [
+    app_commands.Choice(name="🛠️ Crafting", value="crafting")
+]
+
+
+def resolve_skill_key(query: str) -> str | None:
+    """Fuzzy-match a trade name, or the standalone Crafting skill."""
+    q = query.strip().lower()
+    if q in ("crafting", "craft", "🛠️"):
+        return "crafting"
+    return resolve_job(query)
+
 
 class Jobs(commands.Cog):
     """Everything about earning your keep."""
@@ -613,7 +628,7 @@ class Jobs(commands.Cog):
                 info = JOBS.get(row["job"]) or NON_JOB_SKILL_DISPLAY.get(row["job"])
                 if not info:
                     continue
-                # Crafting runs on its own much gentler XP curve (see
+                # Crafting runs on its own, much steeper XP curve (see
                 # formulas.craft_xp_to_next), not the trade curve every
                 # JOBS entry uses.
                 needed = (
@@ -630,6 +645,38 @@ class Jobs(commands.Cog):
         rank_emoji, rank_title = formulas.town_rank(total)
         panel.footer(f"{rank_emoji} {rank_title} · total skill level {total}")
         await ctx.send(view=panel)
+
+    @commands.hybrid_command(
+        name="resetskill",
+        description="[Admin] Reset a townsfolk's level and XP in one trade back to level 1",
+    )
+    @commands.guild_only()
+    @commands.has_permissions(administrator=True)
+    @app_commands.describe(
+        member="Whose skill to reset", skill="Which trade (or Crafting) to reset"
+    )
+    @app_commands.choices(skill=SKILL_RESET_CHOICES)
+    async def resetskill(
+        self, ctx: commands.Context, member: discord.Member, *, skill: str
+    ):
+        skill_key = resolve_skill_key(skill)
+        if skill_key is None:
+            await ctx.send(
+                view=simple_panel(f"No trade or skill matches **{skill}**.", accent=Palette.RED),
+                ephemeral=True,
+            )
+            return
+        gid = ctx.guild.id
+        await self.db.get_skill(gid, member.id, skill_key)  # ensure the row exists
+        await self.db.update_skill(gid, member.id, skill_key, level=1, xp=0, last_work=0)
+        info = JOBS.get(skill_key) or NON_JOB_SKILL_DISPLAY[skill_key]
+        await ctx.send(
+            view=simple_panel(
+                f"{info['emoji']} **{member.display_name}**'s **{info['name']}** "
+                "skill was reset to level 1.",
+                accent=Palette.BLUE,
+            )
+        )
 
 
 async def setup(bot: commands.Bot):

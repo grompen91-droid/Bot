@@ -128,6 +128,8 @@ class MedievalBot(commands.Bot):
             message = "📜 The town clerk cannot make sense of that value."
         elif isinstance(error, commands.MemberNotFound):
             message = "🔍 No townsfolk by that name lives here."
+        elif isinstance(error, commands.MissingPermissions):
+            message = "🛡️ Only town hall administrators may do that."
         else:
             log.exception("Unhandled command error in %s", ctx.command, exc_info=error)
             message = "⚠️ Something went awry in the town hall. The scribes have been notified."
