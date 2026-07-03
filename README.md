@@ -175,7 +175,7 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
 | `.work` | Labour for goods, coin, and XP (⚒️ Work Again button) |
 | `.skills [member]` | Skill levels in every trade |
 | `.resetskill <member> <skill>` | Admin-only: reset a townsfolk's level/XP in one trade (or Crafting) back to level 1 |
-| `.deduct <member> <amount>` | Admin-only: remove gold from a townsfolk's pocket purse (clamped, never goes negative) |
+| `.deduct <member> <amount>` | Admin-only: remove gold from a townsfolk's pocket purse (can push it negative, e.g. as a debt) |
 | `.inventory [member]` | A satchel with a category dropdown (All / Consumables / per-trade) |
 | `.market` | Today's prices with ▲▼ trends, one category at a time via dropdown |
 | `.sell [item] [amount]` | Sell goods (`.sell` alone sells everything) |

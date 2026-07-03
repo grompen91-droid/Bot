@@ -207,23 +207,13 @@ class Economy(commands.Cog):
         amount: commands.Range[int, 1],
     ):
         gid = ctx.guild.id
-        user = await self.db.get_user(gid, member.id)
-        # A purse can't go negative, so an admin docking more than someone
-        # carries just takes everything they have, not more.
-        taken = min(amount, user["gold"])
-        if taken <= 0:
-            await ctx.send(
-                view=simple_panel(
-                    f"{member.display_name}'s pockets are already empty.",
-                    accent=Palette.RED,
-                ),
-                ephemeral=True,
-            )
-            return
-        new_balance = await self.db.add_gold(gid, member.id, -taken)
+        # Unlike every player-facing gold sink, an admin's deduction isn't
+        # clamped to what's in the purse -- it can push a balance into the
+        # negative, e.g. as a debt/penalty a player has to work off.
+        new_balance = await self.db.add_gold(gid, member.id, -amount)
         await ctx.send(
             view=simple_panel(
-                f"🛡️ Docked **{formulas.fmt_gold(taken)}** from {member.mention}'s "
+                f"🛡️ Docked **{formulas.fmt_gold(amount)}** from {member.mention}'s "
                 f"purse. They now carry **{formulas.fmt_gold(new_balance)}**.",
                 accent=Palette.BLUE,
             )
