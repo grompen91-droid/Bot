@@ -13,6 +13,13 @@ kind:
     "pressluck" keep adding ingredients toward a hidden target; one
                 too many ruins the batch outright, or bank early for a
                 smaller, safer reward (bake)
+    "spotdiff"  a grid of near-identical tiles hides one that looks
+                subtly different; no named target like "match", you
+                have to actually spot it yourself before time's up
+                (stretch)
+    "pairs"     a face-down grid of gems, flip two at a time; a match
+                stays revealed and banks progress, a mismatch ends the
+                attempt on the spot (facet)
 """
 
 MINIGAMES = {
@@ -89,6 +96,27 @@ MINIGAMES = {
         "step_timeout": 8,
         "fail_text": "One scoop too many, the batch is ruined.",
         "success_text": "A perfect batch, risen just right.",
+    },
+    "tanner": {
+        "command": "stretch", "job_name": "Tanner", "title": "🥾 Stretch the Hide",
+        "kind": "spotdiff",
+        "common_emoji": "🟤", "odd_emoji": "🟫",
+        "grid_size": 9, "round_timeout": 6,
+        "min_len": 4, "max_len": 11, "level_per_step": 11,
+        "fail_text": "You press the wrong spot and the seam splits wide open.",
+        "success_text": "Every weak spot caught and reinforced before it tore.",
+    },
+    "jeweler": {
+        "command": "facet", "job_name": "Jeweler", "title": "🔍 The Facet Match",
+        "kind": "pairs",
+        "gems": {
+            "ruby": "🔴", "sapphire": "🔵", "emerald": "🟢", "topaz": "🟡",
+            "amethyst": "🟣", "onyx": "⚫", "pearl": "⚪",
+        },
+        "hidden_emoji": "🔳", "round_timeout": 15,
+        "min_len": 3, "max_len": 7, "level_per_step": 12,
+        "fail_text": "Wrong pair, the mismatched facets shatter under the loupe.",
+        "success_text": "Every facet paired and polished to a brilliant shine.",
     },
     # The Criminal trade's own minigame. Unlike the eight above, this one
     # requires an "are you sure?" confirmation before it starts (getting

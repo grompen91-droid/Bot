@@ -38,6 +38,14 @@ TOOLS = {
         "Copper Kettle", "Oak Fermenters", "Cellar Expansion",
         "Guild Brewery", "Everfull Cask",
     ],
+    "tanner": [
+        "Iron Scraper", "Steel Beam Press", "Oak Tanning Vat",
+        "Master Currier", "Direwolf Awl",
+    ],
+    "jeweler": [
+        "Iron Chisel", "Steel Facet Saw", "Cutter's Bench",
+        "Master Lapidary", "Starlight Engine",
+    ],
     "alchemist": [
         "Glass Alembic", "Silver Cauldron", "Arcane Library",
         "Arcane Still", "Star Athanor",
@@ -51,7 +59,8 @@ TOOLS = {
 BASE_TOOL_NAMES = {
     "farmer": "Rusty Sickle", "miner": "Worn Pickaxe", "fisherman": "Bent Rod",
     "lumberjack": "Chipped Axe", "hunter": "Old Sling", "baker": "Borrowed Hearth",
-    "brewer": "Leaky Pot", "alchemist": "Cracked Flask", "criminal": "Bare Hands",
+    "brewer": "Leaky Pot", "tanner": "Cracked Scraper", "jeweler": "Chipped Loupe",
+    "alchemist": "Cracked Flask", "criminal": "Bare Hands",
 }
 
 MAX_TOOL_TIER = len(TOOL_PRICES)

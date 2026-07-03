@@ -14,10 +14,10 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
 
 ## The game
 
-- **8 trades**: 🌾 Farmer, ⛏️ Miner, 🎣 Fisherman start open; 🪓 Lumberjack,
-  🏹 Hunter, 🍞 Baker, 🍺 Brewer, 🧪 Alchemist unlock at 5 / 12 / 22 / 35 / 50
-  total skill levels, an early-to-mid-game ladder. Skill per trade is
-  never lost; switching has a 5-minute cooldown.
+- **10 trades**: 🌾 Farmer, ⛏️ Miner, 🎣 Fisherman start open; 🪓 Lumberjack,
+  🏹 Hunter, 🍞 Baker, 🍺 Brewer, 🥾 Tanner, 🔍 Jeweler, 🧪 Alchemist unlock at
+  5 / 12 / 22 / 35 / 40 / 45 / 50 total skill levels, an early-to-late-game
+  ladder. Skill per trade is never lost; switching has a 5-minute cooldown.
 - **Anti-bot guard**: each work has a 1-in-20 chance of a letter
   challenge; commands and buttons stay locked (and the challenge
   repeats) until the player types the letters back in chat.
@@ -98,7 +98,7 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
   if you have any (never pushes you into infamy), and does nothing at
   all if you're already neutral or infamous.
 - **Job minigames**: every trade has its own quick, timed challenge,
-  the real hands-on way to earn beyond `.work`. All eight share one
+  the real hands-on way to earn beyond `.work`. All ten share one
   reward curve: pay scales with skill level (low at level 1, up to 6x
   that at max level) and with how late-game the trade was to unlock in
   the first place (Alchemist pays far more per round than Farmer from
@@ -118,6 +118,12 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
   - 🍞 `.bake` (Baker): press-your-luck, keep adding ingredients toward a
     hidden target or bank early, one scoop too many ruins the batch
   - 🍺 `.tend` (Brewer): the vat that's ready flashes among decoys, tap it
+  - 🥾 `.stretch` (Tanner): a grid of near-identical tiles hides one weak
+    spot that looks *just* subtly different, nothing is named for you,
+    you have to actually spot it yourself before the seam splits
+  - 🔍 `.facet` (Jeweler): a face-down grid of gems, flip two at a time,
+    a match stays revealed and banks progress, a mismatched pair
+    shatters the whole attempt right there
   - 🧪 `.brew` (Alchemist): watch a reagent sequence, then repeat it back
     in order; the longest cooldown, and the single biggest payout in the
     game since there's no risk of loss, only how far your memory takes you
@@ -142,8 +148,8 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
 | `.pickpocket <member>` | Try to lift coin from their pocket |
 | `.smuggle` | Move contraband for a real payday, real risk of losing it |
 | `.beg` | A tiny, reliable trickle of gold, no job or skill needed |
-| `.harvest` / `.dig` / `.fish` / `.fell` / `.hunt` / `.bake` / `.tend` / `.brew` | Job minigames (current job, or lvl 5+ in it) |
-| `.harvesttest` / `.digtest` / `.fishtest` / `.felltest` / `.hunttest` / `.baketest` / `.tendtest` / `.brewtest [level]` | Admin-only: try any minigame with no job/cooldown/rewards |
+| `.harvest` / `.dig` / `.fish` / `.fell` / `.hunt` / `.bake` / `.tend` / `.stretch` / `.facet` / `.brew` | Job minigames (current job, or lvl 5+ in it) |
+| `.harvesttest` / `.digtest` / `.fishtest` / `.felltest` / `.hunttest` / `.baketest` / `.tendtest` / `.stretchtest` / `.facettest` / `.brewtest [level]` | Admin-only: try any minigame with no job/cooldown/rewards |
 | `.cd` / `.cooldown` | Every cooldown you're currently carrying, at a glance |
 | `.help` / `.about` | Guidance |
 
@@ -177,8 +183,9 @@ cogs/
   venture.py         the .venture minigame
   crime.py           pickpocketing, smuggling
   brew.py            the .brew cauldron memory minigame
-  minigames.py       the other 7 per-job minigames (harvest/dig/fish/
-                     fell/hunt/bake/tend) + their *test admin twins
+  minigames.py       the other 9 per-job minigames (harvest/dig/fish/
+                     fell/hunt/bake/tend/stretch/facet) + their *test
+                     admin twins
   craft.py           .recipes / .craft, the standalone Crafting skill
   consumables.py     .use / .buffs
   info.py            help, about

@@ -123,6 +123,36 @@ JOBS = {
             "The innkeeper pays well for your finest barrel.",
         ],
     },
+    "tanner": {
+        "name": "Tanner", "emoji": "🥾", "cooldown": 83, "tip": (3, 9),
+        "unlock_total_level": 40, "category": "guild", "max_infamy": 55,
+        "description": "Cure hides into supple leather for saddle and boot.",
+        "yields": [
+            ("hide", 3, 7, 48), ("cured_leather", 2, 4, 34),
+            ("supple_hide", 1, 1, 15), ("direwolf_pelt", 1, 1, 3),
+        ],
+        "flavour": [
+            "You scrape the hide clean under the tannery's low rafters.",
+            "The curing pit reeks, but the leather beneath is flawless.",
+            "You work oil deep into the grain until it gleams.",
+            "A trapper sells you a fresh hide still warm from the hunt.",
+        ],
+    },
+    "jeweler": {
+        "name": "Jeweler", "emoji": "🔍", "cooldown": 87, "tip": (4, 10),
+        "unlock_total_level": 45, "category": "guild", "max_infamy": 48,
+        "description": "Cut and polish gemstones fit for a crown.",
+        "yields": [
+            ("rough_gem", 2, 4, 48), ("cut_gem", 1, 3, 34),
+            ("brilliant_gem", 1, 1, 15), ("starlight_gem", 1, 1, 3),
+        ],
+        "flavour": [
+            "You turn a rough stone slowly against the wheel, chasing the light.",
+            "A single perfect facet catches the candlelight just right.",
+            "You polish away the dust to find fire trapped inside the stone.",
+            "A noble's steward pays handsomely for a matched pair of cuts.",
+        ],
+    },
     "alchemist": {
         "name": "Alchemist", "emoji": "🧪", "cooldown": 90, "tip": (4, 10),
         "unlock_total_level": 50, "category": "guild", "max_infamy": 40,

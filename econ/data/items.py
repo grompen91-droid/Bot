@@ -61,6 +61,16 @@ ITEMS = {
     "minor_potion":   {"name": "Minor Potion",      "emoji": "🧪", "value": 16, "rarity": "uncommon"},
     "elixir":         {"name": "Golden Elixir",     "emoji": "⚗️", "value": 55, "rarity": "epic"},
     "philosophers_dust": {"name": "Philosopher Dust", "emoji": "💫", "value": 110, "rarity": "legendary"},
+    # ── Tanner ──────────────────────────────────────────────────────────
+    "hide":           {"name": "Raw Hide",           "emoji": "🟫", "value": 6,   "rarity": "common"},
+    "cured_leather":  {"name": "Cured Leather",       "emoji": "🪢", "value": 13,  "rarity": "uncommon"},
+    "supple_hide":    {"name": "Supple Hide",         "emoji": "🐐", "value": 45,  "rarity": "epic"},
+    "direwolf_pelt":  {"name": "Direwolf Pelt",       "emoji": "🐺", "value": 95,  "rarity": "legendary"},
+    # ── Jeweler ─────────────────────────────────────────────────────────
+    "rough_gem":      {"name": "Rough Gem",           "emoji": "💠", "value": 10,  "rarity": "common"},
+    "cut_gem":        {"name": "Cut Gemstone",        "emoji": "♦️", "value": 22,  "rarity": "uncommon"},
+    "brilliant_gem":  {"name": "Brilliant Cut",       "emoji": "🪩", "value": 60,  "rarity": "epic"},
+    "starlight_gem":  {"name": "Starlight Gem",       "emoji": "🌌", "value": 140, "rarity": "legendary"},
     # ── Crafted Goods (see econ/data/recipes.py) ───────────────────────────
     "hearty_stew":            {"name": "Hearty Stew",             "emoji": "🍲", "value": 350,   "rarity": "uncommon"},
     "fishermans_basket":      {"name": "Fisherman's Basket",      "emoji": "🧺", "value": 380,   "rarity": "uncommon"},

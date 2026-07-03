@@ -432,7 +432,163 @@ class BakeSession(BaseMinigameSession):
         await interaction.response.edit_message(view=panel)
 
 
-SESSION_CLASSES = {"match": MatchSession, "reflex": FishSession, "pressluck": BakeSession}
+class SpotDiffSession(BaseMinigameSession):
+    """A grid of near-identical tiles hides one that looks *just*
+    subtly different -- unlike MatchSession, the bot never names the
+    target, you have to actually scan the grid and spot it yourself.
+    Powers stretch (Tanner)."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.grid_size = self.config["grid_size"]
+        self.target_index = 0
+        self.current_panel: RoundPanel | None = None
+        self._roll_round()
+
+    def _roll_round(self) -> None:
+        self.target_index = random.randrange(self.grid_size)
+
+    def round_panel(self) -> Panel:
+        cfg = self.config
+        dots = "🟢" * self.correct + "⚪" * (self.length - self.correct)
+        timeout = cfg["round_timeout"]
+        panel = RoundPanel(self, accent=Palette.GOLD, author_id=self.uid, timeout=timeout)
+        panel.header(cfg["title"])
+        panel.text("*One spot looks just a little different. Find it!*")
+        panel.text(f"`{dots}`  ({self.correct}/{self.length})")
+        buttons = []
+        for i in range(self.grid_size):
+            emoji = cfg["odd_emoji"] if i == self.target_index else cfg["common_emoji"]
+            btn = ui.Button(emoji=emoji, style=discord.ButtonStyle.secondary)
+            btn.callback = self._make_handler(i)
+            buttons.append(btn)
+        for i in range(0, len(buttons), 5):
+            panel.buttons(*buttons[i : i + 5])
+        deadline = int(time.time()) + timeout
+        panel.footer(self._footer_text(f"⏱️ act by <t:{deadline}:R>"))
+        self.current_panel = panel
+        return panel
+
+    def _make_handler(self, index: int):
+        async def handler(interaction: discord.Interaction) -> None:
+            await self.on_tap(interaction, index)
+        return handler
+
+    async def on_tap(self, interaction: discord.Interaction, index: int) -> None:
+        if self.done:
+            await interaction.response.defer()
+            return
+        if self.current_panel is not None:
+            self.current_panel.stop()
+        if index != self.target_index:
+            self.done = True
+            panel = await self._finish(outcome="fail")
+            await interaction.response.edit_message(view=panel)
+            return
+        self.correct += 1
+        if self.correct == self.length:
+            self.done = True
+            panel = await self._finish(outcome="success")
+            await interaction.response.edit_message(view=panel)
+            return
+        self._roll_round()
+        next_panel = self.round_panel()
+        next_panel.message = interaction.message
+        await interaction.response.edit_message(view=next_panel)
+
+
+class PairsSession(BaseMinigameSession):
+    """A face-down grid of gems: flip two tiles at a time. A match
+    stays revealed and banks progress; a mismatch ends the attempt
+    right there, same one-mistake-and-done rule as every other
+    minigame, just applied to memory instead of reflexes. Powers facet
+    (Jeweler)."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        gems = list(self.config["gems"])
+        chosen = random.sample(gems, min(self.length, len(gems)))
+        self.grid: list[str] = chosen * 2
+        random.shuffle(self.grid)
+        self.length = len(chosen)  # grid may be smaller than min_len if gems run out
+        self.matched: set[int] = set()
+        self.first_pick: int | None = None
+        self.current_panel: RoundPanel | None = None
+
+    def round_panel(self) -> Panel:
+        cfg = self.config
+        dots = "🟢" * self.correct + "⚪" * (self.length - self.correct)
+        timeout = cfg["round_timeout"]
+        panel = RoundPanel(self, accent=Palette.GOLD, author_id=self.uid, timeout=timeout)
+        panel.header(cfg["title"])
+        hint = (
+            "Pick a second tile to find its match."
+            if self.first_pick is not None else
+            "Flip two tiles to find a pair."
+        )
+        panel.text(f"*{hint}*")
+        panel.text(f"`{dots}`  ({self.correct}/{self.length} pairs)")
+        buttons = []
+        for i, gem in enumerate(self.grid):
+            revealed = i in self.matched or i == self.first_pick
+            emoji = cfg["gems"][gem] if revealed else cfg["hidden_emoji"]
+            style = (
+                discord.ButtonStyle.success if i in self.matched
+                else discord.ButtonStyle.secondary
+            )
+            btn = ui.Button(emoji=emoji, style=style, disabled=(i in self.matched))
+            btn.callback = self._make_handler(i)
+            buttons.append(btn)
+        for i in range(0, len(buttons), 5):
+            panel.buttons(*buttons[i : i + 5])
+        deadline = int(time.time()) + timeout
+        panel.footer(self._footer_text(f"⏱️ act by <t:{deadline}:R>"))
+        self.current_panel = panel
+        return panel
+
+    def _make_handler(self, index: int):
+        async def handler(interaction: discord.Interaction) -> None:
+            await self.on_tap(interaction, index)
+        return handler
+
+    async def on_tap(self, interaction: discord.Interaction, index: int) -> None:
+        if self.done or index in self.matched or index == self.first_pick:
+            await interaction.response.defer()
+            return
+        if self.current_panel is not None:
+            self.current_panel.stop()
+
+        if self.first_pick is None:
+            self.first_pick = index
+            next_panel = self.round_panel()
+            next_panel.message = interaction.message
+            await interaction.response.edit_message(view=next_panel)
+            return
+
+        first, second = self.first_pick, index
+        self.first_pick = None
+        if self.grid[first] == self.grid[second]:
+            self.matched.add(first)
+            self.matched.add(second)
+            self.correct += 1
+            if self.correct == self.length:
+                self.done = True
+                panel = await self._finish(outcome="success")
+                await interaction.response.edit_message(view=panel)
+                return
+            next_panel = self.round_panel()
+            next_panel.message = interaction.message
+            await interaction.response.edit_message(view=next_panel)
+        else:
+            self.done = True
+            panel = await self._finish(outcome="fail")
+            await interaction.response.edit_message(view=panel)
+
+
+SESSION_CLASSES = {
+    "match": MatchSession, "reflex": FishSession, "pressluck": BakeSession,
+    "spotdiff": SpotDiffSession, "pairs": PairsSession,
+}
 
 
 class _InteractionSender:
@@ -753,6 +909,46 @@ class Minigames(commands.Cog):
         self, ctx: commands.Context, level: commands.Range[int, 1, formulas.MAX_LEVEL] = 1
     ):
         await self._play(ctx, "brewer", level=level, dry_run=True)
+
+    # ── tanner: stretch ─────────────────────────────────────────────────
+
+    @commands.hybrid_command(
+        name="stretch", description="Tanner minigame: spot the weak spot before the seam splits"
+    )
+    @commands.guild_only()
+    async def stretch(self, ctx: commands.Context):
+        await self._play(ctx, "tanner")
+
+    @commands.hybrid_command(
+        name="stretchtest", description="[Admin] Try the stretch minigame with no job/cooldown/rewards"
+    )
+    @commands.guild_only()
+    @commands.has_permissions(administrator=True)
+    @app_commands.describe(level="Tanner level to simulate (default: 1)")
+    async def stretchtest(
+        self, ctx: commands.Context, level: commands.Range[int, 1, formulas.MAX_LEVEL] = 1
+    ):
+        await self._play(ctx, "tanner", level=level, dry_run=True)
+
+    # ── jeweler: facet ──────────────────────────────────────────────────
+
+    @commands.hybrid_command(
+        name="facet", description="Jeweler minigame: flip gems in pairs, one mismatch ends it"
+    )
+    @commands.guild_only()
+    async def facet(self, ctx: commands.Context):
+        await self._play(ctx, "jeweler")
+
+    @commands.hybrid_command(
+        name="facettest", description="[Admin] Try the facet minigame with no job/cooldown/rewards"
+    )
+    @commands.guild_only()
+    @commands.has_permissions(administrator=True)
+    @app_commands.describe(level="Jeweler level to simulate (default: 1)")
+    async def facettest(
+        self, ctx: commands.Context, level: commands.Range[int, 1, formulas.MAX_LEVEL] = 1
+    ):
+        await self._play(ctx, "jeweler", level=level, dry_run=True)
 
     # ── criminal: rob ───────────────────────────────────────────────────
 

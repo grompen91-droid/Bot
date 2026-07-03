@@ -28,7 +28,8 @@ HELP_SECTIONS = [
     # section per job, however many of these exist.
     (
         "🎯 Job Minigames",
-        ".harvest · .dig · .fish · .fell · .hunt · .bake · .tend · .brew · .rob",
+        ".harvest · .dig · .fish · .fell · .hunt · .bake · .tend · "
+        ".stretch · .facet · .brew · .rob",
     ),
     ("⏳ Cooldowns", ".cd · see every timer you're carrying, at a glance"),
 ]
