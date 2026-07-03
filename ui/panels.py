@@ -208,14 +208,25 @@ class InteractionSender:
     """Adapts a component interaction to the ctx.send(view=...) shape a
     Panel-driven flow expects, for any "confirm/pick a button -> that
     same message becomes the next screen" sequence (the difficulty
-    picker and .rob's confirm step, the cauldron brew's own picker)."""
+    picker and .rob's confirm step, the cauldron brew's own picker).
+
+    An interaction's response slot can only be used once. The first
+    .send() edits the message the button lived on, exactly like the
+    old single-shot flows; anything after that (e.g. a *test command's
+    "TEST MODE" notice followed by the actual first round) goes out as
+    a followup instead, a genuinely new message, matching what calling
+    ctx.send() twice would have produced."""
 
     def __init__(self, interaction: discord.Interaction):
         self.interaction = interaction
+        self._responded = False
 
     async def send(self, view=None, **kwargs) -> discord.Message:
-        await self.interaction.response.edit_message(view=view)
-        return self.interaction.message
+        if not self._responded:
+            self._responded = True
+            await self.interaction.response.edit_message(view=view)
+            return self.interaction.message
+        return await self.interaction.followup.send(view=view, **kwargs)
 
 
 def captcha_panel(code: str) -> Panel:

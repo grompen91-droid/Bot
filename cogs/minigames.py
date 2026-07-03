@@ -740,10 +740,21 @@ class Minigames(commands.Cog):
                 job_key, config, key, dry_run=dry_run, buffs=buffs, level=skill_level,
             )
             buttons.append(btn)
+        cancel_btn = ui.Button(label="Cancel", style=discord.ButtonStyle.danger)
+        cancel_btn.callback = self._on_cancel
+        buttons.append(cancel_btn)
         panel.text("\n".join(lines))
         panel.buttons(*buttons)
         message = await ctx.send(view=panel)
         panel.message = message
+
+    @staticmethod
+    async def _on_cancel(interaction: discord.Interaction) -> None:
+        """No difficulty was chosen, so nothing (cooldown, job checks)
+        was ever spent -- just dismiss the picker."""
+        await interaction.response.edit_message(
+            view=simple_panel("You think better of it and walk away.", accent=Palette.GOLD)
+        )
 
     def _make_difficulty_handler(
         self, job_key: str, config: dict, difficulty: str, *,
