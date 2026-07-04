@@ -80,9 +80,10 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
   costs noticeably more than a cooldown/gold one of the same rarity,
   from a quick +10% sip up to a top-tier +60% tonic worth tens of
   thousands. A small chance drops from ordinary `.work` regardless of trade,
-  Alchemists can also brew potions with `.brew` (guaranteed on a
-  flawless brew), and 9 of the 13 crafting recipes yield a buff food
-  instead of a sellable good. `.use <item>` drinks/eats it; using the
+  Alchemists can also brew potions with `.brew` (drop chance set by the
+  difficulty picked -- 30% Easy, 50% Medium, guaranteed on Hard), and 9
+  of the 13 crafting recipes yield a buff food instead of a sellable
+  good. `.use <item>` drinks/eats it; using the
   *same* item again extends the remaining time rather than resetting it
   (capped at 3x its base duration, so chaining a cheap item can't buy a
   near-permanent buff), while two *different* items of the same kind

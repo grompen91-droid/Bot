@@ -168,7 +168,7 @@ class BrewSession:
         )
         fame_gained = 0
         potion = None
-        if success and (perfect or random.random() < BREW_POTION_CHANCE):
+        if success and random.random() < BREW_POTION_CHANCE.get(self.difficulty, 0.30):
             potion = random.choice(BREW_POTIONS)
         if not self.dry_run:
             await self.db.update_skill(

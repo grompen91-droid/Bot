@@ -98,6 +98,8 @@ WORK_DROP_CONSUMABLES = ["travelers_snack", "lucky_coin", "focus_draught"]
 WORK_DROP_CHANCE = 0.04
 
 # Brew potion pool: a chance on a successful .brew to also receive one
-# of these, on top of the usual gold. Perfect brews always get one.
+# of these, on top of the usual gold. The drop chance is set by the
+# difficulty the player picked -- a harder brew is more work but a
+# surer reward, up to a guaranteed potion on Hard.
 BREW_POTIONS = ["potion_of_haste", "potion_of_insight", "potion_of_fortune"]
-BREW_POTION_CHANCE = 0.35
+BREW_POTION_CHANCE = {"easy": 0.30, "medium": 0.50, "hard": 1.00}
