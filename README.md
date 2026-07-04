@@ -188,12 +188,16 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
   - 🧪 `.brew` (Alchemist): watch a reagent sequence, then repeat it back
     in order; the longest cooldown, and the single biggest payout in the
     game since there's no risk of loss, only how far your memory takes you
-- **The town** (mid-game, ~1 month of content): `.townhall` founds
-  **`<your name> Town`** for a flat 500,000 gold, the early-game
-  finish line -- Town Hall becomes level 1, unlocking `.town` (the
-  overview), `.buildings`, `.workers`, `.supply`, and `.collect`.
-  Town Hall itself climbs to level 9, each level costing gold *and*
-  construction materials, both growing steeply per level.
+- **The town** (mid-game): `.townhall` founds **`<your name> Town`**
+  for a flat 500,000 gold, the early-game finish line -- Town Hall
+  becomes level 1, unlocking `.town` (the overview), `.buildings`,
+  `.workers`, `.supply`, and `.collect`. Town Hall itself climbs to
+  level 9, each level costing gold *and* construction materials, both
+  growing steeply per level. Fully maxing Town Hall, all 16 buildings,
+  and all 20 workers costs roughly **2.8M gold** total on top of the
+  500k founding cost -- sized against simulated income (not a guess)
+  to run about two weeks for a hardcore grinder, a bit over a month
+  for genuinely dedicated play, and a few months at a casual pace.
   - **16 buildings** (`.buildings`), gated behind Town Hall level and
     each with 5 tiers of its own: 8 **production** buildings (Quarry,
     Sawmill, Brickworks, Foundry, Herb Garden, Weaver's Yard, Mason's

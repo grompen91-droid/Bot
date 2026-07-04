@@ -732,18 +732,18 @@ CRAFTING_COOLDOWN = 90   # seconds; shorter than gathering, it's assembly
 # same reason buffs.py is: this file stays pure, no DB, no data-module
 # imports).
 #
-# Sized against ~1 month of active play: Town Hall's own ladder plus
-# every building/worker tier totals roughly 10-15M gold (several times
-# the ~500k/week early-game pace) plus a proportionate pile of
-# materials, so it's a real successor grind, not a side quest.
+# Sized against actually-simulated income, not a guess: Town Hall's own
+# ladder plus every building/worker tier totals roughly 2.8M gold on
+# top of the 500k founding cost -- about two weeks for a hardcore
+# grinder, a bit over a month of genuinely dedicated play, a few
+# months at a casual pace, plus a proportionate pile of materials.
 
 TOWN_HALL_FOUNDING_COST = 500_000  # the one-time buy that creates hall level 1
 TOWN_HALL_MAX_LEVEL = 9
 
 # Level 2..9 cost curve: gold grows ~x1.3/level, so level 9 costs
-# roughly 6x level 2 -- the whole ladder (levels 2-9 summed) lands
-# around 3M gold, one slice of the overall ~10-15M town budget.
-TOWN_HALL_BASE_GOLD = 125_000
+# roughly 6x level 2.
+TOWN_HALL_BASE_GOLD = 18_000
 TOWN_HALL_GOLD_GROWTH = 1.3
 TOWN_HALL_BASE_MATERIAL_QTY = 30
 TOWN_HALL_MATERIAL_QTY_GROWTH = 1.35
