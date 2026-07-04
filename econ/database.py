@@ -206,6 +206,16 @@ MIGRATIONS: list[str] = [
         PRIMARY KEY (guild_id, user_id)
     );
     """,
+    # v15, .expedition upgrades: up to 4 permanent perks (more Population
+    # per leg, an extra leg, a shorter cooldown, higher success odds),
+    # one bought at a time -- each purchase claims exactly one perk,
+    # locking it out for good, so a maxed-out expedition has all 4 in
+    # whatever order the player picked them. Stored as a comma-separated
+    # list of perk keys rather than a bitmask/count so cogs/town.py can
+    # just split() it (see formulas.expedition_upgrade_perks).
+    """
+    ALTER TABLE towns ADD COLUMN expedition_upgrades TEXT NOT NULL DEFAULT '';
+    """,
 ]
 
 
@@ -622,10 +632,14 @@ class Database:
         derived from hall_level/buildings/workers -- it only moves
         through add_population, which .expedition alone calls."""
         row = await self.fetchone(
-            "SELECT hall_level, founded_at, population FROM towns WHERE guild_id = ? AND user_id = ?",
+            "SELECT hall_level, founded_at, population, expedition_upgrades FROM towns "
+            "WHERE guild_id = ? AND user_id = ?",
             guild_id, user_id,
         )
-        return dict(row) if row is not None else {"hall_level": 0, "founded_at": 0.0, "population": 0}
+        return (
+            dict(row) if row is not None
+            else {"hall_level": 0, "founded_at": 0.0, "population": 0, "expedition_upgrades": ""}
+        )
 
     async def add_population(self, guild_id: int, user_id: int, delta: int) -> int:
         """Add (or subtract) population, floored at 0. Read-modify-write
@@ -808,6 +822,12 @@ class Database:
         await self.execute(
             "DELETE FROM town_expeditions WHERE guild_id = ? AND user_id = ?",
             guild_id, user_id,
+        )
+
+    async def set_expedition_upgrades(self, guild_id: int, user_id: int, upgrades: str) -> None:
+        await self.execute(
+            "UPDATE towns SET expedition_upgrades = ? WHERE guild_id = ? AND user_id = ?",
+            upgrades, guild_id, user_id,
         )
 
     # ── the other per-job minigames ─────────────────────────────────────

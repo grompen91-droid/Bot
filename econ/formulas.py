@@ -1003,16 +1003,68 @@ EXPEDITION_LEGS = 5
 EXPEDITION_CHOICE_COOLDOWN = 15 * 60
 
 
-def roll_expedition_leg(choice: dict, fame_mult: float) -> tuple[bool, int]:
+def roll_expedition_leg(
+    choice: dict, fame_mult: float, *, reward_mult: float = 1.0, success_bonus: float = 0.0,
+) -> tuple[bool, int]:
     """(success, population delta). Failure on a risky choice can cost
     Population already earned (floored at 0 town-wide by
     Database.add_population), the same real-stakes shape as .venture's
-    gold loss on a bad turn."""
-    if random.random() < choice["success"]:
+    gold loss on a bad turn. `reward_mult`/`success_bonus` are from the
+    permanent expedition upgrades below (0.0/1.0 = no upgrades bought)."""
+    success_chance = min(0.97, choice["success"] + success_bonus)
+    if random.random() < success_chance:
         lo, hi = choice["reward"]
-        return True, round(random.randint(lo, hi) * fame_mult)
+        return True, round(random.randint(lo, hi) * fame_mult * reward_mult)
     lo, hi = choice["loss"]
     return False, -random.randint(lo, hi) if hi else 0
+
+
+# ── expedition upgrades: 4 one-time perks, pick order is the player's ────
+# Bought one at a time from the "not currently out" screen, each purchase
+# lets the player claim exactly ONE of 4 permanent perks -- once claimed
+# it's struck off the list for good, so reaching level 4 means owning
+# all 4, just in whichever order the player chose to buy them. Cost
+# roughly 2.5x's each level, so the full climb (150k+375k+937.5k+
+# 2.34M ~= 3.8M gold) sits in the same "weeks of dedicated play" range
+# as the Town Hall ladder (see "the town" section above), not something
+# a single expedition's payout can casually fund.
+EXPEDITION_UPGRADE_MAX_LEVEL = 4
+EXPEDITION_UPGRADE_BASE_COST = 150_000
+EXPEDITION_UPGRADE_COST_GROWTH = 2.5
+
+EXPEDITION_UPGRADE_POPULATION_BONUS = 0.25   # +25% Population earned per successful leg
+EXPEDITION_UPGRADE_EXTRA_LEGS = 1            # +1 leg per trip
+EXPEDITION_UPGRADE_COOLDOWN_CUT = 0.20       # -20% wait between legs
+EXPEDITION_UPGRADE_SUCCESS_BONUS = 0.08      # +8 percentage points success chance, every risk tier
+
+
+def expedition_upgrade_cost(next_level: int) -> int:
+    """Gold cost to buy INTO `next_level` (1..EXPEDITION_UPGRADE_MAX_LEVEL)."""
+    return round(EXPEDITION_UPGRADE_BASE_COST * EXPEDITION_UPGRADE_COST_GROWTH ** (next_level - 1))
+
+
+def expedition_upgrade_perks(upgrades: str) -> list[str]:
+    """Parse towns.expedition_upgrades' stored comma-separated perk keys."""
+    return [p for p in upgrades.split(",") if p]
+
+
+def expedition_legs(perks: list[str]) -> int:
+    return EXPEDITION_LEGS + (EXPEDITION_UPGRADE_EXTRA_LEGS if "legs" in perks else 0)
+
+
+def expedition_cooldown(perks: list[str]) -> int:
+    cooldown = EXPEDITION_CHOICE_COOLDOWN
+    if "cooldown" in perks:
+        cooldown = round(cooldown * (1 - EXPEDITION_UPGRADE_COOLDOWN_CUT))
+    return cooldown
+
+
+def expedition_reward_multiplier(perks: list[str]) -> float:
+    return 1.0 + (EXPEDITION_UPGRADE_POPULATION_BONUS if "population" in perks else 0.0)
+
+
+def expedition_success_bonus(perks: list[str]) -> float:
+    return EXPEDITION_UPGRADE_SUCCESS_BONUS if "success" in perks else 0.0
 
 
 # ── .study: the command the Great Library unlocks ───────────────────────

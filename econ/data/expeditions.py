@@ -11,6 +11,8 @@ reward  = (min, max) Population gained on success, before Fame scales it
 loss    = (min, max) Population lost on failure (0, 0) for a safe miss
 """
 
+from .. import formulas
+
 EXPEDITION_CHOICES = {
     "steady_path": {
         "name": "Keep to the Steady Path", "emoji": "🥾", "risk": "Low risk",
@@ -56,3 +58,32 @@ EXPEDITION_CHOICES = {
 EXPEDITION_CHOICE_ORDER = ["steady_path", "unmarked_trail", "wild_frontier"]
 
 assert len(EXPEDITION_CHOICES) == len(EXPEDITION_CHOICE_ORDER) == 3
+
+
+# Permanent expedition upgrades (see formulas.py's "expedition upgrades"
+# section for cost/effect math): 4 perks, one claimed per purchase, each
+# struck off the list for good once picked.
+EXPEDITION_UPGRADE_PERKS = {
+    "population": {
+        "name": "Well-Stocked Wagons", "emoji": "🎒",
+        "effect": f"+{round(formulas.EXPEDITION_UPGRADE_POPULATION_BONUS * 100)}% "
+                  "Population earned per successful leg",
+    },
+    "legs": {
+        "name": "Hardier Settlers", "emoji": "🥾",
+        "effect": f"+{formulas.EXPEDITION_UPGRADE_EXTRA_LEGS} leg per trip "
+                  f"({formulas.EXPEDITION_LEGS} -> {formulas.EXPEDITION_LEGS + formulas.EXPEDITION_UPGRADE_EXTRA_LEGS})",
+    },
+    "cooldown": {
+        "name": "Seasoned Guides", "emoji": "⏱️",
+        "effect": f"-{round(formulas.EXPEDITION_UPGRADE_COOLDOWN_CUT * 100)}% wait between legs",
+    },
+    "success": {
+        "name": "Sharper Scouts", "emoji": "🔭",
+        "effect": f"+{round(formulas.EXPEDITION_UPGRADE_SUCCESS_BONUS * 100)}pp success chance, every choice",
+    },
+}
+
+EXPEDITION_UPGRADE_PERK_ORDER = ["population", "legs", "cooldown", "success"]
+
+assert len(EXPEDITION_UPGRADE_PERKS) == len(EXPEDITION_UPGRADE_PERK_ORDER) == formulas.EXPEDITION_UPGRADE_MAX_LEVEL

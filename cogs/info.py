@@ -476,7 +476,8 @@ class Info(commands.Cog):
         # .caravan/.expedition aren't cooldowns so much as "is one
         # already under way" -- same "hidden until it applies to you"
         # rule, gated on founding.
-        if (await self.db.get_town(gid, uid))["hall_level"] > 0:
+        town = await self.db.get_town(gid, uid)
+        if town["hall_level"] > 0:
             active_caravan = await self.db.get_caravan(gid, uid)
             if active_caravan is not None:
                 route = CARAVAN_ROUTES[active_caravan["route"]]
@@ -487,7 +488,8 @@ class Info(commands.Cog):
 
             active_expedition = await self.db.get_expedition(gid, uid)
             if active_expedition is not None:
-                ready_at = active_expedition["last_choice_at"] + formulas.EXPEDITION_CHOICE_COOLDOWN
+                perks = formulas.expedition_upgrade_perks(town["expedition_upgrades"])
+                ready_at = active_expedition["last_choice_at"] + formulas.expedition_cooldown(perks)
                 lines.append(f"🧭 {chip(('.expedition', NAME_W))} {status(ready_at)}")
             else:
                 lines.append(f"🧭 {chip(('.expedition', NAME_W))} ✅ ready to send")

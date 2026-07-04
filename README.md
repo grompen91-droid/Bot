@@ -278,6 +278,12 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
     Fame (the positive side of the same reputation counter `.pickpocket`/
     `.rob` push negative) -- a well-regarded town draws more settlers on
     the same expedition. Runs alongside `.caravan`, not instead of it.
+    While no expedition is out, an **Upgrade** button offers up to 4
+    permanent perks (more Population per leg, an extra leg, a shorter
+    cooldown, higher success odds), one claimed per purchase at a
+    roughly 2.5x-per-level gold cost (150k up to 2.34M) -- each
+    purchase locks that perk in for good, so the pick order is the
+    player's, but reaching level 4 means owning all 4.
 - **`.info <query>`**: one universal lookup for anything in the game --
   an item, a trade, a building, a worker, or another command. Resolves
   in that order (first match wins) and always answers the same two
@@ -329,7 +335,7 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
 | `.patrol` | "Round Up" minigame: catch every intruder hidden in a townsfolk lineup (needs a Watchtower) |
 | `.patroltest [tier]` | Admin-only: try Round Up at any simulated Watchtower tier, no cooldown/rewards |
 | `.caravan` | Send a trade caravan out (gated by Population) for real hours, or collect one that's back |
-| `.expedition` | Spend 50k gold on a 5-leg expedition (one choice every 15 real minutes) to earn Population |
+| `.expedition` | Spend 50k gold on a 5-leg expedition (one choice every 15 real minutes) to earn Population; when none is out, an Upgrade button offers up to 4 permanent perks (exponential gold cost) |
 | `.info <query>` | Look up an item, trade, building, worker, or command: where to get it, what it's for |
 | `.cd [member]` / `.cooldown` | Every cooldown someone is currently carrying, at a glance |
 | `.help` / `.about` | Guidance (`.help`'s command list is tappable slash-command mentions) |
