@@ -721,7 +721,7 @@ CRAFTING_COOLDOWN = 90   # seconds; shorter than gathering, it's assembly
 
 
 # ══════════════════════════════ the town ═══════════════════════════════
-# The mid-game settlement layer: found a personal town for a flat 500k
+# The mid-game settlement layer: found a personal town for a flat 150k
 # gold (TOWN_HALL_FOUNDING_COST -> hall level 1), then grow it with
 # gold + construction materials (econ/data/materials.py). Buildings and
 # workers live in econ/data/town_buildings.py / town_workers.py; this
@@ -734,11 +734,10 @@ CRAFTING_COOLDOWN = 90   # seconds; shorter than gathering, it's assembly
 #
 # Sized against actually-simulated income, not a guess: Town Hall's own
 # ladder plus every building/worker tier totals roughly 2.8M gold on
-# top of the 500k founding cost -- about two weeks for a hardcore
-# grinder, a bit over a month of genuinely dedicated play, a few
-# months at a casual pace, plus a proportionate pile of materials.
+# top of the 150k founding cost -- founding itself is an early-game
+# buy-in, the real grind is the ladder above it.
 
-TOWN_HALL_FOUNDING_COST = 500_000  # the one-time buy that creates hall level 1
+TOWN_HALL_FOUNDING_COST = 150_000  # the one-time buy that creates hall level 1
 TOWN_HALL_MAX_LEVEL = 9
 
 # Level 2..9 cost curve: gold grows ~x1.3/level, so level 9 costs

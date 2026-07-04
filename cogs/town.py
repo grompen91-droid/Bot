@@ -1,5 +1,5 @@
 """The mid-game settlement layer: found a personal town for a flat
-500,000 gold, then grow it with gold + construction materials. See
+150,000 gold, then grow it with gold + construction materials. See
 econ/formulas.py's "the town" section for the cost/output math,
 econ/town.py for the DB-aware glue, and econ/data/town_buildings.py /
 town_workers.py / materials.py for the content itself.
@@ -499,7 +499,7 @@ class Town(commands.Cog):
             panel.buttons(btn)
         return panel
 
-    @commands.hybrid_command(name="townhall", description="Found your town (500k gold), or upgrade Town Hall")
+    @commands.hybrid_command(name="townhall", description="Found your town (150k gold), or upgrade Town Hall")
     @commands.guild_only()
     async def townhall(self, ctx: commands.Context):
         panel = await self._build_townhall_panel(ctx.guild.id, ctx.author.id, ctx.author.display_name)

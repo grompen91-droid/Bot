@@ -189,15 +189,15 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
     in order; the longest cooldown, and the single biggest payout in the
     game since there's no risk of loss, only how far your memory takes you
 - **The town** (mid-game): `.townhall` founds **`<your name> Town`**
-  for a flat 500,000 gold, the early-game finish line -- Town Hall
-  becomes level 1, unlocking `.town` (the overview), `.buildings`,
-  `.workers`, `.supply`, and `.collect`. Town Hall itself climbs to
-  level 9, each level costing gold *and* construction materials, both
-  growing steeply per level. Fully maxing Town Hall, all 16 buildings,
-  and all 20 workers costs roughly **2.8M gold** total on top of the
-  500k founding cost -- sized against simulated income (not a guess)
-  to run about two weeks for a hardcore grinder, a bit over a month
-  for genuinely dedicated play, and a few months at a casual pace.
+  for a flat 150,000 gold -- Town Hall becomes level 1, unlocking
+  `.town` (the overview), `.buildings`, `.workers`, `.supply`, and
+  `.collect`. Town Hall itself climbs to level 9, each level costing
+  gold *and* construction materials, both growing steeply per level.
+  Fully maxing Town Hall, all 16 buildings, and all 20 workers costs
+  roughly **2.8M gold** total on top of the 150k founding cost --
+  sized against simulated income (not a guess) to run about two weeks
+  for a hardcore grinder, a bit over a month for genuinely dedicated
+  play, and a few months at a casual pace.
   - **16 buildings** (`.buildings`), gated behind Town Hall level and
     each with 5 tiers of its own: 8 **production** buildings (Quarry,
     Sawmill, Brickworks, Foundry, Herb Garden, Weaver's Yard, Mason's
@@ -322,7 +322,7 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
 | `.beg` | A tiny, reliable trickle of gold, no job or skill needed |
 | `.harvest` / `.dig` / `.fish` / `.fell` / `.hunt` / `.bake` / `.tend` / `.stretch` / `.facet` / `.brew` | Job minigames (current job, or lvl 5+ in it) |
 | `.harvesttest` / `.digtest` / `.fishtest` / `.felltest` / `.hunttest` / `.baketest` / `.tendtest` / `.stretchtest` / `.facettest` / `.brewtest [level]` | Admin-only: try any minigame with no job/cooldown/rewards |
-| `.townhall` | Found your town (500k gold, confirm-gated), or upgrade Town Hall's level |
+| `.townhall` | Found your town (150k gold, confirm-gated), or upgrade Town Hall's level |
 | `.town` | Overview: Town Hall level, buildings/workers count, town bonuses, Collect button |
 | `.buildings` | Build or upgrade any of the 16 buildings (confirm-gated) |
 | `.workers` | Hire or train any of the 20 workers (needs a Workers' Lodge, confirm-gated) |
