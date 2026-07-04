@@ -15,6 +15,8 @@ from econ.data.items import ITEMS
 from econ.data.jobs import JOBS, MAX_JOB_UNLOCK_LEVEL
 from econ.data.minigames import MINIGAMES
 from econ.data.recipes import RECIPES
+from econ.data.town_buildings import TOWN_BUILDINGS
+from econ.data.town_workers import TOWN_WORKERS
 from ui.panels import NAME_W, Palette, Panel, chip
 
 # Each section is a list of command names; .help renders them as
@@ -37,6 +39,14 @@ HELP_SECTIONS = [
         "🎯 Job Minigames",
         ["harvest", "dig", "fish", "fell", "hunt", "bake", "tend",
          "stretch", "facet", "brew", "rob"],
+    ),
+    # The mid-game settlement: .study/.patrol only do anything once
+    # their building is built, same "always listed, gated at runtime"
+    # treatment as .pickpocket/.smuggle above.
+    (
+        "🏰 Town",
+        ["townhall", "town", "buildings", "workers", "supply", "collect",
+         "study", "patrol"],
     ),
 ]
 
@@ -82,7 +92,10 @@ class Info(commands.Cog):
             "daily-shifting market. No Discord roles, your rank is gold and "
             "skill alone. Walk an honest trade and build fame, or turn to "
             "crime and build infamy, but get caught robbing the bank and "
-            "it's gone."
+            "it's gone.\n\n"
+            f"Once you've made your fortune, `.townhall` founds your own "
+            f"settlement -- {len(TOWN_BUILDINGS)} buildings, {len(TOWN_WORKERS)} "
+            "hireable workers, and a hundred construction materials to spend."
         )
         await ctx.send(view=panel)
 
@@ -207,6 +220,19 @@ class Info(commands.Cog):
             lines.append(
                 f"{JOBS[job_key]['emoji']} {chip((command_label, NAME_W))} "
                 f"{status(mg_last.get(job_key, 0.0) + cooldown)}"
+            )
+
+        # .study/.patrol stay hidden until their building is actually
+        # built, same rule as .brew staying hidden pre-Alchemist above.
+        if await self.db.get_building_tier(gid, uid, "great_library") > 0:
+            lines.append(
+                f"📚 {chip(('.study', NAME_W))} "
+                f"{status(mg_last.get('study', 0.0) + formulas.STUDY_COOLDOWN)}"
+            )
+        if await self.db.get_building_tier(gid, uid, "watchtower") > 0:
+            lines.append(
+                f"🗼 {chip(('.patrol', NAME_W))} "
+                f"{status(mg_last.get('patrol', 0.0) + formulas.PATROL_COOLDOWN)}"
             )
 
         panel = Panel(timeout=None)

@@ -720,6 +720,200 @@ def craft_xp_to_next(level: int) -> int:
 CRAFTING_COOLDOWN = 90   # seconds; shorter than gathering, it's assembly
 
 
+# ══════════════════════════════ the town ═══════════════════════════════
+# The mid-game settlement layer: found a personal town for a flat 500k
+# gold (TOWN_HALL_FOUNDING_COST -> hall level 1), then grow it with
+# gold + construction materials (econ/data/materials.py). Buildings and
+# workers live in econ/data/town_buildings.py / town_workers.py; this
+# section is the shared cost curve and bonus-stacking math both of
+# those data files and cogs/town.py build on. Reading active building/
+# worker tiers out of the database and combining them with the data
+# registries is econ/town.py's job (kept separate from here for the
+# same reason buffs.py is: this file stays pure, no DB, no data-module
+# imports).
+#
+# Sized against ~1 month of active play: Town Hall's own ladder plus
+# every building/worker tier totals roughly 10-15M gold (several times
+# the ~500k/week early-game pace) plus a proportionate pile of
+# materials, so it's a real successor grind, not a side quest.
+
+TOWN_HALL_FOUNDING_COST = 500_000  # the one-time buy that creates hall level 1
+TOWN_HALL_MAX_LEVEL = 9
+
+# Level 2..9 cost curve: gold grows ~x1.3/level, so level 9 costs
+# roughly 6x level 2 -- the whole ladder (levels 2-9 summed) lands
+# around 3M gold, one slice of the overall ~10-15M town budget.
+TOWN_HALL_BASE_GOLD = 125_000
+TOWN_HALL_GOLD_GROWTH = 1.3
+TOWN_HALL_BASE_MATERIAL_QTY = 30
+TOWN_HALL_MATERIAL_QTY_GROWTH = 1.35
+
+
+def town_hall_upgrade_cost(next_level: int) -> tuple[int, int]:
+    """Cost to upgrade INTO `next_level` (2..TOWN_HALL_MAX_LEVEL): (gold,
+    material_qty) -- cogs/town.py picks the actual material from the
+    "universal" group at a rarity matching the level."""
+    n = next_level - 2  # 0-indexed past the free founding level
+    gold = round(TOWN_HALL_BASE_GOLD * TOWN_HALL_GOLD_GROWTH ** n)
+    qty = round(TOWN_HALL_BASE_MATERIAL_QTY * TOWN_HALL_MATERIAL_QTY_GROWTH ** n)
+    return gold, qty
+
+
+# Building/worker tiers reuse this one exponential generator instead of
+# 180 hand-tuned tuples: each building/worker only needs a base gold
+# cost and a base material quantity. Tier 1..5 maps onto its material
+# group's five rarities in order (common -> legendary, see
+# econ/data/materials.py's MATERIAL_GROUPS), so later tiers don't just
+# cost "more of the same," they demand rarer stock too.
+
+BUILDING_GOLD_GROWTH = 1.6
+BUILDING_MATERIAL_QTY_GROWTH = 1.4
+WORKER_GOLD_GROWTH = 1.5
+WORKER_MATERIAL_QTY_GROWTH = 1.3
+
+
+def tier_cost(
+    base_gold: int, base_qty: int, tier: int, *,
+    gold_growth: float, qty_growth: float,
+) -> tuple[int, int]:
+    """(gold, material_qty) for `tier` (1-indexed). Shared by
+    building_tier_cost/worker_tier_cost below -- the only difference
+    between a building and a worker ladder is which growth constants
+    they use."""
+    n = tier - 1
+    gold = round(base_gold * gold_growth ** n)
+    qty = round(base_qty * qty_growth ** n)
+    return gold, qty
+
+
+def building_tier_cost(base_gold: int, base_qty: int, tier: int) -> tuple[int, int]:
+    return tier_cost(
+        base_gold, base_qty, tier,
+        gold_growth=BUILDING_GOLD_GROWTH, qty_growth=BUILDING_MATERIAL_QTY_GROWTH,
+    )
+
+
+def worker_tier_cost(base_gold: int, base_qty: int, tier: int) -> tuple[int, int]:
+    return tier_cost(
+        base_gold, base_qty, tier,
+        gold_growth=WORKER_GOLD_GROWTH, qty_growth=WORKER_MATERIAL_QTY_GROWTH,
+    )
+
+
+# ── production buildings: passive, offline-accruing output ─────────────
+# Each production building's per-hour output rate grows with its own
+# tier and any worker assigned to it; storage caps grow with tier too,
+# same shape as the bank's capacity ladder, so there's always a reason
+# to both upgrade AND come back and collect.
+
+BUILDING_RATE_GROWTH = 1.6          # output/hour multiplier per building tier
+WORKER_RATE_BONUS_PER_TIER = 0.25   # +25% of the building's rate per worker tier
+BUILDING_CAP_GROWTH = 1.8           # storage cap multiplier per building tier
+STOREHOUSE_CAP_BONUS_PER_TIER = 0.35  # +35% cap per Storehouse tier, every building at once
+MAX_OFFLINE_HOURS = 48              # production stops accruing past this long uncollected
+
+
+def building_output_rate(base_rate_per_hour: float, building_tier: int, worker_tier: int) -> float:
+    """Units/hour a built production building generates, tier 1..5, with
+    an optional linked worker (tier 0..5) boosting it further."""
+    if building_tier <= 0:
+        return 0.0
+    tier_mult = BUILDING_RATE_GROWTH ** (building_tier - 1)
+    worker_mult = 1.0 + WORKER_RATE_BONUS_PER_TIER * worker_tier
+    return base_rate_per_hour * tier_mult * worker_mult
+
+
+def building_storage_cap(base_cap: float, building_tier: int, storehouse_tier: int = 0) -> float:
+    """Max units a building can bank before collection stops adding
+    more. `storehouse_tier` is the Storehouse utility building's own
+    tier, which raises every production building's cap at once."""
+    if building_tier <= 0:
+        return 0.0
+    tier_mult = BUILDING_CAP_GROWTH ** (building_tier - 1)
+    storehouse_mult = 1.0 + STOREHOUSE_CAP_BONUS_PER_TIER * storehouse_tier
+    return base_cap * tier_mult * storehouse_mult
+
+
+def building_collect(
+    base_rate_per_hour: float, base_cap: float, building_tier: int, worker_tier: int,
+    storehouse_tier: int, elapsed_seconds: float,
+) -> int:
+    """Whole units accrued since last collected, capped by both the
+    offline-hours ceiling and the building's own storage cap."""
+    if building_tier <= 0:
+        return 0
+    hours = min(elapsed_seconds / 3600.0, MAX_OFFLINE_HOURS)
+    rate = building_output_rate(base_rate_per_hour, building_tier, worker_tier)
+    cap = building_storage_cap(base_cap, building_tier, storehouse_tier)
+    return int(min(hours * rate, cap))
+
+
+# ── worker hiring capacity ──────────────────────────────────────────────
+# The Workers' Lodge utility building gates .workers entirely (tier 0 =
+# not built = no hiring at all) and its tier caps how many workers can
+# be hired at once, so building it is a real prerequisite, not a
+# formality.
+
+LODGE_BASE_SLOTS = 4
+LODGE_SLOTS_PER_TIER = 4
+
+
+def worker_slots(lodge_tier: int) -> int:
+    return 0 if lodge_tier <= 0 else LODGE_BASE_SLOTS + LODGE_SLOTS_PER_TIER * (lodge_tier - 1)
+
+
+# ── permanent bonus buildings ────────────────────────────────────────────
+# Guild Hall/Great Library/Town Square/Tavern/Temple/Watchtower each add
+# a flat percentage per tier into ONE of these effects (see each
+# building's "effect" key in econ/data/town_buildings.py). Deliberately
+# uncapped and kept separate from buffs.py's temporary-potion caps
+# (MAX_GOLD_BONUS etc.) -- this is permanent progression like a rank-up
+# or a tool tier, not a consumable, and stacks alongside coin_multiplier
+# at the exact same call sites in cogs/jobs.py.
+
+BONUS_BUILDING_PER_TIER = {
+    "gold": 0.05,      # Guild Hall: +5% gold/tier
+    "xp": 0.05,        # Great Library: +5% XP/tier
+    "cooldown": 0.03,  # Town Square: -3% cooldown/tier
+    "crit": 0.02,      # Tavern: +2% crit chance/tier
+    "luck": 0.03,      # Temple: +3% bonus-find chance/tier
+    "defense": 0.06,   # Watchtower: +6% crime defense/luck/tier
+}
+TOWNWIDE_WORKER_BONUS_PER_TIER = 0.15  # the 4 town-wide workers add +15%/tier to their linked effect
+TOWN_COOLDOWN_CAP = 0.6  # town bonuses alone can't cut cooldown by more than 60%
+
+
+def apply_town_gold(base: float, totals: dict[str, float]) -> float:
+    return base * (1.0 + totals.get("gold", 0.0))
+
+
+def apply_town_xp(base: float, totals: dict[str, float]) -> float:
+    return base * (1.0 + totals.get("xp", 0.0))
+
+
+def apply_town_cooldown(base: float, totals: dict[str, float]) -> float:
+    return base * (1.0 - min(TOWN_COOLDOWN_CAP, totals.get("cooldown", 0.0)))
+
+
+def apply_town_crit(base_chance: float, totals: dict[str, float]) -> float:
+    return min(0.9, base_chance + totals.get("crit", 0.0))
+
+
+def apply_town_luck(base_chance: float, totals: dict[str, float]) -> float:
+    return min(0.9, base_chance + totals.get("luck", 0.0))
+
+
+# ── .study and .patrol: the two commands a specific building unlocks ────
+# (see cogs/town.py). Cooldowns are tracked in the shared
+# minigame_cooldowns table under fake "job" keys ("study"/"patrol"),
+# same trick already used for .beg/.smuggle/.rob there.
+
+STUDY_COOLDOWN = 4 * 60 * 60
+STUDY_GOLD_COST = 20_000
+STUDY_XP_PER_LIBRARY_TIER = 400
+PATROL_COOLDOWN = 6 * 60 * 60
+
+
 # ═══════════════════════════ progress bars ═════════════════════════════
 
 BAR_FILLED, BAR_EMPTY = "█", "░"

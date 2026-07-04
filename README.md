@@ -184,6 +184,40 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
   - 🧪 `.brew` (Alchemist): watch a reagent sequence, then repeat it back
     in order; the longest cooldown, and the single biggest payout in the
     game since there's no risk of loss, only how far your memory takes you
+- **The town** (mid-game, ~1 month of content): `.townhall` founds
+  **`<your name> Town`** for a flat 500,000 gold, the early-game
+  finish line -- Town Hall becomes level 1, unlocking `.town` (the
+  overview), `.buildings`, `.workers`, `.supply`, and `.collect`.
+  Town Hall itself climbs to level 9, each level costing gold *and*
+  construction materials, both growing steeply per level.
+  - **16 buildings** (`.buildings`), gated behind Town Hall level and
+    each with 5 tiers of its own: 8 **production** buildings (Quarry,
+    Sawmill, Brickworks, Foundry, Herb Garden, Weaver's Yard, Mason's
+    Workshop, Gem Cutter's Den) passively generate construction
+    materials in real time whether you're online or not, capped
+    storage so it's worth coming back to `.collect`; 2 **utility**
+    buildings (Workers' Lodge gates `.workers` and raises hire
+    capacity, Storehouse raises every production cap at once); 6
+    **bonus** buildings (Guild Hall +gold%, Great Library +XP%, Town
+    Square -cooldown%, Tavern +crit%, Temple +bonus-find%, Watchtower
+    +crime defense) add a permanent, uncapped town-wide multiplier
+    that stacks alongside your town rank on every `.work`, `.venture`,
+    minigame, and crime roll -- not through the temporary-potion buff
+    system.
+  - **20 hireable workers** (`.workers`, needs a Workers' Lodge
+    built): two per production building boosting its output rate,
+    plus four town-wide hires (Town Crier, Scribe, Guard Captain,
+    Steward) each boosting one bonus/utility building further. Five
+    tiers each, same shape as a trade's tool ladder.
+  - **100 construction materials** (`econ/data/materials.py`), one of
+    `.inventory`'s categories like any other good. `.supply` (Builder's
+    Supply) sells any of them in bundles for gold at a flat markup, no
+    daily rotation -- the bootstrap/convenience path -- but a built
+    production building's free trickle is the efficient one.
+  - Two buildings unlock their own extra command: a Great Library
+    opens `.study` (spend materials + gold for an instant XP
+    injection into one trade), a Watchtower opens `.patrol` (a
+    slow-cooldown gold trickle from keeping the walls watched).
 
 ## Commands
 
@@ -215,6 +249,14 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
 | `.beg` | A tiny, reliable trickle of gold, no job or skill needed |
 | `.harvest` / `.dig` / `.fish` / `.fell` / `.hunt` / `.bake` / `.tend` / `.stretch` / `.facet` / `.brew` | Job minigames (current job, or lvl 5+ in it) |
 | `.harvesttest` / `.digtest` / `.fishtest` / `.felltest` / `.hunttest` / `.baketest` / `.tendtest` / `.stretchtest` / `.facettest` / `.brewtest [level]` | Admin-only: try any minigame with no job/cooldown/rewards |
+| `.townhall` | Found your town (500k gold, confirm-gated), or upgrade Town Hall's level |
+| `.town` | Overview: Town Hall level, buildings/workers count, town bonuses, Collect button |
+| `.buildings` | Build or upgrade any of the 16 buildings (confirm-gated) |
+| `.workers` | Hire or train any of the 20 workers (needs a Workers' Lodge, confirm-gated) |
+| `.supply` | Builder's Supply: buy construction materials with gold, no daily rotation |
+| `.collect` | Collect every production building's pending output into your satchel |
+| `.study <trade>` | Spend gold + materials for an instant XP boost (needs a Great Library) |
+| `.patrol` | A slow-cooldown gold trickle from watching the walls (needs a Watchtower) |
 | `.cd [member]` / `.cooldown` | Every cooldown someone is currently carrying, at a glance |
 | `.help` / `.about` | Guidance (`.help`'s command list is tappable slash-command mentions) |
 
@@ -224,13 +266,17 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
 bot.py               entry point, prefix + intents, error handling, sync
 econ/
   formulas.py        EVERY tunable number & curve, balance the game here
+                     (includes the town's cost curves + bonus math)
   database.py        SQLite/Postgres with versioned migrations (append to
                      MIGRATIONS to evolve the schema safely)
   captcha.py         anti-bot letter-challenge state
   buffs.py           reads active_buffs and turns them into ready-to-use
                      cooldown/XP/gold multipliers for .work/.craft/etc.
+  town.py            DB-aware town glue (bonus totals, collection math) --
+                     separate from formulas.py for the same reason buffs.py is
   data/
-    items.py         item registry (name, emoji, value, rarity)
+    items.py         item registry (name, emoji, value, rarity); merges
+                     in materials.py's MATERIALS at import
     jobs.py          job registry (yields, cooldown, unlock, flavour)
     tools.py         tool ladders per trade (names + prices)
     ventures.py      venture route registry (odds, rewards, flavour)
@@ -243,6 +289,13 @@ econ/
                      derived from items.py + jobs.py at import)
     themes.py        cosmetic .profile theme registry (accent colour +
                      flair, admin-granted, no gold price)
+    materials.py     the town's 100 construction materials, grouped by
+                     which production building yields them
+    town_buildings.py  the 16 buildings (production/utility/bonus), 5
+                     tiers each, costs generated from formulas.py's
+                     exponential-tier helpers
+    town_workers.py  the 20 hireable workers, 5 tiers each, each linked
+                     to one building
 ui/
   panels.py          Components V2 medieval panel builder (fluent API)
   profile_card.py    renders .profile as a PNG via Pillow (avatar,
@@ -261,6 +314,8 @@ cogs/
                      admin twins
   craft.py           .recipes / .craft, the standalone Crafting skill
   consumables.py     .use / .buffs
+  town.py            .townhall/.town/.buildings/.workers/.supply/
+                     .collect/.study/.patrol -- the mid-game settlement
   info.py            help, about
 ```
 

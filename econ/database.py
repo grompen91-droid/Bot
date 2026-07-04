@@ -143,6 +143,37 @@ MIGRATIONS: list[str] = [
         PRIMARY KEY (guild_id, user_id, theme)
     );
     """,
+    # v12, the mid-game town system: a personal settlement founded for
+    # a flat 500k gold (see cogs/town.py). towns.hall_level 0 means
+    # "not founded" -- no row exists until .townhall's first purchase.
+    # town_buildings/town_workers mirror the tools table's shape
+    # (tier 0 = not built/hired). last_collected is separate from
+    # "when built" so upgrading a building doesn't reset its pending,
+    # not-yet-collected production.
+    """
+    CREATE TABLE IF NOT EXISTS towns (
+        guild_id   BIGINT NOT NULL,
+        user_id    BIGINT NOT NULL,
+        hall_level BIGINT NOT NULL DEFAULT 0,
+        founded_at DOUBLE PRECISION NOT NULL DEFAULT 0,
+        PRIMARY KEY (guild_id, user_id)
+    );
+    CREATE TABLE IF NOT EXISTS town_buildings (
+        guild_id       BIGINT NOT NULL,
+        user_id        BIGINT NOT NULL,
+        building       TEXT   NOT NULL,
+        tier           BIGINT NOT NULL DEFAULT 0,
+        last_collected DOUBLE PRECISION NOT NULL DEFAULT 0,
+        PRIMARY KEY (guild_id, user_id, building)
+    );
+    CREATE TABLE IF NOT EXISTS town_workers (
+        guild_id BIGINT NOT NULL,
+        user_id  BIGINT NOT NULL,
+        worker   TEXT   NOT NULL,
+        tier     BIGINT NOT NULL DEFAULT 0,
+        PRIMARY KEY (guild_id, user_id, worker)
+    );
+    """,
 ]
 
 
@@ -548,6 +579,123 @@ class Database:
             "UPDATE users SET theme = ? WHERE guild_id = ? AND user_id = ?",
             theme, guild_id, user_id,
         )
+
+    # ── the town system ─────────────────────────────────────────────────
+
+    async def get_town(self, guild_id: int, user_id: int) -> dict:
+        """Read-only, never creates a row -- hall_level 0 means "not
+        founded yet," same "peek" shape as peek_skill, so merely
+        checking (.help, .cd) can't phantom-create a town."""
+        row = await self.fetchone(
+            "SELECT hall_level, founded_at FROM towns WHERE guild_id = ? AND user_id = ?",
+            guild_id, user_id,
+        )
+        return dict(row) if row is not None else {"hall_level": 0, "founded_at": 0.0}
+
+    async def found_town(self, guild_id: int, user_id: int, founded_at: float) -> bool:
+        """Create the town at hall level 1. False (no-op) if it already
+        exists, so a double-clicked confirm can't refound it."""
+        inserted = await self.execute_rowcount(
+            "INSERT INTO towns (guild_id, user_id, hall_level, founded_at) "
+            "VALUES (?, ?, 1, ?) ON CONFLICT (guild_id, user_id) DO NOTHING",
+            guild_id, user_id, founded_at,
+        )
+        return bool(inserted)
+
+    async def set_hall_level(self, guild_id: int, user_id: int, level: int) -> None:
+        await self.execute(
+            "UPDATE towns SET hall_level = ? WHERE guild_id = ? AND user_id = ?",
+            level, guild_id, user_id,
+        )
+
+    async def get_building_tier(self, guild_id: int, user_id: int, building: str) -> int:
+        row = await self.fetchone(
+            "SELECT tier FROM town_buildings WHERE guild_id = ? AND user_id = ? AND building = ?",
+            guild_id, user_id, building,
+        )
+        return row["tier"] if row else 0
+
+    async def get_last_collected(self, guild_id: int, user_id: int, building: str) -> float:
+        row = await self.fetchone(
+            "SELECT last_collected FROM town_buildings "
+            "WHERE guild_id = ? AND user_id = ? AND building = ?",
+            guild_id, user_id, building,
+        )
+        return row["last_collected"] if row else 0.0
+
+    async def set_building_tier(
+        self, guild_id: int, user_id: int, building: str, tier: int, *,
+        last_collected: float | None = None,
+    ) -> None:
+        """`last_collected` is only passed on the first build (tier
+        0 -> 1), to start the accrual clock -- upgrades leave it alone
+        so pending, not-yet-collected production isn't wiped."""
+        if last_collected is not None:
+            await self.execute(
+                "INSERT INTO town_buildings (guild_id, user_id, building, tier, last_collected) "
+                "VALUES (?, ?, ?, ?, ?) ON CONFLICT (guild_id, user_id, building) "
+                "DO UPDATE SET tier = excluded.tier, last_collected = excluded.last_collected",
+                guild_id, user_id, building, tier, last_collected,
+            )
+        else:
+            await self.execute(
+                "INSERT INTO town_buildings (guild_id, user_id, building, tier) "
+                "VALUES (?, ?, ?, ?) ON CONFLICT (guild_id, user_id, building) "
+                "DO UPDATE SET tier = excluded.tier",
+                guild_id, user_id, building, tier,
+            )
+
+    async def set_last_collected(
+        self, guild_id: int, user_id: int, building: str, when: float
+    ) -> None:
+        await self.execute(
+            "UPDATE town_buildings SET last_collected = ? "
+            "WHERE guild_id = ? AND user_id = ? AND building = ?",
+            when, guild_id, user_id, building,
+        )
+
+    async def get_all_buildings(self, guild_id: int, user_id: int) -> list:
+        """Every building this player has ever built (tier > 0), for
+        .town/.buildings/.collect and the town-bonus multiplier stack."""
+        return await self.fetchall(
+            "SELECT building, tier, last_collected FROM town_buildings "
+            "WHERE guild_id = ? AND user_id = ? AND tier > 0",
+            guild_id, user_id,
+        )
+
+    async def get_worker_tier(self, guild_id: int, user_id: int, worker: str) -> int:
+        row = await self.fetchone(
+            "SELECT tier FROM town_workers WHERE guild_id = ? AND user_id = ? AND worker = ?",
+            guild_id, user_id, worker,
+        )
+        return row["tier"] if row else 0
+
+    async def set_worker_tier(
+        self, guild_id: int, user_id: int, worker: str, tier: int
+    ) -> None:
+        await self.execute(
+            "INSERT INTO town_workers (guild_id, user_id, worker, tier) VALUES (?, ?, ?, ?) "
+            "ON CONFLICT (guild_id, user_id, worker) DO UPDATE SET tier = excluded.tier",
+            guild_id, user_id, worker, tier,
+        )
+
+    async def get_all_workers(self, guild_id: int, user_id: int) -> list:
+        """Every worker this player has ever hired (tier > 0)."""
+        return await self.fetchall(
+            "SELECT worker, tier FROM town_workers WHERE guild_id = ? AND user_id = ? AND tier > 0",
+            guild_id, user_id,
+        )
+
+    async def count_hired_workers(self, guild_id: int, user_id: int) -> int:
+        """How many distinct workers are hired (tier > 0), for the
+        Workers' Lodge's hire-slot cap -- a count, not a sum of tiers,
+        since upgrading an existing hire doesn't take a new slot."""
+        row = await self.fetchone(
+            "SELECT COUNT(*) AS n FROM town_workers "
+            "WHERE guild_id = ? AND user_id = ? AND tier > 0",
+            guild_id, user_id,
+        )
+        return int(row["n"])
 
     # ── the other per-job minigames ─────────────────────────────────────
 

@@ -25,7 +25,8 @@ log = logging.getLogger("medieval-bot")
 PREFIX = os.getenv("PREFIX", ".")
 EXTENSIONS = (
     "cogs.jobs", "cogs.economy", "cogs.market", "cogs.venture", "cogs.crime",
-    "cogs.brew", "cogs.minigames", "cogs.craft", "cogs.consumables", "cogs.info",
+    "cogs.brew", "cogs.minigames", "cogs.craft", "cogs.consumables", "cogs.town",
+    "cogs.info",
 )
 
 

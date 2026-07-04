@@ -10,6 +10,7 @@ from discord import app_commands, ui
 from discord.ext import commands
 
 from econ import captcha, formulas
+from econ import town as town_system
 from econ.buffs import (
     active_buff_summary,
     active_buff_totals,
@@ -96,10 +97,14 @@ class Jobs(commands.Cog):
         skill = await self.db.get_skill(guild_id, member.id, job_key)
         level = skill["level"]
         buffs = await active_buff_totals(self.db, guild_id, member.id)
+        town_totals = await town_system.town_bonus_totals(self.db, guild_id, member.id)
 
         now = time.time()
         cooldown = apply_cooldown_buff(
-            formulas.effective_cooldown(info["cooldown"], level), buffs
+            formulas.apply_town_cooldown(
+                formulas.effective_cooldown(info["cooldown"], level), town_totals
+            ),
+            buffs,
         )
         ready_at = skill["last_work"] + cooldown
         if now < ready_at:
@@ -107,16 +112,17 @@ class Jobs(commands.Cog):
 
         if job_key == "criminal":
             return await self._build_criminal_work_panel(
-                guild_id, member, skill, level, now, buffs
+                guild_id, member, skill, level, now, buffs, town_totals
             )
 
         tier = await self.db.get_tool_tier(guild_id, member.id, job_key)
         total_before = await self.db.total_level(guild_id, member.id)
         # Item hauls scale with skill in THIS trade only; coin scales with
-        # total skill across every trade, so gold stays hard to come by
-        # early and grows with the breadth of what you've mastered.
+        # total skill across every trade (plus any Guild Hall/Town Crier
+        # town bonus), so gold stays hard to come by early and grows with
+        # the breadth of what you've mastered.
         multiplier = formulas.total_multiplier(level, tier)
-        coin_mult = formulas.coin_multiplier(total_before)
+        coin_mult = formulas.apply_town_gold(formulas.coin_multiplier(total_before), town_totals)
 
         # Primary haul: one weighted roll, with luck favouring rare+ finds.
         entries = info["yields"]
@@ -126,23 +132,27 @@ class Jobs(commands.Cog):
         ]
         hauls = [self._roll_haul(entries, weights, multiplier)]
 
-        # A skilled worker sometimes finds something extra.
-        if random.random() < formulas.bonus_find_chance(level):
+        # A skilled worker sometimes finds something extra (a Temple boosts this too).
+        if random.random() < formulas.apply_town_luck(formulas.bonus_find_chance(level), town_totals):
             hauls.append(
                 self._roll_haul(
                     entries, weights, multiplier * formulas.BONUS_FIND_YIELD_FACTOR
                 )
             )
 
-        # Critical work doubles everything.
-        crit = random.random() < formulas.crit_chance(level, tier)
+        # Critical work doubles everything (a Tavern raises the odds).
+        crit = random.random() < formulas.apply_town_crit(
+            formulas.crit_chance(level, tier), town_totals
+        )
         if crit:
             hauls = [
                 (item, round(qty * formulas.CRIT_MULTIPLIER)) for item, qty in hauls
             ]
 
         tip = round(apply_gold_buff(formulas.roll_tip(*info["tip"], level, tier) * coin_mult, buffs))
-        xp_gain = round(apply_xp_buff(formulas.roll_work_xp(info["cooldown"]), buffs))
+        xp_gain = round(
+            apply_xp_buff(formulas.apply_town_xp(formulas.roll_work_xp(info["cooldown"]), town_totals), buffs)
+        )
 
         new_level, new_xp, levels_gained = formulas.apply_xp(
             level, skill["xp"], xp_gain
@@ -212,7 +222,10 @@ class Jobs(commands.Cog):
         needed = formulas.xp_to_next(new_level)
         ready = int(
             now + apply_cooldown_buff(
-                formulas.effective_cooldown(info["cooldown"], new_level), buffs
+                formulas.apply_town_cooldown(
+                    formulas.effective_cooldown(info["cooldown"], new_level), town_totals
+                ),
+                buffs,
             )
         )
         footer = (
@@ -237,7 +250,7 @@ class Jobs(commands.Cog):
 
     async def _build_criminal_work_panel(
         self, guild_id: int, member: discord.abc.User, skill, level: int, now: float,
-        buffs: dict[str, float],
+        buffs: dict[str, float], town_totals: dict[str, float],
     ) -> Panel:
         """Criminal has no goods to gather, only gold and infamy. Both
         the payout and the flavour of the crime scale with how
@@ -248,12 +261,22 @@ class Jobs(commands.Cog):
         infamy = formulas.reputation_infamy(user["reputation"])
 
         gold = round(
-            apply_gold_buff(formulas.roll_criminal_work(level, tier, infamy, total_before), buffs)
+            apply_gold_buff(
+                formulas.apply_town_gold(
+                    formulas.roll_criminal_work(level, tier, infamy, total_before), town_totals
+                ),
+                buffs,
+            )
         )
         infamy_gain = random.randint(
             formulas.CRIMINAL_WORK_INFAMY_MIN, formulas.CRIMINAL_WORK_INFAMY_MAX
         )
-        xp_gain = round(apply_xp_buff(formulas.roll_work_xp(JOBS["criminal"]["cooldown"]), buffs))
+        xp_gain = round(
+            apply_xp_buff(
+                formulas.apply_town_xp(formulas.roll_work_xp(JOBS["criminal"]["cooldown"]), town_totals),
+                buffs,
+            )
+        )
 
         new_level, new_xp, levels_gained = formulas.apply_xp(level, skill["xp"], xp_gain)
         await self.db.update_skill(guild_id, member.id, "criminal", new_level, new_xp, now)
@@ -291,7 +314,10 @@ class Jobs(commands.Cog):
         needed = formulas.xp_to_next(new_level)
         ready = int(
             now + apply_cooldown_buff(
-                formulas.effective_cooldown(JOBS["criminal"]["cooldown"], new_level), buffs
+                formulas.apply_town_cooldown(
+                    formulas.effective_cooldown(JOBS["criminal"]["cooldown"], new_level), town_totals
+                ),
+                buffs,
             )
         )
         footer = (

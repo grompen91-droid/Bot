@@ -98,6 +98,13 @@ ITEMS = {
     "potion_of_fortune":  {"name": "Potion of Fortune",  "emoji": "🍯", "value": 1750, "rarity": "uncommon"},
 }
 
+# Construction materials for the town system (see econ/data/materials.py)
+# merge in here so they get inventory storage, .inventory/.market
+# listings, and sell-autocomplete for free, exactly like a trade good.
+from .materials import MATERIALS  # noqa: E402
+
+ITEMS.update(MATERIALS)
+
 
 def item_label(item_key: str) -> str:
     info = ITEMS[item_key]

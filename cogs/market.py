@@ -10,6 +10,7 @@ from econ import formulas
 from econ.data.consumables import CONSUMABLES
 from econ.data.items import ITEMS, item_label
 from econ.data.jobs import JOBS
+from econ.data.materials import MATERIALS
 from econ.data.recipes import RECIPES
 from econ.data.store import (
     STORE_CONSUMABLE_MARKUP,
@@ -80,6 +81,7 @@ def _inventory_categories() -> list[tuple[str, str, str, list[str] | None]]:
     item_keys means "whatever you happen to own", not a fixed list."""
     cats = [("all", "🎒", "All Items", None)]
     cats.append(("consumables", "✨", "Consumables", list(CONSUMABLES.keys())))
+    cats.append(("materials", "🧱", "Materials", list(MATERIALS.keys())))
     cats.extend(_market_categories())
     return cats
 
