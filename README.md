@@ -214,9 +214,19 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
     tiers each, same shape as a trade's tool ladder.
   - **100 construction materials** (`econ/data/materials.py`), one of
     `.inventory`'s categories like any other good. `.supply` (Builder's
-    Supply) sells any of them in bundles for gold at a flat markup, no
-    daily rotation -- the bootstrap/convenience path -- but a built
-    production building's free trickle is the efficient one.
+    Supply) only bootstraps the cheap end -- common and uncommon --
+    at a flat markup, no daily rotation; rare and above can't be
+    bought at any price. Getting them means either a built production
+    building's own passive trickle once it's already at that tier, or
+    **`.gather <building>`**, a short-cooldown active command per
+    built production building that pays out a batch of its current
+    material plus a chance at one unit of the next tier's, the bridge
+    that actually lets a building climb instead of stalling on a
+    material nothing yet produces. The town-wide "universal" pool
+    (Town Hall's own ladder, the utility/bonus buildings) has no
+    production building of its own, so it's earned differently: a
+    small, job-agnostic chance on every ordinary `.work`, rarity
+    improving the more total skill you've built.
   - Two buildings unlock their own extra command: a Great Library
     opens `.study` (spend materials + gold for an instant XP
     injection into one trade), a Watchtower opens `.patrol` (a
@@ -256,8 +266,9 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
 | `.town` | Overview: Town Hall level, buildings/workers count, town bonuses, Collect button |
 | `.buildings` | Build or upgrade any of the 16 buildings (confirm-gated) |
 | `.workers` | Hire or train any of the 20 workers (needs a Workers' Lodge, confirm-gated) |
-| `.supply` | Builder's Supply: buy construction materials with gold, no daily rotation |
+| `.supply` | Builder's Supply: buy common/uncommon materials with gold, no daily rotation |
 | `.collect` | Collect every production building's pending output into your satchel |
+| `.gather <building>` | Actively work a built production building for a batch of materials (short cooldown, per building) |
 | `.study <trade>` | Spend gold + materials for an instant XP boost (needs a Great Library) |
 | `.patrol` | A slow-cooldown gold trickle from watching the walls (needs a Watchtower) |
 | `.cd [member]` / `.cooldown` | Every cooldown someone is currently carrying, at a glance |

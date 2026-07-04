@@ -968,6 +968,63 @@ STUDY_GOLD_COST = 20_000
 STUDY_XP_PER_LIBRARY_TIER = 400
 PATROL_COOLDOWN = 6 * 60 * 60
 
+# ── .gather: the active, hands-on way to get materials ──────────────────
+# .supply only stocks common/uncommon materials now (see
+# MATERIAL_SUPPLY_MAX_RARITY in econ/data/materials.py) -- rare and
+# above have to be earned: either a production building's own passive
+# trickle once it's already at that tier, or .gather, a short-cooldown
+# active command per built production building. Each run yields a
+# batch of that building's CURRENT tier material, scaled by the
+# building's tier and how broadly you've levelled (total_level), plus a
+# small chance at ONE unit of the NEXT tier's material -- the bridge
+# that lets a building actually reach its next tier instead of being
+# stuck waiting on a material nothing yet produces.
+
+GATHER_COOLDOWN = 45 * 60  # 45 minutes -- meant to be run several times a day
+GATHER_BASE_YIELD = 4
+GATHER_YIELD_PER_BUILDING_TIER = 3
+GATHER_YIELD_PER_TOTAL_LEVEL = 0.05
+GATHER_YIELD_LEVEL_CAP = 150
+GATHER_NEXT_TIER_CHANCE = 0.20
+
+
+def gather_yield(building_tier: int, total_level: int) -> int:
+    level_bonus = 1.0 + GATHER_YIELD_PER_TOTAL_LEVEL * min(total_level, GATHER_YIELD_LEVEL_CAP)
+    return max(1, round((GATHER_BASE_YIELD + GATHER_YIELD_PER_BUILDING_TIER * building_tier) * level_bonus))
+
+
+def roll_gather_bridge() -> bool:
+    """Whether this gather also turns up one unit of the NEXT tier's
+    material -- unlocked at a flat rate, not scaled by level, so it
+    stays a genuine "and sometimes you get lucky" moment."""
+    return random.random() < GATHER_NEXT_TIER_CHANCE
+
+
+# A small, job-agnostic chance for ANY trade's `.work` to also turn up
+# a "universal" group material (Nails, Blueprint Scroll, Enchanted
+# Dust, ...) -- the town-wide materials (Town Hall's own ladder, the
+# utility/bonus buildings) aren't tied to any one production building,
+# so this is their only earn-it-by-working path once .supply stops
+# selling their rare+ tiers. Rarity leans in your favour the more total
+# skill you've built, same shape as effective_weight's rare-item luck.
+WORK_DROP_MATERIAL_CHANCE = 0.05
+WORK_DROP_MATERIAL_QTY = (1, 3)
+WORK_DROP_MATERIAL_LEVEL_CAP = 150
+
+
+def roll_universal_material_rarity(total_level: int) -> str:
+    """Which rarity tier of the universal group a work-drop lands on --
+    weighted toward "rare" early, shifting toward "epic"/"legendary"
+    the more total skill you've built."""
+    factor = min(total_level, WORK_DROP_MATERIAL_LEVEL_CAP) / WORK_DROP_MATERIAL_LEVEL_CAP
+    weights = {
+        "rare": 0.75 - 0.35 * factor,
+        "epic": 0.20 + 0.20 * factor,
+        "legendary": 0.05 + 0.15 * factor,
+    }
+    rarities = list(weights.keys())
+    return random.choices(rarities, weights=list(weights.values()), k=1)[0]
+
 
 # ═══════════════════════════ progress bars ═════════════════════════════
 

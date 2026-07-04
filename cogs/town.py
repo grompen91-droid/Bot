@@ -15,11 +15,12 @@ from discord.ext import commands
 
 from econ import formulas
 from econ import town as town_lib
-from econ.data.items import ITEMS
+from econ.data.items import ITEMS, RARITIES
 from econ.data.materials import (
     MATERIAL_GROUPS,
     MATERIAL_SUPPLY_BUNDLE,
     MATERIAL_SUPPLY_MARKUP,
+    MATERIAL_SUPPLY_MAX_RARITY_ORDER,
 )
 from econ.data.town_buildings import (
     MAX_BUILDING_TIER,
@@ -35,6 +36,22 @@ EFFECT_LABELS = {
     "gold": "gold", "xp": "XP", "cooldown": "cooldown",
     "crit": "crit chance", "luck": "bonus-find chance", "defense": "crime defense",
 }
+GATHER_CHOICES = [
+    app_commands.Choice(name=f"{info['emoji']} {info['name']}", value=key)
+    for key, info in TOWN_BUILDINGS.items() if info["kind"] == "production"
+]
+
+
+def _resolve_production_building(query: str) -> str | None:
+    """Fuzzy-match a production building by key or display name, same
+    idea as cogs/market.py's resolve_item."""
+    q = query.strip().lower().replace(" ", "_").replace("'", "")
+    for key, info in TOWN_BUILDINGS.items():
+        if info["kind"] != "production":
+            continue
+        if key == q or info["name"].lower().replace(" ", "_").replace("'", "") == q:
+            return key
+    return None
 
 
 def _town_name(display_name: str) -> str:
@@ -329,6 +346,74 @@ class Town(commands.Cog):
         panel = await self._do_collect(ctx.guild.id, ctx.author.id)
         await ctx.send(view=panel)
 
+    # ══════════════════════════════ .gather ══════════════════════════════
+    # The active counterpart to .collect's idle trickle: a short per-
+    # building cooldown you have to actually spend a command on, paying
+    # out a batch of that building's CURRENT material plus a chance at
+    # ONE unit of the NEXT tier's -- the only way to bridge to a tier
+    # whose material .supply doesn't sell and nothing yet produces.
+
+    @commands.hybrid_command(
+        name="gather",
+        description="Actively gather materials from one of your built production buildings",
+    )
+    @commands.guild_only()
+    @app_commands.describe(building="Which production building to gather from")
+    @app_commands.choices(building=GATHER_CHOICES)
+    async def gather(self, ctx: commands.Context, *, building: str):
+        gid, uid = ctx.guild.id, ctx.author.id
+        key = _resolve_production_building(building)
+        if key is None:
+            await ctx.send(
+                view=simple_panel(f"No such production building: **{building}**.", accent=Palette.RED),
+                ephemeral=True,
+            )
+            return
+        info = TOWN_BUILDINGS[key]
+        tier = await self.db.get_building_tier(gid, uid, key)
+        if tier <= 0:
+            await ctx.send(
+                view=simple_panel(f"Build a **{info['name']}** first (see `.buildings`).", accent=Palette.RED),
+                ephemeral=True,
+            )
+            return
+
+        cooldown_key = f"gather_{key}"
+        last = await self.db.get_minigame_cooldown(gid, uid, cooldown_key)
+        now = time.time()
+        if now < last + formulas.GATHER_COOLDOWN:
+            await ctx.send(
+                view=simple_panel(
+                    f"The {info['name']} needs more time before it can be worked again. "
+                    f"Ready <t:{int(last + formulas.GATHER_COOLDOWN)}:R>.",
+                    accent=Palette.RED,
+                ),
+                ephemeral=True,
+            )
+            return
+
+        total_level = await self.db.total_level(gid, uid)
+        qty = formulas.gather_yield(tier, total_level)
+        material = production_output_material(key, tier)
+        await self.db.add_item(gid, uid, material, qty)
+        await self.db.set_minigame_cooldown(gid, uid, cooldown_key, now)
+
+        bonus_line = None
+        if tier < MAX_BUILDING_TIER and formulas.roll_gather_bridge():
+            next_material = production_output_material(key, tier + 1)
+            await self.db.add_item(gid, uid, next_material, 1)
+            next_info = ITEMS[next_material]
+            bonus_line = f"✨ A rare find: **1x {next_info['emoji']} {next_info['name']}**!"
+
+        panel = Panel(accent=Palette.GREEN, timeout=None)
+        panel.header(f"{info['emoji']} Gathered from the {info['name']}!")
+        mat_info = ITEMS[material]
+        panel.text(f"{mat_info['emoji']} {chip((mat_info['name'], NAME_W), (f'+{qty}', -QTY_W))}")
+        if bonus_line:
+            panel.text(bonus_line)
+        panel.footer(f"Ready again <t:{int(now + formulas.GATHER_COOLDOWN)}:R>")
+        await ctx.send(view=panel)
+
     # ══════════════════════════════ .buildings ═══════════════════════════
 
     async def _build_buildings_panel(self, gid: int, uid: int, display_name: str) -> Panel | None:
@@ -598,8 +683,16 @@ class Town(commands.Cog):
     # ══════════════════════════════ .supply ══════════════════════════════
     # Builder's Supply: flat-markup, always-in-stock (no daily rotation
     # unlike .shop), sold in bundles since building/worker tiers need
-    # materials by the dozen -- the production buildings' free trickle
-    # is the efficient path, this is the convenience valve.
+    # materials by the dozen. Only bootstraps the CHEAP end though --
+    # common/uncommon materials, so a fresh building can get off the
+    # ground. Rare and above can't be bought at any price: they come
+    # from a production building's own trickle once it's already there,
+    # from `.gather`, or a lucky drop from ordinary `.work` (the
+    # "universal" group only). See MATERIAL_SUPPLY_MAX_RARITY_ORDER.
+
+    @staticmethod
+    def _rarity_order(key: str) -> int:
+        return list(RARITIES.keys()).index(ITEMS[key]["rarity"])
 
     def _supply_categories(self) -> list[tuple[str, str, str, list[str]]]:
         cats = []
@@ -619,14 +712,22 @@ class Town(commands.Cog):
 
         panel = Panel(accent=Palette.GOLD, author_id=uid, timeout=180)
         panel.header(f"🧱 Builder's Supply · {emoji} {name}")
-        panel.text(f"*Sold in bundles of {MATERIAL_SUPPLY_BUNDLE}, always in stock, no daily rotation.*")
+        panel.text(
+            f"*Sold in bundles of {MATERIAL_SUPPLY_BUNDLE}, always in stock, no daily rotation -- "
+            "common and uncommon only. Rarer stock has to be earned, not bought.*"
+        )
 
         lines = []
         select = ui.Select(placeholder="🧱 Buy a bundle…")
         for key in item_keys:
             info = ITEMS[key]
-            price = round(info["value"] * MATERIAL_SUPPLY_MARKUP * MATERIAL_SUPPLY_BUNDLE)
             owned = await self.db.get_item_qty(gid, uid, key)
+            if self._rarity_order(key) > MATERIAL_SUPPLY_MAX_RARITY_ORDER:
+                lines.append(
+                    f"🔒 {chip((info['name'], NAME_W), (f'x{owned}', QTY_W), ('earn it', -13))}"
+                )
+                continue
+            price = round(info["value"] * MATERIAL_SUPPLY_MARKUP * MATERIAL_SUPPLY_BUNDLE)
             lines.append(
                 f"{info['emoji']} {chip((info['name'], NAME_W), (f'x{owned}', QTY_W), (f'{price:,}', -AMT_W))} 🪙"
             )
@@ -636,7 +737,14 @@ class Town(commands.Cog):
                 emoji=info["emoji"],
             )
         panel.text("\n".join(lines))
-        panel.footer(f"Your purse: {user['gold']:,} gold")
+        if category_key != "universal":
+            info = TOWN_BUILDINGS[category_key]
+            panel.footer(
+                f"Your purse: {user['gold']:,} gold · rarer {info['name']} stock: "
+                f"`.gather {category_key}` or its own trickle once built"
+            )
+        else:
+            panel.footer(f"Your purse: {user['gold']:,} gold · rarer stock: a lucky find from `.work`")
 
         cat_select = ui.Select(placeholder="🧱 Browse a group…")
         for key, e, n, _items in cats:

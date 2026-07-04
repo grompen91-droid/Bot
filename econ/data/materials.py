@@ -12,6 +12,8 @@ higher building/worker tiers can demand rarer stock, not just more of
 the same.
 """
 
+import random
+
 MATERIALS = {
     # ── Quarry: Stone family ───────────────────────────────────────────
     "rubble":          {"name": "Rubble",              "emoji": "🪨", "value": 4,   "rarity": "common"},
@@ -143,6 +145,14 @@ assert len(MATERIALS) == 100, f"expected 100 materials, got {len(MATERIALS)}"
 MATERIAL_SUPPLY_MARKUP = 6.0
 MATERIAL_SUPPLY_BUNDLE = 10
 
+# .supply only bootstraps the cheap end of the ladder -- rare and above
+# can't be bought at any price, they have to be earned: a production
+# building's own passive trickle once it's already at that tier, the
+# active `.gather` command (see formulas.py's "the town" section), or
+# for the trade-agnostic "universal" group, a small work-drop chance
+# from ordinary `.work` (see WORK_DROP_MATERIAL_CHANCE in formulas.py).
+MATERIAL_SUPPLY_MAX_RARITY_ORDER = 1  # 0=common, 1=uncommon -- see RARITIES in items.py
+
 # One material key per (group, rarity) -- used by town_buildings.py to
 # reference "give me the rare tier of the Quarry's family" without
 # hardcoding item keys everywhere.
@@ -201,3 +211,13 @@ for _group, _keys in MATERIAL_GROUPS.items():
     for _key in _keys:
         if _key not in MATERIALS:
             raise RuntimeError(f"MATERIAL_GROUPS[{_group!r}] references unknown material {_key!r}")
+
+_RARITY_ORDER = ("common", "uncommon", "rare", "epic", "legendary")
+
+
+def random_universal_material(rarity: str) -> str:
+    """One of the 4 "universal" group materials at `rarity` -- the
+    work-drop path for Town Hall's own ladder and the utility/bonus
+    buildings, none of which are produced by any one building."""
+    idx = _RARITY_ORDER.index(rarity)
+    return random.choice(MATERIAL_GROUPS["universal"][idx * 4 : idx * 4 + 4])

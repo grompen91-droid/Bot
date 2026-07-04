@@ -21,6 +21,7 @@ from econ.buffs import (
 from econ.data.consumables import WORK_DROP_CHANCE, WORK_DROP_CONSUMABLES
 from econ.data.crime import crime_tier
 from econ.data.items import ITEMS, rarity_badge
+from econ.data.materials import random_universal_material
 from econ.data.jobs import JOBS, resolve_job
 from econ.data.tools import tool_name
 from ui.panels import (
@@ -174,6 +175,16 @@ class Jobs(commands.Cog):
             found_consumable = random.choice(WORK_DROP_CONSUMABLES)
             await self.db.add_item(guild_id, member.id, found_consumable, 1)
 
+        # A second, independent chance at a town-wide construction
+        # material (see formulas.WORK_DROP_MATERIAL_CHANCE) -- the only
+        # earn-it-by-working path for materials .supply no longer sells.
+        found_material, found_material_qty = None, 0
+        if random.random() < formulas.WORK_DROP_MATERIAL_CHANCE:
+            rarity = formulas.roll_universal_material_rarity(total_before)
+            found_material = random_universal_material(rarity)
+            found_material_qty = random.randint(*formulas.WORK_DROP_MATERIAL_QTY)
+            await self.db.add_item(guild_id, member.id, found_material, found_material_qty)
+
         # ── build the result panel ──────────────────────────────────────
         accent = Palette.PURPLE if crit else Palette.GOLD
         panel = Panel(accent=accent, author_id=member.id)
@@ -204,6 +215,13 @@ class Jobs(commands.Cog):
             panel.text(
                 f"🎁 You also found a **{found_info['emoji']} {found_info['name']}**! "
                 f"*(usable with `.use`)*"
+            )
+
+        if found_material:
+            mat_info = ITEMS[found_material]
+            panel.text(
+                f"🧱 You also turn up **{found_material_qty}x {mat_info['emoji']} "
+                f"{mat_info['name']}** for the town!"
             )
 
         if levels_gained:
@@ -291,6 +309,13 @@ class Jobs(commands.Cog):
             found_consumable = random.choice(WORK_DROP_CONSUMABLES)
             await self.db.add_item(guild_id, member.id, found_consumable, 1)
 
+        found_material, found_material_qty = None, 0
+        if random.random() < formulas.WORK_DROP_MATERIAL_CHANCE:
+            rarity = formulas.roll_universal_material_rarity(total_before)
+            found_material = random_universal_material(rarity)
+            found_material_qty = random.randint(*formulas.WORK_DROP_MATERIAL_QTY)
+            await self.db.add_item(guild_id, member.id, found_material, found_material_qty)
+
         _threshold, crime_title, flavour_lines = crime_tier(infamy)
         panel = Panel(accent=Palette.RED, author_id=member.id)
         panel.header(f"🗡️ Criminal · {crime_title}")
@@ -306,6 +331,13 @@ class Jobs(commands.Cog):
             panel.text(
                 f"🎁 You also found a **{found_info['emoji']} {found_info['name']}**! "
                 f"*(usable with `.use`)*"
+            )
+
+        if found_material:
+            mat_info = ITEMS[found_material]
+            panel.text(
+                f"🧱 You also turn up **{found_material_qty}x {mat_info['emoji']} "
+                f"{mat_info['name']}** for the town!"
             )
 
         if levels_gained:

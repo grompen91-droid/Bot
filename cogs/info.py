@@ -46,7 +46,7 @@ HELP_SECTIONS = [
     (
         "🏰 Town",
         ["townhall", "town", "buildings", "workers", "supply", "collect",
-         "study", "patrol"],
+         "gather", "study", "patrol"],
     ),
 ]
 
@@ -220,6 +220,19 @@ class Info(commands.Cog):
             lines.append(
                 f"{JOBS[job_key]['emoji']} {chip((command_label, NAME_W))} "
                 f"{status(mg_last.get(job_key, 0.0) + cooldown)}"
+            )
+
+        # .gather has its own cooldown per built production building --
+        # only shows the ones you actually have.
+        for row in await self.db.get_all_buildings(gid, uid):
+            building_key = row["building"]
+            info_b = TOWN_BUILDINGS.get(building_key)
+            if not info_b or info_b["kind"] != "production":
+                continue
+            command_label = f".gather {building_key}"
+            lines.append(
+                f"{info_b['emoji']} {chip((command_label, NAME_W))} "
+                f"{status(mg_last.get(f'gather_{building_key}', 0.0) + formulas.GATHER_COOLDOWN)}"
             )
 
         # .study/.patrol stay hidden until their building is actually
