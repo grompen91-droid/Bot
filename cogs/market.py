@@ -24,6 +24,16 @@ from econ.data.tools import MAX_TOOL_TIER, TOOLS, tool_name, tool_price
 from ui.panels import AMT_W, NAME_W, QTY_W, Palette, Panel, chip, simple_panel
 
 
+def _split_trailing_amount(text: str) -> tuple[str, int | None]:
+    """Peel an optional trailing quantity off a sell query: 'iron ore 5'
+    -> ('iron ore', 5), 'iron ore' -> ('iron ore', None). No item name
+    ends in a number, so a trailing integer is unambiguously the count."""
+    parts = text.split()
+    if len(parts) >= 2 and parts[-1].isdigit() and int(parts[-1]) >= 1:
+        return " ".join(parts[:-1]), int(parts[-1])
+    return text.strip(), None
+
+
 def resolve_item(query: str) -> str | None:
     """Fuzzy-match a user-typed item name ('wheat', 'Iron Ore', 'iron')."""
     q = query.strip().lower().replace(" ", "_")
@@ -235,22 +245,22 @@ class Market(commands.Cog):
     @commands.hybrid_command(name="sell", description="Sell goods at the town market")
     @commands.guild_only()
     @app_commands.describe(
-        item="What to sell, or 'all' for everything (default)",
-        amount="How many to sell (default: all of that item)",
+        item="What to sell (add a number at the end for a quantity), or 'all' for everything",
     )
     @app_commands.autocomplete(item=_sell_item_autocomplete)
-    async def sell(
-        self,
-        ctx: commands.Context,
-        item: str | None = None,
-        amount: commands.Range[int, 1] | None = None,
-    ):
+    async def sell(self, ctx: commands.Context, *, item: str | None = None):
+        # `item` consumes the whole phrase (not just the first word), so a
+        # multi-word name like "potion of insight" resolves correctly as a
+        # prefix command instead of collapsing to just "potion" and matching
+        # the first item that starts with it. An optional trailing number is
+        # peeled off as the quantity ("iron ore 5" -> iron ore, x5).
         gid, uid = ctx.guild.id, ctx.author.id
 
-        if item is None or item.lower() in ("all", "everything"):
+        if item is None or item.strip().lower() in ("all", "everything"):
             await self._send_sell_all_confirm(ctx)
             return
 
+        item, amount = _split_trailing_amount(item)
         item_key = resolve_item(item)
         if item_key is None:
             await ctx.send(
