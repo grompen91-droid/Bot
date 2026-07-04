@@ -146,8 +146,8 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
 - **Job minigames**: every trade has its own quick, timed challenge,
   the real hands-on way to earn beyond `.work`. Running the command
   first shows a 🟢 Easy / 🟡 Medium / 🔴 Hard picker instead of just
-  starting: Easy is always open, Medium unlocks at **level 15** in
-  that trade's own skill, Hard at **level 35** -- so a higher skill
+  starting: Easy is always open, Medium unlocks at **level 5** in
+  that trade's own skill, Hard at **level 10** -- so a higher skill
   level buys access to a longer, tougher, better-paying version of the
   *same* minigame. Hard runs more rounds (up to the trade's own tuned
   ceiling), tightens whichever timer that minigame uses by up to 38%,

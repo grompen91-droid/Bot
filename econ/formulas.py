@@ -556,11 +556,11 @@ DIFFICULTIES = {
         "length_frac": 0.0, "bonus": 0, "timeout_mult": 1.00, "reward_mult": 1.0,
     },
     "medium": {
-        "label": "Medium", "emoji": "🟡", "unlock_level": 15,
+        "label": "Medium", "emoji": "🟡", "unlock_level": 5,
         "length_frac": 0.5, "bonus": 1, "timeout_mult": 0.80, "reward_mult": 1.35,
     },
     "hard": {
-        "label": "Hard", "emoji": "🔴", "unlock_level": 35,
+        "label": "Hard", "emoji": "🔴", "unlock_level": 10,
         "length_frac": 1.0, "bonus": 2, "timeout_mult": 0.62, "reward_mult": 1.85,
     },
 }
