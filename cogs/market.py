@@ -251,6 +251,54 @@ class Market(commands.Cog):
             choices.insert(0, app_commands.Choice(name="✨ Everything", value="all"))
         return choices[:25]
 
+    async def _any_item_autocomplete(
+        self, interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[str]]:
+        """Every item in the game (not just what you carry) -- for the
+        admin .grantitem command."""
+        q = current.lower()
+        choices = [
+            app_commands.Choice(name=info["name"], value=key)
+            for key, info in ITEMS.items()
+            if q in info["name"].lower() or q in key
+        ]
+        return choices[:25]
+
+    @commands.hybrid_command(
+        name="grantitem", description="[Admin] Give an item to a townsfolk's satchel"
+    )
+    @commands.guild_only()
+    @commands.has_permissions(administrator=True)
+    @app_commands.describe(
+        member="Who receives the item",
+        item="Which item to grant, with an optional count (e.g. 'iron ore 5'). Default 1.",
+    )
+    @app_commands.autocomplete(item=_any_item_autocomplete)
+    async def grantitem(
+        self, ctx: commands.Context, member: discord.Member, *, item: str
+    ):
+        # `item` consumes the rest so a multi-word name ("potion of
+        # insight") resolves instead of collapsing to its first word; a
+        # trailing number is the count (default 1).
+        name, count = _split_sell_count(item)
+        amount = count if isinstance(count, int) else 1
+        item_key = resolve_item(name)
+        if item_key is None:
+            await ctx.send(
+                view=simple_panel(f"No such item: **{name}**.", accent=Palette.RED),
+                ephemeral=True,
+            )
+            return
+        await self.db.add_item(ctx.guild.id, member.id, item_key, amount)
+        info = ITEMS[item_key]
+        await ctx.send(
+            view=simple_panel(
+                f"🎁 Granted **{amount:,}× {info['emoji']} {info['name']}** "
+                f"to {member.mention}'s satchel.",
+                accent=Palette.BLUE,
+            )
+        )
+
     @commands.hybrid_command(name="sell", description="Sell goods at the town market")
     @commands.guild_only()
     @app_commands.describe(
