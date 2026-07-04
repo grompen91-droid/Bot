@@ -808,6 +808,8 @@ def worker_tier_cost(base_gold: int, base_qty: int, tier: int) -> tuple[int, int
 
 BUILDING_RATE_GROWTH = 1.6          # output/hour multiplier per building tier
 WORKER_RATE_BONUS_PER_TIER = 0.25   # +25% of the building's rate per worker tier
+WORKER_RATE_BONUS_CAP = 1.0         # workers can't more than double a building's rate (+100% max),
+                                     # however many are hired onto it or however high their tiers
 BUILDING_CAP_GROWTH = 1.8           # storage cap multiplier per building tier
 STOREHOUSE_CAP_BONUS_PER_TIER = 0.35  # +35% cap per Storehouse tier, every building at once
 MAX_OFFLINE_HOURS = 48              # production stops accruing past this long uncollected
@@ -815,11 +817,14 @@ MAX_OFFLINE_HOURS = 48              # production stops accruing past this long u
 
 def building_output_rate(base_rate_per_hour: float, building_tier: int, worker_tier: int) -> float:
     """Units/hour a built production building generates, tier 1..5, with
-    an optional linked worker (tier 0..5) boosting it further."""
+    an optional linked worker (tier 0..5) boosting it further -- two
+    workers can be linked to one building (see workers_for_building),
+    so `worker_tier` is their SUMMED tiers and can reach 10; the boost
+    itself is capped at WORKER_RATE_BONUS_CAP regardless."""
     if building_tier <= 0:
         return 0.0
     tier_mult = BUILDING_RATE_GROWTH ** (building_tier - 1)
-    worker_mult = 1.0 + WORKER_RATE_BONUS_PER_TIER * worker_tier
+    worker_mult = 1.0 + min(WORKER_RATE_BONUS_CAP, WORKER_RATE_BONUS_PER_TIER * worker_tier)
     return base_rate_per_hour * tier_mult * worker_mult
 
 
@@ -865,11 +870,13 @@ def worker_slots(lodge_tier: int) -> int:
 # ── permanent bonus buildings ────────────────────────────────────────────
 # Guild Hall/Great Library/Town Square/Tavern/Temple/Watchtower each add
 # a flat percentage per tier into ONE of these effects (see each
-# building's "effect" key in econ/data/town_buildings.py). Deliberately
-# uncapped and kept separate from buffs.py's temporary-potion caps
-# (MAX_GOLD_BONUS etc.) -- this is permanent progression like a rank-up
-# or a tool tier, not a consumable, and stacks alongside coin_multiplier
-# at the exact same call sites in cogs/jobs.py.
+# building's "effect" key in econ/data/town_buildings.py), plus its
+# linked town-wide worker if hired. Kept separate from buffs.py's
+# temporary-potion caps (MAX_GOLD_BONUS etc.) -- this is permanent
+# progression like a rank-up or a tool tier, not a consumable, and
+# stacks alongside coin_multiplier at the exact same call sites in
+# cogs/jobs.py -- but every effect still has its OWN ceiling below, so
+# fully maxing a building and its worker can't spiral unbounded.
 
 BONUS_BUILDING_PER_TIER = {
     "gold": 0.05,      # Guild Hall: +5% gold/tier
@@ -880,15 +887,23 @@ BONUS_BUILDING_PER_TIER = {
     "defense": 0.06,   # Watchtower: +6% crime defense/luck/tier
 }
 TOWNWIDE_WORKER_BONUS_PER_TIER = 0.15  # the 4 town-wide workers add +15%/tier to their linked effect
+
+# Ceilings on the totals above -- sized so maxing BOTH a bonus building
+# (tier 5) and its linked town-wide worker (tier 5) lands almost
+# exactly on the cap (0.05*5 + 0.15*5 = 1.00), the same "your best
+# possible build just reaches the ceiling" tuning as CRIT_CAP/
+# BONUS_FIND_CAP above.
+TOWN_GOLD_CAP = 1.0      # town bonuses alone can't more than double gold income
+TOWN_XP_CAP = 1.0        # ...or more than double XP gain
 TOWN_COOLDOWN_CAP = 0.6  # town bonuses alone can't cut cooldown by more than 60%
 
 
 def apply_town_gold(base: float, totals: dict[str, float]) -> float:
-    return base * (1.0 + totals.get("gold", 0.0))
+    return base * (1.0 + min(TOWN_GOLD_CAP, totals.get("gold", 0.0)))
 
 
 def apply_town_xp(base: float, totals: dict[str, float]) -> float:
-    return base * (1.0 + totals.get("xp", 0.0))
+    return base * (1.0 + min(TOWN_XP_CAP, totals.get("xp", 0.0)))
 
 
 def apply_town_cooldown(base: float, totals: dict[str, float]) -> float:
