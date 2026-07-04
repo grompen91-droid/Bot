@@ -251,7 +251,7 @@ class Info(commands.Cog):
         if in_market:
             uses.append(f"Sells for {ITEMS[item_key]['value']:,} gold via `.sell` (see today's price at `.market`)")
         else:
-            uses.append(f"Sells for {ITEMS[item_key]['value']:,} gold via `.sell` (price drifts daily, not listed at `.market`)")
+            uses.append(f"Sells for {ITEMS[item_key]['value']:,} gold via `.sell` (price drifts daily)")
         return uses
 
     def _info_item_panel(self, item_key: str) -> Panel:
