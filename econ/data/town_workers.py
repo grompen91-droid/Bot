@@ -13,6 +13,7 @@ upgrade material is thematically related but never literally the same
 purchase as the building's own.
 """
 
+from .. import formulas
 from ..formulas import worker_tier_cost
 from .materials import MATERIAL_GROUPS
 from .town_buildings import TOWN_BUILDINGS
@@ -26,10 +27,22 @@ def _universal_material(tier: int, slot: int) -> str:
     return MATERIAL_GROUPS["universal"][(tier - 1) * 4 + (slot % 4)]
 
 
-def _tiers(base_gold: int, base_qty: int, material_fn) -> list[tuple[int, dict[str, int]]]:
+def _tiers(
+    base_gold: int, base_qty: int, material_fn, *, bonus: bool = False,
+) -> list[tuple[int, dict[str, int]]]:
+    """`bonus=True` (the 4 town-wide hires: Town Crier/Scribe/Guard
+    Captain/Steward) uses the steeper BONUS_WORKER_GOLD_GROWTH curve --
+    see formulas.py's back-loaded % section."""
     tiers = []
     for tier in range(1, 6):
-        gold, qty = worker_tier_cost(base_gold, base_qty, tier)
+        if bonus:
+            gold, qty = formulas.tier_cost(
+                base_gold, base_qty, tier,
+                gold_growth=formulas.BONUS_WORKER_GOLD_GROWTH,
+                qty_growth=formulas.WORKER_MATERIAL_QTY_GROWTH,
+            )
+        else:
+            gold, qty = worker_tier_cost(base_gold, base_qty, tier)
         tiers.append((gold, {material_fn(tier): qty}))
     return tiers
 
@@ -97,6 +110,7 @@ for _w in _RAW_WORKERS:
         _entry["tiers"] = _tiers(
             _entry["base_gold"], _entry["base_qty"],
             lambda tier, s=_slot: _universal_material(tier, s),
+            bonus=True,
         )
     TOWN_WORKERS[_entry["key"]] = _entry
 

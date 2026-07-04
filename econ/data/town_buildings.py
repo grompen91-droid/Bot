@@ -19,6 +19,7 @@ pair); utility/bonus buildings draw from the shared "universal" group
 instead, since they aren't tied to one resource.
 """
 
+from .. import formulas
 from ..formulas import building_tier_cost
 from .materials import MATERIAL_GROUPS
 
@@ -37,10 +38,23 @@ def _universal_material(tier: int, slot: int) -> str:
     return MATERIAL_GROUPS["universal"][(tier - 1) * 4 + (slot % 4)]
 
 
-def _tiers(base_gold: int, base_qty: int, material_fn) -> list[tuple[int, dict[str, int]]]:
+def _tiers(
+    base_gold: int, base_qty: int, material_fn, *, bonus: bool = False,
+) -> list[tuple[int, dict[str, int]]]:
+    """`bonus=True` (Guild Hall/Great Library/Town Square/Tavern/Temple/
+    Watchtower) uses the steeper BONUS_BUILDING_GOLD_GROWTH curve
+    instead of the standard one -- see formulas.py's back-loaded %
+    section for why these six specifically cost more to fully climb."""
     tiers = []
     for tier in range(1, 6):
-        gold, qty = building_tier_cost(base_gold, base_qty, tier)
+        if bonus:
+            gold, qty = formulas.tier_cost(
+                base_gold, base_qty, tier,
+                gold_growth=formulas.BONUS_BUILDING_GOLD_GROWTH,
+                qty_growth=formulas.BUILDING_MATERIAL_QTY_GROWTH,
+            )
+        else:
+            gold, qty = building_tier_cost(base_gold, base_qty, tier)
         tiers.append((gold, {material_fn(tier): qty}))
     return tiers
 
@@ -127,6 +141,7 @@ for _b in _RAW_BUILDINGS:
         _entry["tiers"] = _tiers(
             _entry["base_gold"], _entry["base_qty"],
             lambda tier, s=_slot: _universal_material(tier, s),
+            bonus=(_entry["kind"] == "bonus"),
         )
     TOWN_BUILDINGS[_entry["key"]] = _entry
 

@@ -63,7 +63,7 @@ def _building_effect_line(key: str, tier: int) -> str:
         return f"+{tier * formulas.STOREHOUSE_CAP_BONUS_PER_TIER * 100:.0f}% storage cap, every building"
     effect = info["effect"]
     sign = "-" if effect == "cooldown" else "+"
-    pct = formulas.BONUS_BUILDING_PER_TIER[effect] * tier * 100
+    pct = formulas.bonus_building_pct(effect, tier) * 100
     return f"{sign}{pct:.0f}% {EFFECT_LABELS[effect]}"
 
 

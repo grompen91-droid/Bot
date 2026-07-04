@@ -200,10 +200,13 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
     capacity, Storehouse raises every production cap at once); 6
     **bonus** buildings (Guild Hall +gold%, Great Library +XP%, Town
     Square -cooldown%, Tavern +crit%, Temple +bonus-find%, Watchtower
-    +crime defense) add a permanent, uncapped town-wide multiplier
-    that stacks alongside your town rank on every `.work`, `.venture`,
-    minigame, and crime roll -- not through the temporary-potion buff
-    system.
+    +crime defense) add a permanent town-wide multiplier that stacks
+    alongside your town rank on every `.work`, `.venture`, minigame,
+    and crime roll -- not through the temporary-potion buff system.
+    Each is capped, and deliberately back-loaded: tier 5 alone delivers
+    almost half of the building's total bonus (and its linked town-wide
+    worker's, if hired), so the real payoff is a late push, not
+    something a first week of grinding stumbles into.
   - **20 hireable workers** (`.workers`, needs a Workers' Lodge
     built): two per production building boosting its output rate,
     plus four town-wide hires (Town Crier, Scribe, Guard Captain,

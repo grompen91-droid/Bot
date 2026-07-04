@@ -869,24 +869,64 @@ def worker_slots(lodge_tier: int) -> int:
 
 # ── permanent bonus buildings ────────────────────────────────────────────
 # Guild Hall/Great Library/Town Square/Tavern/Temple/Watchtower each add
-# a flat percentage per tier into ONE of these effects (see each
-# building's "effect" key in econ/data/town_buildings.py), plus its
-# linked town-wide worker if hired. Kept separate from buffs.py's
-# temporary-potion caps (MAX_GOLD_BONUS etc.) -- this is permanent
-# progression like a rank-up or a tool tier, not a consumable, and
-# stacks alongside coin_multiplier at the exact same call sites in
-# cogs/jobs.py -- but every effect still has its OWN ceiling below, so
-# fully maxing a building and its worker can't spiral unbounded.
+# a percentage into ONE of these effects (see each building's "effect"
+# key in econ/data/town_buildings.py), plus its linked town-wide worker
+# if hired. Kept separate from buffs.py's temporary-potion caps
+# (MAX_GOLD_BONUS etc.) -- this is permanent progression like a rank-up
+# or a tool tier, not a consumable, and stacks alongside coin_multiplier
+# at the exact same call sites in cogs/jobs.py -- but every effect still
+# has its OWN ceiling below, so fully maxing a building and its worker
+# can't spiral unbounded.
+#
+# The percentage is deliberately back-loaded across the 5 tiers rather
+# than flat: each tier's SHARE of the eventual tier-5 total grows
+# ~x1.8 tier over tier, so tier 1 gives barely a taste (~5% of the
+# total) and tier 5 alone delivers almost half of it. Paired with
+# BONUS_BUILDING_GOLD_GROWTH/BONUS_WORKER_GOLD_GROWTH below (steeper
+# than the standard building/worker cost curve), the big power spike
+# and the big price tag land on the same late tiers -- reaching it is
+# meant to be a late-month push, not a first-week side project.
 
-BONUS_BUILDING_PER_TIER = {
-    "gold": 0.05,      # Guild Hall: +5% gold/tier
-    "xp": 0.05,        # Great Library: +5% XP/tier
-    "cooldown": 0.03,  # Town Square: -3% cooldown/tier
-    "crit": 0.02,      # Tavern: +2% crit chance/tier
-    "luck": 0.03,      # Temple: +3% bonus-find chance/tier
-    "defense": 0.06,   # Watchtower: +6% crime defense/luck/tier
+_TIER_BACKLOAD_RATIO = 1.8
+_TIER_BACKLOAD_WEIGHTS = [_TIER_BACKLOAD_RATIO**i for i in range(5)]
+_TIER_BACKLOAD_TOTAL = sum(_TIER_BACKLOAD_WEIGHTS)
+TIER_BACKLOAD_SHARE = [w / _TIER_BACKLOAD_TOTAL for w in _TIER_BACKLOAD_WEIGHTS]  # ~[5%, 8%, 15%, 27%, 45%]
+
+# Total percentage each bonus building grants once fully maxed (tier 5)
+# -- unchanged from the old flat-per-tier totals, only the SHAPE of the
+# climb to get there changed.
+BONUS_BUILDING_MAX_PCT = {
+    "gold": 0.25,      # Guild Hall: up to +25% gold at tier 5
+    "xp": 0.25,        # Great Library: up to +25% XP at tier 5
+    "cooldown": 0.15,  # Town Square: up to -15% cooldown at tier 5
+    "crit": 0.10,      # Tavern: up to +10% crit chance at tier 5
+    "luck": 0.15,      # Temple: up to +15% bonus-find chance at tier 5
+    "defense": 0.30,   # Watchtower: up to +30% crime defense/luck at tier 5
 }
-TOWNWIDE_WORKER_BONUS_PER_TIER = 0.15  # the 4 town-wide workers add +15%/tier to their linked effect
+TOWNWIDE_WORKER_MAX_PCT = 0.75  # every town-wide worker adds up to +75% to its linked effect at tier 5
+
+# Steeper than BUILDING_GOLD_GROWTH/WORKER_GOLD_GROWTH -- tier 1 costs
+# exactly the same as it would on the standard curve (growth^0 = 1
+# either way), so dipping a toe in stays cheap, but tiers 4-5 (where
+# the backloaded % actually lives) cost noticeably more than a regular
+# building/worker's would.
+BONUS_BUILDING_GOLD_GROWTH = 2.0
+BONUS_WORKER_GOLD_GROWTH = 1.9
+
+
+def bonus_building_pct(effect: str, tier: int) -> float:
+    """Cumulative % a bonus building grants at `tier` (0..5)."""
+    if tier <= 0:
+        return 0.0
+    return BONUS_BUILDING_MAX_PCT[effect] * sum(TIER_BACKLOAD_SHARE[:tier])
+
+
+def townwide_worker_pct(tier: int) -> float:
+    """Cumulative % a town-wide worker adds to its linked effect at
+    `tier` (0..5), same back-loaded shape as bonus_building_pct."""
+    if tier <= 0:
+        return 0.0
+    return TOWNWIDE_WORKER_MAX_PCT * sum(TIER_BACKLOAD_SHARE[:tier])
 
 # Ceilings on the totals above -- sized so maxing BOTH a bonus building
 # (tier 5) and its linked town-wide worker (tier 5) lands almost

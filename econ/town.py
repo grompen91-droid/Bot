@@ -38,7 +38,7 @@ async def town_bonus_totals(db, guild_id: int, user_id: int) -> dict[str, float]
         if not info or info["kind"] != "bonus" or tier <= 0:
             continue
         effect = info["effect"]
-        totals[effect] = totals.get(effect, 0.0) + formulas.BONUS_BUILDING_PER_TIER[effect] * tier
+        totals[effect] = totals.get(effect, 0.0) + formulas.bonus_building_pct(effect, tier)
 
     for key, tier in worker_tiers.items():
         if tier <= 0:
@@ -48,7 +48,7 @@ async def town_bonus_totals(db, guild_id: int, user_id: int) -> dict[str, float]
         if not building or building["kind"] != "bonus":
             continue
         effect = building["effect"]
-        totals[effect] = totals.get(effect, 0.0) + formulas.TOWNWIDE_WORKER_BONUS_PER_TIER * tier
+        totals[effect] = totals.get(effect, 0.0) + formulas.townwide_worker_pct(tier)
     return totals
 
 
