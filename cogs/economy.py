@@ -405,6 +405,14 @@ class Economy(commands.Cog):
         _rank_emoji, rank_title = formulas.town_rank(total_level)
         theme = THEMES.get(user["theme"], THEMES[DEFAULT_THEME])
 
+        reputation = user["reputation"]
+        if reputation < 0:
+            rep_label, rep_value = "Infamy", f"{formulas.reputation_infamy(reputation):,}"
+        elif reputation > 0:
+            rep_label, rep_value = "Fame", f"{formulas.reputation_fame(reputation):,}"
+        else:
+            rep_label, rep_value = "Standing", "Neutral"
+
         try:
             avatar_bytes = await target.display_avatar.replace(size=256).read()
         except Exception:
@@ -425,6 +433,8 @@ class Economy(commands.Cog):
             best_trade_label=best_trade_label,
             gold_rank=gold_rank,
             skill_rank=skill_rank,
+            reputation_label=rep_label,
+            reputation_value=rep_value,
         ))
         await ctx.send(file=discord.File(card, filename="profile.png"))
 

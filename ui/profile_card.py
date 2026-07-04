@@ -38,6 +38,8 @@ class ProfileCardData:
     best_trade_label: str      # e.g. "Miner Lv 32" or "No trade yet"
     gold_rank: int
     skill_rank: int
+    reputation_label: str      # "Infamy" / "Fame" / "Standing"
+    reputation_value: str      # "1,234" / "Neutral"
 
 
 # ── shared drawing helpers ───────────────────────────────────────────────
@@ -197,13 +199,14 @@ def _layout_banner(data: ProfileCardData) -> Image.Image:
 
     box_y = pad + avatar_size + 22
     box_h = h - box_y - pad
-    weights = [1, 2, 1, 1]
+    weights = [2, 3, 2, 2, 2]
     gap = 16
     unit_w = (w - pad * 2 - gap * (len(weights) - 1)) / sum(weights)
     total_gold = data.pocket_gold + data.bank_gold
     stats = [
         ("Gold", f"{total_gold:,}"),
         ("Best Trade", data.best_trade_label),
+        (data.reputation_label, data.reputation_value),
         ("Wealth Rank", f"#{data.gold_rank}"),
         ("Skill Rank", f"#{data.skill_rank}"),
     ]
@@ -281,8 +284,10 @@ def _layout_dashboard(data: ProfileCardData) -> Image.Image:
 
     col_w = mid_x - pad * 2
     total_gold = data.pocket_gold + data.bank_gold
+    # Best Trade is already shown in the header above, so the right
+    # column carries Reputation and the rank title instead of repeating it.
     left_rows = [("Gold", f"{total_gold:,}"), ("Wealth Rank", f"#{data.gold_rank}")]
-    right_rows = [("Best Trade", data.best_trade_label), ("Rank Title", data.rank_title)]
+    right_rows = [(data.reputation_label, data.reputation_value), ("Rank Title", data.rank_title)]
     row_bg = _darkable(_lerp(bg_flat, (0, 0, 0), 0.3))
     y = body_top
     for label, value in left_rows:
@@ -300,7 +305,7 @@ def _layout_dashboard(data: ProfileCardData) -> Image.Image:
 # two, which are both landscape)
 
 def _layout_ticket(data: ProfileCardData) -> Image.Image:
-    w, h = 620, 620
+    w, h = 620, 720
     pad, avatar_size = 32, 168
     bg_flat = _darkable(_lerp((16, 16, 22), data.accent_rgb, 0.18))
     border = _readable(data.accent_rgb)
@@ -337,8 +342,11 @@ def _layout_ticket(data: ProfileCardData) -> Image.Image:
     draw.line((pad, divider_y, w - pad, divider_y), fill=border, width=3)
 
     grid_top = divider_y + 20
+    # A full-width Reputation strip sits below the 2x2 grid, so reserve
+    # its height (plus a gap) before splitting the rest into the grid.
+    rep_h = 74
     cell_w = (w - pad * 2 - 16) // 2
-    cell_h = (h - grid_top - pad - 16) // 2
+    cell_h = (h - grid_top - pad - 16 - rep_h - 16) // 2
     total_gold = data.pocket_gold + data.bank_gold
     cells = [
         ("Gold", f"{total_gold:,}"), ("Best Trade", data.best_trade_label),
@@ -350,6 +358,11 @@ def _layout_ticket(data: ProfileCardData) -> Image.Image:
         x = pad + col * (cell_w + 16)
         y = grid_top + row * (cell_h + 16)
         _stat_box(canvas, (x, y), (cell_w, cell_h), label, value, data.accent_rgb, box_bg)
+    rep_y = grid_top + 2 * (cell_h + 16)
+    _stat_box(
+        canvas, (pad, rep_y), (w - pad * 2, rep_h),
+        data.reputation_label, data.reputation_value, data.accent_rgb, box_bg,
+    )
     return canvas
 
 
@@ -396,10 +409,11 @@ def _layout_scroll(data: ProfileCardData) -> Image.Image:
     tags = [
         ("Gold", f"{total_gold:,}"),
         ("Best Trade", data.best_trade_label),
+        (data.reputation_label, data.reputation_value),
         ("Wealth Rank", f"#{data.gold_rank}"),
         ("Skill Rank", f"#{data.skill_rank}"),
     ]
-    tag_w = (w - tx - pad - 3 * 24) // 4
+    tag_w = (w - tx - pad - (len(tags) - 1) * 24) // len(tags)
     x = tx
     y = rule_y + 20
     for i, (label, value) in enumerate(tags):
