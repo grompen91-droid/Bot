@@ -24,13 +24,22 @@ from econ.data.tools import MAX_TOOL_TIER, TOOLS, tool_name, tool_price
 from ui.panels import AMT_W, NAME_W, QTY_W, Palette, Panel, chip, simple_panel
 
 
-def _split_trailing_amount(text: str) -> tuple[str, int | None]:
-    """Peel an optional trailing quantity off a sell query: 'iron ore 5'
-    -> ('iron ore', 5), 'iron ore' -> ('iron ore', None). No item name
-    ends in a number, so a trailing integer is unambiguously the count."""
+def _split_sell_count(text: str) -> tuple[str, int | str | None]:
+    """Peel a trailing count off a sell query: the last token, if it's a
+    positive integer or the word 'all'/'max'/'half', is the count and the
+    rest is the item name ('iron ore 5' -> ('iron ore', 5), 'iron ore all'
+    -> ('iron ore', 'all')). Returns count None if none was given, which
+    makes .sell ask to confirm selling all of that item. No item name ends
+    in a number or those words, so the split is unambiguous."""
     parts = text.split()
-    if len(parts) >= 2 and parts[-1].isdigit() and int(parts[-1]) >= 1:
-        return " ".join(parts[:-1]), int(parts[-1])
+    if len(parts) >= 2:
+        tail = parts[-1].lower()
+        if tail in ("all", "max"):
+            return " ".join(parts[:-1]), "all"
+        if tail == "half":
+            return " ".join(parts[:-1]), "half"
+        if tail.isdigit() and int(tail) >= 1:
+            return " ".join(parts[:-1]), int(tail)
     return text.strip(), None
 
 
@@ -245,22 +254,23 @@ class Market(commands.Cog):
     @commands.hybrid_command(name="sell", description="Sell goods at the town market")
     @commands.guild_only()
     @app_commands.describe(
-        item="What to sell (add a number at the end for a quantity), or 'all' for everything",
+        item="What to sell, e.g. 'iron ore 5' or 'iron ore all'. "
+        "No number asks to confirm selling all of it. Just 'all' sells everything.",
     )
     @app_commands.autocomplete(item=_sell_item_autocomplete)
     async def sell(self, ctx: commands.Context, *, item: str | None = None):
         # `item` consumes the whole phrase (not just the first word), so a
         # multi-word name like "potion of insight" resolves correctly as a
-        # prefix command instead of collapsing to just "potion" and matching
-        # the first item that starts with it. An optional trailing number is
-        # peeled off as the quantity ("iron ore 5" -> iron ore, x5).
+        # prefix command instead of collapsing to just "potion". A trailing
+        # count (a number, or "all"/"half") says how many; leaving it off
+        # asks to confirm selling every one of that item you carry.
         gid, uid = ctx.guild.id, ctx.author.id
 
         if item is None or item.strip().lower() in ("all", "everything"):
             await self._send_sell_all_confirm(ctx)
             return
 
-        item, amount = _split_trailing_amount(item)
+        item, count = _split_sell_count(item)
         item_key = resolve_item(item)
         if item_key is None:
             await ctx.send(
@@ -282,18 +292,36 @@ class Market(commands.Cog):
             )
             return
 
-        qty = min(amount, have) if amount else have
+        # No count given -> confirm selling all of it (the destructive
+        # default), showing the quantity and the gold it fetches first.
+        if count is None:
+            await self._send_sell_item_confirm(ctx, item_key, have)
+            return
+
+        if count == "all":
+            qty = have
+        elif count == "half":
+            qty = max(1, have // 2)
+        else:
+            qty = min(count, have)
+
+        result = await self._do_sell_item(gid, uid, item_key, qty)
+        await ctx.send(
+            view=result if isinstance(result, Panel)
+            else simple_panel(result, accent=Palette.RED),
+            ephemeral=not isinstance(result, Panel),
+        )
+
+    async def _do_sell_item(
+        self, gid: int, uid: int, item_key: str, qty: int
+    ) -> Panel | str:
+        """Sell `qty` of one item at today's market price. Returns a result
+        Panel, or an error string. Shared by the direct .sell path and the
+        no-count confirm button so both sell identically."""
         price = formulas.market_price(item_key, ITEMS[item_key]["value"])
         earned = price * qty
         if not await self.db.remove_item(gid, uid, item_key, qty):
-            await ctx.send(
-                view=simple_panel(
-                    "Those goods are already gone from your satchel.",
-                    accent=Palette.RED,
-                ),
-                ephemeral=True,
-            )
-            return
+            return "Those goods are already gone from your satchel."
         balance = await self.db.add_gold(gid, uid, earned)
         await self.db.incr_stat(gid, uid, "items_sold", qty)
         await self.db.incr_stat(gid, uid, "gold_from_sales", earned)
@@ -305,7 +333,58 @@ class Market(commands.Cog):
             f"{chip((ITEMS[item_key]['name'], NAME_W), (f'x{qty}', QTY_W), (f'{earned:,}', -AMT_W))} 🪙"
         )
         panel.footer(f"{price:,} gold each · Purse: {balance:,} gold")
-        await ctx.send(view=panel)
+        return panel
+
+    async def _send_sell_item_confirm(
+        self, ctx: commands.Context, item_key: str, have: int
+    ) -> None:
+        """No count was given, so confirm selling ALL of this one item,
+        showing how many and for how much before committing."""
+        uid = ctx.author.id
+        price = formulas.market_price(item_key, ITEMS[item_key]["value"])
+        total = price * have
+        info = ITEMS[item_key]
+
+        panel = Panel(accent=Palette.GOLD, author_id=uid, timeout=30)
+        panel.header("🏪 Sell All of These?")
+        panel.text(
+            f"Sell all **{have:,}× {info['emoji']} {info['name']}** for "
+            f"**{total:,} 🪙** ({price:,} each)?\n"
+            "*Add a number like* `.sell "
+            f"{info['name'].lower()} 5` *next time to sell just some.*"
+        )
+        yes_btn = ui.Button(label=f"Sell all {have:,}", emoji="🏪", style=discord.ButtonStyle.danger)
+        no_btn = ui.Button(label="Cancel", style=discord.ButtonStyle.secondary)
+
+        async def on_yes(interaction: discord.Interaction) -> None:
+            now_have = await self.db.get_item_qty(interaction.guild_id, interaction.user.id, item_key)
+            if now_have <= 0:
+                await interaction.response.edit_message(
+                    view=simple_panel(
+                        "Those goods are already gone from your satchel.",
+                        accent=Palette.RED,
+                    )
+                )
+                return
+            result = await self._do_sell_item(
+                interaction.guild_id, interaction.user.id, item_key, now_have
+            )
+            await interaction.response.edit_message(
+                view=result if isinstance(result, Panel)
+                else simple_panel(result, accent=Palette.RED)
+            )
+
+        async def on_no(interaction: discord.Interaction) -> None:
+            await interaction.response.edit_message(
+                view=simple_panel(
+                    "Sale cancelled, your satchel is untouched.", accent=Palette.GOLD
+                )
+            )
+
+        yes_btn.callback = on_yes
+        no_btn.callback = on_no
+        panel.buttons(yes_btn, no_btn)
+        panel.message = await ctx.send(view=panel)
 
     async def _send_sell_all_confirm(self, ctx: commands.Context) -> None:
         """.sell with no item is destructive (empties the whole satchel

@@ -39,9 +39,11 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
 - **The market** (`.market`, `.sell`): deterministic daily prices, a 7-day
   sine wave per good (each on its own phase) times daily noise, so goods
   peak on different days and every player sees the same market. Selling
-  a single named item is instant; `.sell` with no item (or `all`) asks
-  "sell everything?" with Yes/No buttons first, since it's a one-shot,
-  irreversible action.
+  takes a count: `.sell iron ore 5` sells five, `.sell iron ore all`
+  sells the lot -- both instant. Naming an item with **no count**
+  (`.sell iron ore`) asks "sell all N for X gold?" with Yes/No buttons
+  first, and `.sell` with no item at all (or `all`) confirms selling the
+  whole satchel -- both one-shot, irreversible, so both confirm.
 - **`.shop`**: one paginated, dropdown-driven browser (same shape as
   `.market`/`.inventory`). A fresh **18 goods** rotate in daily out of
   a pool of every potion/buff food plus a broad set of rare-or-better
