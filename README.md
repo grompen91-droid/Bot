@@ -212,7 +212,7 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
 | `.harvest` / `.dig` / `.fish` / `.fell` / `.hunt` / `.bake` / `.tend` / `.stretch` / `.facet` / `.brew` | Job minigames (current job, or lvl 5+ in it) |
 | `.harvesttest` / `.digtest` / `.fishtest` / `.felltest` / `.hunttest` / `.baketest` / `.tendtest` / `.stretchtest` / `.facettest` / `.brewtest [level]` | Admin-only: try any minigame with no job/cooldown/rewards |
 | `.cd [member]` / `.cooldown` | Every cooldown someone is currently carrying, at a glance |
-| `.help` / `.about` | Guidance |
+| `.help` / `.about` | Guidance (`.help`'s command list is tappable slash-command mentions) |
 
 ## Architecture (how to expand it)
 

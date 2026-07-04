@@ -17,23 +17,27 @@ from econ.data.minigames import MINIGAMES
 from econ.data.recipes import RECIPES
 from ui.panels import NAME_W, Palette, Panel, chip
 
+# Each section is a list of command names; .help renders them as
+# clickable slash-command mentions (</name:id>) when the bot has cached
+# the ids at sync (see MedievalBot._build_command_mentions), else as
+# plain ".name" text. Names must match the registered slash command
+# names so the lookup resolves.
 HELP_SECTIONS = [
-    ("⚒️ Trade", ".job · .work · .skills"),
-    ("🏪 Market", ".inventory · .market · .sell · .shop · .buy"),
-    ("🛠️ Crafting", ".recipes · .craft"),
-    ("✨ Consumables", ".use · .buffs"),
-    ("🗺️ Venture", ".venture"),
-    ("💰 Gold", ".balance · .daily · .beg · .pay · .profile · .theme · .leaderboard"),
-    ("🏦 Bank", ".bank · .deposit · .withdraw"),
-    ("🗡️ Crime", ".pickpocket · .smuggle · .surrender"),
+    ("⚒️ Trade", ["job", "work", "skills"]),
+    ("🏪 Market", ["inventory", "market", "sell", "shop", "buy"]),
+    ("🛠️ Crafting", ["recipes", "craft"]),
+    ("✨ Consumables", ["use", "buffs"]),
+    ("🗺️ Venture", ["venture"]),
+    ("💰 Gold", ["balance", "daily", "beg", "pay", "profile", "theme", "leaderboard"]),
+    ("🏦 Bank", ["bank", "deposit", "withdraw"]),
+    ("🗡️ Crime", ["pickpocket", "smuggle", "surrender"]),
     # Every job-specific minigame lives in this one section, not a new
     # section per job, however many of these exist.
     (
         "🎯 Job Minigames",
-        ".harvest · .dig · .fish · .fell · .hunt · .bake · .tend · "
-        ".stretch · .facet · .brew · .rob",
+        ["harvest", "dig", "fish", "fell", "hunt", "bake", "tend",
+         "stretch", "facet", "brew", "rob"],
     ),
-    ("⏳ Cooldowns", ".cd · see every timer you're carrying, at a glance"),
 ]
 
 # .pickpocket, .smuggle, and .rob all share the same "current Criminal,
@@ -51,13 +55,22 @@ class Info(commands.Cog):
     def db(self):
         return self.bot.db
 
+    def _cmd(self, name: str) -> str:
+        """A command's clickable slash mention if cached, else plain
+        ".name" text (prefix commands still work either way)."""
+        return getattr(self.bot, "command_mentions", {}).get(name, f"`.{name}`")
+
     @commands.hybrid_command(name="help", description="A guide to life in the town")
     async def help(self, ctx: commands.Context):
         panel = Panel(timeout=None)
         panel.header("📜 Commands")
-        for title, cmds in HELP_SECTIONS:
-            panel.field(title, cmds)
-        panel.footer("also work as /slash commands")
+        for title, names in HELP_SECTIONS:
+            panel.field(title, " · ".join(self._cmd(n) for n in names))
+        panel.field(
+            "⏳ Cooldowns",
+            f"{self._cmd('cd')} · see every timer you're carrying, at a glance",
+        )
+        panel.footer("tap any command to run it · all work as .prefix too")
         await ctx.send(view=panel)
 
     @commands.hybrid_command(name="about", description="About this humble town")

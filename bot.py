@@ -64,6 +64,11 @@ class MedievalBot(commands.Bot):
             sqlite_path=os.getenv("DB_PATH", "economy.db"),
             postgres_url=os.getenv("DATABASE_URL"),
         )
+        # name -> "</name:id>" clickable slash-command mention, filled in
+        # after sync (see _build_command_mentions). cogs/info.py's .help
+        # renders these so its command list is clickable, falling back to
+        # plain ".name" text for anything not in here.
+        self.command_mentions: dict[str, str] = {}
 
     async def setup_hook(self) -> None:
         await self.db.connect()
@@ -80,6 +85,37 @@ class MedievalBot(commands.Bot):
         else:
             synced = await self.tree.sync()
             log.info("Synced %d global commands (may take up to an hour)", len(synced))
+
+        self.command_mentions = self._build_command_mentions(synced)
+        log.info("Cached %d slash-command mentions for .help", len(self.command_mentions))
+
+    def _build_command_mentions(
+        self, synced: list[app_commands.AppCommand]
+    ) -> dict[str, str]:
+        """Map each command name to its clickable ``</name:id>`` mention.
+
+        A command mention is just text Discord's client turns into a
+        chip; the id has to be the one Discord assigned at sync, which
+        is exactly what ``tree.sync()`` hands back, so no extra fetch is
+        needed. Groups (only ``job`` today) can't be mentioned bare, so
+        their name resolves to the fallback subcommand's mention instead
+        (``.job`` -> ``</job board:id>``), leaving ``.job`` clickable and
+        landing on the same job board it opens as a prefix command."""
+        mentions: dict[str, str] = {}
+        for cmd in synced:
+            subs = [
+                o for o in cmd.options
+                if isinstance(o, app_commands.AppCommandGroup)
+            ]
+            if not subs:
+                mentions[cmd.name] = cmd.mention
+                continue
+            for sub in subs:
+                mentions[f"{cmd.name} {sub.name}"] = sub.mention
+            fallback = getattr(self.get_command(cmd.name), "fallback", None)
+            if fallback and f"{cmd.name} {fallback}" in mentions:
+                mentions[cmd.name] = mentions[f"{cmd.name} {fallback}"]
+        return mentions
 
     async def on_message(self, message: discord.Message) -> None:
         if message.author.bot:
