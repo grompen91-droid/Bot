@@ -958,6 +958,43 @@ def apply_town_luck(base_chance: float, totals: dict[str, float]) -> float:
     return min(0.9, base_chance + totals.get("luck", 0.0))
 
 
+# ── population: a derived stat, not another grind timer ─────────────────
+# No new DB state at all -- population is read straight off what's
+# already built: Town Hall's level, every building's tier summed, and
+# how many workers are hired. It feeds a small permanent gold bonus
+# (folded into the same town_bonus_totals stack as Guild Hall/Town
+# Crier, so it shares TOWN_GOLD_CAP rather than stacking past it) and
+# sets which .caravan routes are open -- a bigger town can spare a
+# bigger expedition, see econ/data/caravans.py.
+
+POPULATION_BASE = 20
+POPULATION_PER_HALL_LEVEL = 15
+POPULATION_PER_BUILDING_TIER = 8
+POPULATION_PER_WORKER = 5
+# Deliberately small -- a fully maxed town (population ~900) only adds
+# ~9% gold this way. Guild Hall/Town Crier stay the dedicated, much
+# bigger source; population is a background flavour bonus for
+# investing broadly, not a way to route around that back-loaded climb.
+POPULATION_GOLD_PER_CITIZEN = 0.0001
+
+
+def town_population(hall_level: int, building_tier_sum: int, workers_hired: int) -> int:
+    if hall_level <= 0:
+        return 0
+    return (
+        POPULATION_BASE
+        + POPULATION_PER_HALL_LEVEL * hall_level
+        + POPULATION_PER_BUILDING_TIER * building_tier_sum
+        + POPULATION_PER_WORKER * workers_hired
+    )
+
+
+def population_gold_bonus(population: int) -> float:
+    """Uncapped on its own -- the combined "gold" total it feeds into
+    still passes through TOWN_GOLD_CAP in apply_town_gold."""
+    return population * POPULATION_GOLD_PER_CITIZEN
+
+
 # ── .study: the command the Great Library unlocks ───────────────────────
 # (see cogs/town.py). Cooldown tracked in the shared minigame_cooldowns
 # table under a fake "job" key ("study"), same trick already used for

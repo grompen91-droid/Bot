@@ -593,12 +593,15 @@ class Town(commands.Cog):
         worker_tiers = await town_lib.get_worker_tiers(self.db, gid, uid)
         now = time.time()
 
+        population = formulas.town_population(level, sum(building_tiers.values()), len(worker_tiers))
+
         panel = Panel(accent=Palette.GOLD, author_id=uid, timeout=180)
         panel.header(f"🏰 {_town_name(display_name)}")
         panel.text(
             f"Town Hall **Level {level}**/{formulas.TOWN_HALL_MAX_LEVEL} · "
             f"🏗️ {len(building_tiers)}/{len(TOWN_BUILDINGS)} buildings · "
-            f"👷 {len(worker_tiers)}/{len(TOWN_WORKERS)} workers hired"
+            f"👷 {len(worker_tiers)}/{len(TOWN_WORKERS)} workers hired\n"
+            f"🧑‍🤝‍🧑 Population **{population:,}**"
         )
 
         pending_lines = []
