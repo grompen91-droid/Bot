@@ -174,6 +174,18 @@ MIGRATIONS: list[str] = [
         PRIMARY KEY (guild_id, user_id, worker)
     );
     """,
+    # v13, .caravan: one expedition out at a time per player, hence the
+    # same (guild_id, user_id) primary key as towns rather than a history
+    # table -- send, wait out duration_hours, collect, row is deleted.
+    """
+    CREATE TABLE IF NOT EXISTS town_caravans (
+        guild_id    BIGINT NOT NULL,
+        user_id     BIGINT NOT NULL,
+        route       TEXT   NOT NULL,
+        departed_at DOUBLE PRECISION NOT NULL,
+        PRIMARY KEY (guild_id, user_id)
+    );
+    """,
 ]
 
 
@@ -696,6 +708,34 @@ class Database:
             guild_id, user_id,
         )
         return int(row["n"])
+
+    # ── .caravan: one expedition out at a time ──────────────────────────
+
+    async def get_caravan(self, guild_id: int, user_id: int) -> dict | None:
+        """None means no caravan is currently out."""
+        row = await self.fetchone(
+            "SELECT route, departed_at FROM town_caravans WHERE guild_id = ? AND user_id = ?",
+            guild_id, user_id,
+        )
+        return dict(row) if row is not None else None
+
+    async def start_caravan(
+        self, guild_id: int, user_id: int, route: str, departed_at: float
+    ) -> bool:
+        """False (no-op) if one is already out, so a double-clicked send
+        can't queue a second caravan."""
+        inserted = await self.execute_rowcount(
+            "INSERT INTO town_caravans (guild_id, user_id, route, departed_at) "
+            "VALUES (?, ?, ?, ?) ON CONFLICT (guild_id, user_id) DO NOTHING",
+            guild_id, user_id, route, departed_at,
+        )
+        return bool(inserted)
+
+    async def clear_caravan(self, guild_id: int, user_id: int) -> None:
+        await self.execute(
+            "DELETE FROM town_caravans WHERE guild_id = ? AND user_id = ?",
+            guild_id, user_id,
+        )
 
     # ── the other per-job minigames ─────────────────────────────────────
 

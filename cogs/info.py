@@ -11,6 +11,7 @@ from discord.ext import commands
 
 from econ import formulas
 from econ.buffs import active_buff_summary, active_buff_totals, apply_cooldown_buff
+from econ.data.caravans import CARAVAN_ROUTES
 from econ.data.consumables import CONSUMABLES, WORK_DROP_CONSUMABLES
 from econ.data.items import ITEMS, RARITIES
 from econ.data.jobs import JOBS, MAX_JOB_UNLOCK_LEVEL
@@ -65,7 +66,7 @@ HELP_SECTIONS = [
     (
         "🏰 Town",
         ["townhall", "town", "buildings", "workers", "fire", "supply", "collect",
-         "gather", "study", "patrol"],
+         "gather", "study", "patrol", "caravan"],
     ),
     ("📖 Lookup", ["info"]),
 ]
@@ -471,6 +472,17 @@ class Info(commands.Cog):
                 f"🗼 {chip(('.patrol', NAME_W))} "
                 f"{status(mg_last.get('patrol', 0.0) + formulas.PATROL_COOLDOWN)}"
             )
+
+        # .caravan isn't a cooldown so much as "is one already out" --
+        # same "hidden until it applies to you" rule, gated on founding.
+        if (await self.db.get_town(gid, uid))["hall_level"] > 0:
+            active_caravan = await self.db.get_caravan(gid, uid)
+            if active_caravan is not None:
+                route = CARAVAN_ROUTES[active_caravan["route"]]
+                ready_at = formulas.caravan_ready_at(active_caravan["departed_at"], route["duration_hours"])
+                lines.append(f"🐎 {chip(('.caravan', NAME_W))} {status(ready_at)}")
+            else:
+                lines.append(f"🐎 {chip(('.caravan', NAME_W))} ✅ ready to send")
 
         panel = Panel(timeout=None)
         panel.header(f"⏳ {target.display_name}'s Cooldowns")

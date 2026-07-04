@@ -17,12 +17,14 @@ from discord.ext import commands
 from econ import formulas
 from econ import town as town_lib
 from econ.buffs import active_buff_totals, apply_cooldown_buff, apply_gold_buff
+from econ.data.caravans import CARAVAN_ROUTE_ORDER, CARAVAN_ROUTES
 from econ.data.items import ITEMS, RARITIES
 from econ.data.materials import (
     MATERIAL_GROUPS,
     MATERIAL_SUPPLY_BUNDLE,
     MATERIAL_SUPPLY_MARKUP,
     MATERIAL_SUPPLY_MAX_RARITY_ORDER,
+    random_universal_material,
 )
 from econ.data.town_buildings import (
     MAX_BUILDING_TIER,
@@ -1490,6 +1492,167 @@ class Town(commands.Cog):
             panel.message = interaction.message
             await interaction.response.edit_message(view=panel)
         return handler
+
+    # ══════════════════════════════ .caravan ════════════════════════════
+    # The idle half of "going out" (Scout the Trail is the active half):
+    # send one caravan for real hours, come back later to collect. Routes
+    # are gated by POPULATION, not hall level/a building tier, since a
+    # caravan is about how much town you can spare (see
+    # econ/data/caravans.py). Only one can be out at a time.
+
+    @commands.hybrid_command(
+        name="caravan", description="Send a trade caravan out, or check on one that's already out",
+    )
+    @commands.guild_only()
+    async def caravan(self, ctx: commands.Context):
+        gid, uid = ctx.guild.id, ctx.author.id
+        town = await self.db.get_town(gid, uid)
+        if town["hall_level"] <= 0:
+            await ctx.send(
+                view=simple_panel("Found your town with `.townhall` first.", accent=Palette.RED),
+                ephemeral=True,
+            )
+            return
+        panel = await self._build_caravan_panel(gid, uid, ctx.author.display_name)
+        panel.message = await ctx.send(view=panel)
+
+    async def _build_caravan_panel(self, gid: int, uid: int, display_name: str) -> Panel:
+        caravan = await self.db.get_caravan(gid, uid)
+        if caravan is not None:
+            return self._build_caravan_status_panel(uid, caravan)
+        return await self._build_caravan_picker_panel(gid, uid, display_name)
+
+    def _build_caravan_status_panel(self, uid: int, caravan: dict) -> Panel:
+        route = CARAVAN_ROUTES[caravan["route"]]
+        ready_at = formulas.caravan_ready_at(caravan["departed_at"], route["duration_hours"])
+        panel = Panel(accent=Palette.GOLD, author_id=uid, timeout=180)
+        panel.header(f"{route['emoji']} {route['name']} · Out on the Road")
+        if time.time() < ready_at:
+            panel.text(f"*{route['flavor']}*\nDue back <t:{int(ready_at)}:R>.")
+            panel.footer("Check back with `.caravan` once it's returned.")
+            return panel
+        panel.text(f"*{route['flavor']}*\nThe caravan just rolled back into town!")
+        collect_btn = ui.Button(label="Welcome It Home", emoji="🎉", style=discord.ButtonStyle.success)
+        collect_btn.callback = self._on_caravan_collect
+        panel.buttons(collect_btn)
+        return panel
+
+    async def _build_caravan_picker_panel(self, gid: int, uid: int, display_name: str) -> Panel:
+        population = await town_lib.get_population(self.db, gid, uid)
+        user = await self.db.get_user(gid, uid)
+        panel = Panel(accent=Palette.GOLD, author_id=uid, timeout=120)
+        panel.header(f"🐎 {_town_name(display_name)} · Send a Caravan")
+        panel.text(
+            f"Population **{population:,}** decides which routes you can spare the hands for. "
+            "*Pick a route -- it takes real hours to complete, so check back later with `.caravan`.*"
+        )
+        lines, buttons = [], []
+        for key in CARAVAN_ROUTE_ORDER:
+            route = CARAVAN_ROUTES[key]
+            unlocked = population >= route["min_population"]
+            need = route["min_population"]
+            cost = f"{route['send_gold_cost']:,}"
+            hours = route["duration_hours"]
+            if unlocked:
+                lines.append(
+                    f"{route['emoji']} {chip((route['name'], NAME_W), (cost, -WEALTH_W))} 🪙 "
+                    f"· {hours}h · ~{route['base_gold_reward']:,} gold back"
+                )
+            else:
+                lines.append(f"🔒 {chip((route['name'], NAME_W), (f'needs pop. {need:,}', -13))}")
+            btn = ui.Button(
+                label=route["name"], emoji=route["emoji"],
+                style=discord.ButtonStyle.secondary, disabled=not unlocked,
+            )
+            if unlocked:
+                btn.callback = self._make_caravan_send_handler(key)
+            buttons.append(btn)
+        cancel_btn = ui.Button(label="Cancel", style=discord.ButtonStyle.danger)
+        cancel_btn.callback = self._on_generic_cancel
+        buttons.append(cancel_btn)
+        panel.text("\n".join(lines))
+        panel.footer(f"Your purse: {user['gold']:,} gold")
+        panel.buttons(*buttons)
+        return panel
+
+    def _make_caravan_send_handler(self, route_key: str):
+        async def handler(interaction: discord.Interaction) -> None:
+            gid, uid = interaction.guild_id, interaction.user.id
+            route = CARAVAN_ROUTES[route_key]
+            population = await town_lib.get_population(self.db, gid, uid)
+            if population < route["min_population"]:
+                await interaction.response.edit_message(
+                    view=simple_panel(
+                        f"Your town's population dipped below what **{route['name']}** needs.",
+                        accent=Palette.RED,
+                    )
+                )
+                return
+            if not await self.db.spend_gold(gid, uid, route["send_gold_cost"]):
+                await interaction.response.edit_message(
+                    view=simple_panel(
+                        f"Sending the **{route['name']}** costs {route['send_gold_cost']:,} gold.",
+                        accent=Palette.RED,
+                    )
+                )
+                return
+            started = await self.db.start_caravan(gid, uid, route_key, time.time())
+            if not started:
+                await self.db.add_gold(gid, uid, route["send_gold_cost"])
+                await interaction.response.edit_message(
+                    view=simple_panel("A caravan is already out.", accent=Palette.RED)
+                )
+                return
+            panel = Panel(accent=Palette.GOLD, author_id=uid, timeout=180)
+            panel.header(f"{route['emoji']} {route['name']} Departs")
+            ready_at = formulas.caravan_ready_at(time.time(), route["duration_hours"])
+            panel.text(f"*{route['flavor']}*\nDue back <t:{int(ready_at)}:R>.")
+            panel.footer("Check back with `.caravan` once it's returned.")
+            await interaction.response.edit_message(view=panel)
+        return handler
+
+    async def _on_caravan_collect(self, interaction: discord.Interaction) -> None:
+        gid, uid = interaction.guild_id, interaction.user.id
+        caravan = await self.db.get_caravan(gid, uid)
+        if caravan is None:
+            await interaction.response.edit_message(
+                view=simple_panel("No caravan to collect.", accent=Palette.RED)
+            )
+            return
+        route = CARAVAN_ROUTES[caravan["route"]]
+        ready_at = formulas.caravan_ready_at(caravan["departed_at"], route["duration_hours"])
+        if time.time() < ready_at:
+            await interaction.response.edit_message(
+                view=simple_panel(f"Not back yet. Ready <t:{int(ready_at)}:R>.", accent=Palette.RED)
+            )
+            return
+        town_totals = await town_lib.town_bonus_totals(self.db, gid, uid)
+        defense_bonus = town_totals.get("defense", 0.0)
+        label, gold_mult, material_mult = formulas.roll_caravan_outcome(defense_bonus)
+        gold = formulas.caravan_gold_reward(route["base_gold_reward"], gold_mult)
+        qty = formulas.caravan_material_qty(material_mult)
+        material = random_universal_material(route["reward_rarity"])
+        await self.db.add_gold(gid, uid, gold)
+        if qty > 0:
+            await self.db.add_item(gid, uid, material, qty)
+        await self.db.clear_caravan(gid, uid)
+
+        panel = Panel(accent=Palette.GOLD, author_id=uid, timeout=180)
+        panel.header(f"{route['emoji']} {label}!")
+        mat_info = ITEMS[material]
+        lines = [f"*{route['flavor']}*", f"+{formulas.fmt_gold(gold)}"]
+        if qty > 0:
+            lines.append(f"+{qty}x {mat_info['emoji']} {mat_info['name']}")
+        panel.text("\n".join(lines))
+        again_btn = ui.Button(label="Send Another", emoji="🐎", style=discord.ButtonStyle.primary)
+        again_btn.callback = self._on_caravan_send_again
+        panel.buttons(again_btn)
+        await interaction.response.edit_message(view=panel)
+
+    async def _on_caravan_send_again(self, interaction: discord.Interaction) -> None:
+        gid, uid = interaction.guild_id, interaction.user.id
+        panel = await self._build_caravan_picker_panel(gid, uid, interaction.user.display_name)
+        await interaction.response.edit_message(view=panel)
 
 
 async def setup(bot: commands.Bot):

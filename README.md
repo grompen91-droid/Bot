@@ -255,6 +255,22 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
     innocent, a multi-target selection task distinct from every other
     minigame's mechanic. Difficulty gated by the Watchtower's own tier,
     admin test twin `.patroltest [tier]`.
+  - **Population**, a derived stat with no dedicated DB column --
+    computed straight from Town Hall level, every building's tier
+    summed, and workers hired, capping at 10,000 in a fully maxed
+    town. It's a real gold contributor (+40% at max) rather than
+    background flavour: Guild Hall and Town Crier's own maximums were
+    trimmed by exactly that much so the combined ceiling still lands
+    on the same cap. It also gates **`.caravan`**, the idle half of
+    "going out" (Scout the Trail, coming soon, is the active half):
+    send a trade caravan out for real hours (2-40h, depending on the
+    route) and check back later to collect. Four routes (Local Trade
+    Run through Legendary Venture) unlock as Population grows, each a
+    flat gold cost up front and a weighted outcome roll on return --
+    Disaster/Bandit Toll/Smooth Journey/Lucky Find/Perfect Run --
+    nudged toward the good outcomes by Watchtower's crime-defense
+    bonus, paying back gold plus a handful of that route's own
+    rarity-tier materials.
 - **`.info <query>`**: one universal lookup for anything in the game --
   an item, a trade, a building, a worker, or another command. Resolves
   in that order (first match wins) and always answers the same two
@@ -305,6 +321,7 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
 | `.study <trade>` | Spend gold + materials for an instant XP boost (needs a Great Library) |
 | `.patrol` | "Round Up" minigame: catch every intruder hidden in a townsfolk lineup (needs a Watchtower) |
 | `.patroltest [tier]` | Admin-only: try Round Up at any simulated Watchtower tier, no cooldown/rewards |
+| `.caravan` | Send a trade caravan out (gated by Population) for real hours, or collect one that's back |
 | `.info <query>` | Look up an item, trade, building, worker, or command: where to get it, what it's for |
 | `.cd [member]` / `.cooldown` | Every cooldown someone is currently carrying, at a glance |
 | `.help` / `.about` | Guidance (`.help`'s command list is tappable slash-command mentions) |
@@ -345,6 +362,8 @@ econ/
                      exponential-tier helpers
     town_workers.py  the 20 hireable workers, 5 tiers each, each linked
                      to one building
+    caravans.py      the 4 .caravan routes, gated by Population, each
+                     with a duration/gold-cost/reward-rarity
 ui/
   panels.py          Components V2 medieval panel builder (fluent API)
   profile_card.py    renders .profile as a PNG via Pillow (avatar,
@@ -364,7 +383,8 @@ cogs/
   craft.py           .recipes / .craft, the standalone Crafting skill
   consumables.py     .use / .buffs
   town.py            .townhall/.town/.buildings/.workers/.supply/
-                     .collect/.study/.patrol -- the mid-game settlement
+                     .collect/.study/.patrol/.caravan -- the mid-game
+                     settlement
   info.py            help, about
 ```
 
