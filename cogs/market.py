@@ -644,7 +644,7 @@ class Market(commands.Cog):
         panel.footer(f"Your purse: {user['gold']:,} gold · stock resets at UTC midnight")
 
         if buy_select.options:
-            buy_select.callback = self._shop_buy_select
+            buy_select.callback = self._make_shop_buy_handler(page)
             panel.select(buy_select)
 
         prev_btn = ui.Button(emoji="◀️", style=discord.ButtonStyle.secondary, disabled=(page == 0))
@@ -677,73 +677,78 @@ class Market(commands.Cog):
         panel = await self._build_shop_panel(ctx.guild.id, ctx.author.id, 0)
         panel.message = await ctx.send(view=panel)
 
-    async def _shop_buy_select(self, interaction: discord.Interaction) -> None:
-        item_key = interaction.data["values"][0]
-        gid, uid = interaction.guild_id, interaction.user.id
-        info = ITEMS[item_key]
-        is_consumable = item_key in CONSUMABLES
-        day = formulas.utc_day()
+    def _make_shop_buy_handler(self, page: int):
+        async def handler(interaction: discord.Interaction) -> None:
+            item_key = interaction.data["values"][0]
+            gid, uid = interaction.guild_id, interaction.user.id
+            info = ITEMS[item_key]
+            is_consumable = item_key in CONSUMABLES
+            day = formulas.utc_day()
 
-        # Re-check against today's stock: the rotation can only ever
-        # change at UTC midnight, but a stale panel viewed right across
-        # that boundary shouldn't be able to buy yesterday's goods.
-        if item_key not in formulas.store_daily_items(STORE_POOL, STORE_ITEMS_PER_DAY, day):
-            await interaction.response.edit_message(
-                view=simple_panel(
-                    "Today's stock has already turned over. Run `.shop` "
-                    "again to see what's in today.",
-                    accent=Palette.RED,
+            # Re-check against today's stock: the rotation can only ever
+            # change at UTC midnight, but a stale panel viewed right across
+            # that boundary shouldn't be able to buy yesterday's goods.
+            if item_key not in formulas.store_daily_items(STORE_POOL, STORE_ITEMS_PER_DAY, day):
+                await interaction.response.edit_message(
+                    view=simple_panel(
+                        "Today's stock has already turned over. Run `.shop` "
+                        "again to see what's in today.",
+                        accent=Palette.RED,
+                    )
                 )
-            )
-            return
+                return
 
-        if is_consumable:
-            price = round(info["value"] * STORE_CONSUMABLE_MARKUP)
-            limit = formulas.store_daily_limit(uid, item_key, day, *STORE_STOCK_RANGE_CONSUMABLE)
-        else:
-            price = round(info["value"] * STORE_RARE_MARKUP)
-            limit = formulas.store_daily_limit(uid, item_key, day, *STORE_STOCK_RANGE_RARE)
+            if is_consumable:
+                price = round(info["value"] * STORE_CONSUMABLE_MARKUP)
+                limit = formulas.store_daily_limit(uid, item_key, day, *STORE_STOCK_RANGE_CONSUMABLE)
+            else:
+                price = round(info["value"] * STORE_RARE_MARKUP)
+                limit = formulas.store_daily_limit(uid, item_key, day, *STORE_STOCK_RANGE_RARE)
 
-        # Reserve the day's purchase slot before spending gold, so a
-        # stale select (rendered before today's limit was reached, or
-        # raced by a second rapid click) can't be used to buy past the
-        # cap. If paying then fails, release the slot back.
-        if not await self.db.try_reserve_store_purchase(gid, uid, item_key, day, 1, limit):
-            await interaction.response.edit_message(
-                view=simple_panel(
-                    f"You've already bought your limit of **{info['name']}** "
-                    "for today. Check back after UTC midnight.",
-                    accent=Palette.RED,
+            # Reserve the day's purchase slot before spending gold, so a
+            # stale select (rendered before today's limit was reached, or
+            # raced by a second rapid click) can't be used to buy past the
+            # cap. If paying then fails, release the slot back.
+            if not await self.db.try_reserve_store_purchase(gid, uid, item_key, day, 1, limit):
+                await interaction.response.edit_message(
+                    view=simple_panel(
+                        f"You've already bought your limit of **{info['name']}** "
+                        "for today. Check back after UTC midnight.",
+                        accent=Palette.RED,
+                    )
                 )
-            )
-            return
+                return
 
-        if not await self.db.spend_gold(gid, uid, price):
-            await self.db.release_store_purchase(gid, uid, item_key, day, 1)
-            user = await self.db.get_user(gid, uid)
-            await interaction.response.edit_message(
-                view=simple_panel(
-                    f"**{info['name']}** costs {formulas.fmt_gold(price)}, but "
-                    f"your purse holds only {formulas.fmt_gold(user['gold'])}.",
-                    accent=Palette.RED,
+            if not await self.db.spend_gold(gid, uid, price):
+                await self.db.release_store_purchase(gid, uid, item_key, day, 1)
+                user = await self.db.get_user(gid, uid)
+                await interaction.response.edit_message(
+                    view=simple_panel(
+                        f"**{info['name']}** costs {formulas.fmt_gold(price)}, but "
+                        f"your purse holds only {formulas.fmt_gold(user['gold'])}.",
+                        accent=Palette.RED,
+                    )
                 )
+                return
+
+            await self.db.add_item(gid, uid, item_key, 1)
+            await self.db.incr_stat(gid, uid, "gold_spent_store", price)
+
+            panel = Panel(accent=Palette.GREEN, timeout=None)
+            panel.header("🏬 Purchased!")
+            panel.text(
+                f"{info['emoji']} {chip((info['name'], NAME_W), ('+1', -QTY_W))} "
+                f"for {formulas.fmt_gold(price)}"
             )
-            return
-
-        await self.db.add_item(gid, uid, item_key, 1)
-        await self.db.incr_stat(gid, uid, "gold_spent_store", price)
-
-        panel = Panel(accent=Palette.GREEN, timeout=None)
-        panel.header("🏬 Purchased!")
-        panel.text(
-            f"{info['emoji']} {chip((info['name'], NAME_W), ('+1', -QTY_W))} "
-            f"for {formulas.fmt_gold(price)}"
-        )
-        if is_consumable:
-            panel.text(f"✨ {CONSUMABLES[item_key]['description']} · usable with `.use`")
-        else:
-            panel.text("Straight into your satchel.")
-        await interaction.response.edit_message(view=panel)
+            if is_consumable:
+                panel.text(f"✨ {CONSUMABLES[item_key]['description']} · usable with `.use`")
+            else:
+                panel.text("Straight into your satchel.")
+            more_btn = ui.Button(label="Buy More", emoji="🛒", style=discord.ButtonStyle.secondary)
+            more_btn.callback = self._make_shop_page_handler(page)
+            panel.buttons(more_btn)
+            await interaction.response.edit_message(view=panel)
+        return handler
 
     # ══════════════════════════ tool upgrades ═══════════════════════════
     # A real gold sink, so unlike a potion this always gets an explicit

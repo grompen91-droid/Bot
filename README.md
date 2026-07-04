@@ -56,7 +56,11 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
   fresh 1-2 for potions/foods and 1-3 for rare goods, rolled per
   player per item per day, so your stock on any given item is never
   the same as the next player's, or the same as yesterday's. Buying is
-  a single click from the "🛒 Buy an item…" dropdown.
+  a single click from the "🛒 Buy an item…" dropdown, and the purchase
+  receipt has its own "Buy More" button that returns to the exact page
+  you were on -- browsing more than one page a visit doesn't mean
+  starting back over at page 1 every time. `.supply`'s material
+  bundles and `.buildings`/`.workers`' upgrades work the same way.
 - **⚒️ Upgrade Tool** (the button on `.shop`, or run `.buy` directly):
   the trade-specific gear, five tool tiers per trade (1,500 → 150,000
   gold), the main gold sink. Always asks you to confirm first --
@@ -211,7 +215,10 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
     built): two per production building boosting its output rate,
     plus four town-wide hires (Town Crier, Scribe, Guard Captain,
     Steward) each boosting one bonus/utility building further. Five
-    tiers each, same shape as a trade's tool ladder.
+    tiers each, same shape as a trade's tool ladder. `.fire <worker>`
+    (confirm-gated) dismisses one back to unhired, freeing their Lodge
+    slot for someone else -- no refund of what was already spent
+    training them.
   - **100 construction materials** (`econ/data/materials.py`), one of
     `.inventory`'s categories like any other good. `.supply` (Builder's
     Supply) only bootstraps the cheap end -- common and uncommon --
@@ -231,6 +238,13 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
     opens `.study` (spend materials + gold for an instant XP
     injection into one trade), a Watchtower opens `.patrol` (a
     slow-cooldown gold trickle from keeping the walls watched).
+- **`.info <query>`**: one universal lookup for anything in the game --
+  an item, a trade, a building, a worker, or another command. Resolves
+  in that order (first match wins) and always answers the same two
+  questions: where to actually get the thing, and what it's good for
+  (crafting ingredient, building/worker upgrade cost, sell value,
+  consumable effect, whichever apply) -- no separate wiki command per
+  registry, one place to ask "where do I get this?"
 
 ## Commands
 
@@ -266,11 +280,13 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
 | `.town` | Overview: Town Hall level, buildings/workers count, town bonuses, Collect button |
 | `.buildings` | Build or upgrade any of the 16 buildings (confirm-gated) |
 | `.workers` | Hire or train any of the 20 workers (needs a Workers' Lodge, confirm-gated) |
+| `.fire <worker>` | Dismiss a hired worker, freeing their hire slot (confirm-gated, no refund) |
 | `.supply` | Builder's Supply: buy common/uncommon materials with gold, no daily rotation |
 | `.collect` | Collect every production building's pending output into your satchel |
 | `.gather <building>` | Actively work a built production building for a batch of materials (short cooldown, per building) |
 | `.study <trade>` | Spend gold + materials for an instant XP boost (needs a Great Library) |
 | `.patrol` | A slow-cooldown gold trickle from watching the walls (needs a Watchtower) |
+| `.info <query>` | Look up an item, trade, building, worker, or command: where to get it, what it's for |
 | `.cd [member]` / `.cooldown` | Every cooldown someone is currently carrying, at a glance |
 | `.help` / `.about` | Guidance (`.help`'s command list is tappable slash-command mentions) |
 

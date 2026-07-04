@@ -42,16 +42,37 @@ GATHER_CHOICES = [
 ]
 
 
-def _resolve_production_building(query: str) -> str | None:
-    """Fuzzy-match a production building by key or display name, same
-    idea as cogs/market.py's resolve_item."""
+def resolve_building(query: str, *, production_only: bool = False) -> str | None:
+    """Fuzzy-match a building (any of the 16, or just the 8 production
+    ones) by key or display name, same idea as cogs/market.py's
+    resolve_item. Shared with cogs/info.py's `.info`."""
     q = query.strip().lower().replace(" ", "_").replace("'", "")
     for key, info in TOWN_BUILDINGS.items():
-        if info["kind"] != "production":
+        if production_only and info["kind"] != "production":
             continue
         if key == q or info["name"].lower().replace(" ", "_").replace("'", "") == q:
             return key
     return None
+
+
+def _resolve_production_building(query: str) -> str | None:
+    return resolve_building(query, production_only=True)
+
+
+def resolve_worker(query: str) -> str | None:
+    """Fuzzy-match any of the 20 workers by key or display name.
+    Shared with cogs/info.py's `.info`."""
+    q = query.strip().lower().replace(" ", "_").replace("'", "")
+    for key, info in TOWN_WORKERS.items():
+        if key == q or info["name"].lower().replace(" ", "_").replace("'", "") == q:
+            return key
+    return None
+
+
+FIRE_CHOICES = [
+    app_commands.Choice(name=f"{info['emoji']} {info['name']}", value=key)
+    for key, info in TOWN_WORKERS.items()
+]
 
 
 def _town_name(display_name: str) -> str:
@@ -538,8 +559,18 @@ class Town(commands.Cog):
             panel = Panel(accent=Palette.GREEN, timeout=None)
             panel.header(f"{info['emoji']} {info['name']} is now Tier {next_tier}!")
             panel.text(f"**{_building_effect_line(key, next_tier)}**")
+            more_btn = ui.Button(label="Back to Buildings", emoji="🏗️", style=discord.ButtonStyle.secondary)
+            more_btn.callback = self._on_back_to_buildings
+            panel.buttons(more_btn)
             await interaction.response.edit_message(view=panel)
         return handler
+
+    async def _on_back_to_buildings(self, interaction: discord.Interaction) -> None:
+        panel = await self._build_buildings_panel(
+            interaction.guild_id, interaction.user.id, interaction.user.display_name
+        )
+        panel.message = interaction.message
+        await interaction.response.edit_message(view=panel)
 
     # ══════════════════════════════ .workers ═════════════════════════════
 
@@ -677,6 +708,76 @@ class Town(commands.Cog):
             panel = Panel(accent=Palette.GREEN, timeout=None)
             panel.header(f"{info['emoji']} {info['name']} is now Tier {next_tier}!")
             panel.text(f"Boosting **{TOWN_BUILDINGS[info['linked']]['name']}**.")
+            more_btn = ui.Button(label="Back to Workers", emoji="👷", style=discord.ButtonStyle.secondary)
+            more_btn.callback = self._on_back_to_workers
+            panel.buttons(more_btn)
+            await interaction.response.edit_message(view=panel)
+        return handler
+
+    async def _on_back_to_workers(self, interaction: discord.Interaction) -> None:
+        panel = await self._build_workers_panel(
+            interaction.guild_id, interaction.user.id, interaction.user.display_name
+        )
+        if not isinstance(panel, Panel):
+            panel = simple_panel("Build a Workers' Lodge first (see `.buildings`).", accent=Palette.RED)
+        panel.message = interaction.message
+        await interaction.response.edit_message(view=panel)
+
+    # ══════════════════════════════ .fire ════════════════════════════════
+    # The other half of .workers: dismiss a hired worker back to
+    # unhired (tier 0), freeing their Lodge slot for someone else. No
+    # refund of the gold/materials already spent training them -- same
+    # "sunk cost, no take-backs" rule as every other upgrade in the game.
+
+    @commands.hybrid_command(name="fire", description="Dismiss a hired worker, freeing their hire slot (no refund)")
+    @commands.guild_only()
+    @app_commands.describe(worker="Which hired worker to dismiss")
+    @app_commands.choices(worker=FIRE_CHOICES)
+    async def fire(self, ctx: commands.Context, *, worker: str):
+        gid, uid = ctx.guild.id, ctx.author.id
+        key = resolve_worker(worker)
+        if key is None:
+            await ctx.send(
+                view=simple_panel(f"No such worker: **{worker}**.", accent=Palette.RED), ephemeral=True,
+            )
+            return
+        info = TOWN_WORKERS[key]
+        tier = await self.db.get_worker_tier(gid, uid, key)
+        if tier <= 0:
+            await ctx.send(
+                view=simple_panel(f"You haven't hired a **{info['name']}**.", accent=Palette.RED),
+                ephemeral=True,
+            )
+            return
+
+        panel = Panel(accent=Palette.RED, author_id=uid, timeout=60)
+        panel.header(f"🔥 Fire {info['name']}?")
+        panel.text(
+            f"Currently **Tier {tier}**. Firing resets them to unhired -- no refund of "
+            "what you spent hiring or training them, but the slot opens up and you "
+            "can hire (and re-train from tier 1) someone new."
+        )
+        confirm_btn = ui.Button(label="Fire", emoji="🔥", style=discord.ButtonStyle.danger)
+        cancel_btn = ui.Button(label="Cancel", style=discord.ButtonStyle.secondary)
+        confirm_btn.callback = self._make_fire_confirm_handler(key)
+        cancel_btn.callback = self._on_generic_cancel
+        panel.buttons(confirm_btn, cancel_btn)
+        panel.message = await ctx.send(view=panel)
+
+    def _make_fire_confirm_handler(self, key: str):
+        async def handler(interaction: discord.Interaction) -> None:
+            gid, uid = interaction.guild_id, interaction.user.id
+            tier = await self.db.get_worker_tier(gid, uid, key)
+            info = TOWN_WORKERS[key]
+            if tier <= 0:
+                await interaction.response.edit_message(
+                    view=simple_panel(f"**{info['name']}** is already unhired.", accent=Palette.RED)
+                )
+                return
+            await self.db.set_worker_tier(gid, uid, key, 0)
+            panel = Panel(accent=Palette.GOLD, timeout=None)
+            panel.header(f"🔥 {info['name']} Dismissed")
+            panel.text("Their hire slot is free again. `.workers` to hire someone new.")
             await interaction.response.edit_message(view=panel)
         return handler
 
@@ -752,7 +853,7 @@ class Town(commands.Cog):
         cat_select.callback = self._supply_category_select
         panel.select(cat_select)
 
-        select.callback = self._supply_buy_select
+        select.callback = self._make_supply_buy_handler(category_key)
         panel.select(select)
         return panel
 
@@ -776,26 +877,38 @@ class Town(commands.Cog):
         panel.message = interaction.message
         await interaction.response.edit_message(view=panel)
 
-    async def _supply_buy_select(self, interaction: discord.Interaction) -> None:
-        item_key = interaction.data["values"][0]
-        gid, uid = interaction.guild_id, interaction.user.id
-        info = ITEMS[item_key]
-        price = round(info["value"] * MATERIAL_SUPPLY_MARKUP * MATERIAL_SUPPLY_BUNDLE)
-        if not await self.db.spend_gold(gid, uid, price):
-            user = await self.db.get_user(gid, uid)
-            await interaction.response.edit_message(
-                view=simple_panel(
-                    f"That bundle costs {formulas.fmt_gold(price)}, but your purse "
-                    f"holds only {formulas.fmt_gold(user['gold'])}.",
-                    accent=Palette.RED,
+    def _make_supply_buy_handler(self, category_key: str):
+        async def handler(interaction: discord.Interaction) -> None:
+            item_key = interaction.data["values"][0]
+            gid, uid = interaction.guild_id, interaction.user.id
+            info = ITEMS[item_key]
+            price = round(info["value"] * MATERIAL_SUPPLY_MARKUP * MATERIAL_SUPPLY_BUNDLE)
+            if not await self.db.spend_gold(gid, uid, price):
+                user = await self.db.get_user(gid, uid)
+                await interaction.response.edit_message(
+                    view=simple_panel(
+                        f"That bundle costs {formulas.fmt_gold(price)}, but your purse "
+                        f"holds only {formulas.fmt_gold(user['gold'])}.",
+                        accent=Palette.RED,
+                    )
                 )
-            )
-            return
-        await self.db.add_item(gid, uid, item_key, MATERIAL_SUPPLY_BUNDLE)
-        panel = Panel(accent=Palette.GREEN, timeout=None)
-        panel.header("🧱 Purchased!")
-        panel.text(f"{info['emoji']} {chip((info['name'], NAME_W), (f'+{MATERIAL_SUPPLY_BUNDLE}', -QTY_W))} for {formulas.fmt_gold(price)}")
-        await interaction.response.edit_message(view=panel)
+                return
+            await self.db.add_item(gid, uid, item_key, MATERIAL_SUPPLY_BUNDLE)
+            panel = Panel(accent=Palette.GREEN, timeout=None)
+            panel.header("🧱 Purchased!")
+            panel.text(f"{info['emoji']} {chip((info['name'], NAME_W), (f'+{MATERIAL_SUPPLY_BUNDLE}', -QTY_W))} for {formulas.fmt_gold(price)}")
+            more_btn = ui.Button(label="Buy More", emoji="🧱", style=discord.ButtonStyle.secondary)
+            more_btn.callback = self._make_supply_return_handler(category_key)
+            panel.buttons(more_btn)
+            await interaction.response.edit_message(view=panel)
+        return handler
+
+    def _make_supply_return_handler(self, category_key: str):
+        async def handler(interaction: discord.Interaction) -> None:
+            panel = await self._build_supply_panel(interaction.guild_id, interaction.user.id, category_key)
+            panel.message = interaction.message
+            await interaction.response.edit_message(view=panel)
+        return handler
 
     # ══════════════════════════════ .study ═══════════════════════════════
     # A material/gold sink once production outpaces what buildings need:

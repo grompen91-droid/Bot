@@ -11,13 +11,32 @@ from discord.ext import commands
 
 from econ import formulas
 from econ.buffs import active_buff_summary, active_buff_totals, apply_cooldown_buff
-from econ.data.items import ITEMS
+from econ.data.consumables import CONSUMABLES, WORK_DROP_CONSUMABLES
+from econ.data.items import ITEMS, RARITIES
 from econ.data.jobs import JOBS, MAX_JOB_UNLOCK_LEVEL
+from econ.data.materials import MATERIAL_GROUPS, MATERIAL_SUPPLY_MAX_RARITY_ORDER, MATERIALS
 from econ.data.minigames import MINIGAMES
 from econ.data.recipes import RECIPES
-from econ.data.town_buildings import TOWN_BUILDINGS
-from econ.data.town_workers import TOWN_WORKERS
-from ui.panels import NAME_W, Palette, Panel, chip
+from econ.data.store import STORE_POOL
+from econ.data.town_buildings import (
+    MAX_BUILDING_TIER,
+    TOWN_BUILDINGS,
+    building_tier_price,
+    town_hall_material,
+)
+from econ.data.town_workers import (
+    MAX_WORKER_TIER,
+    TOWN_WORKERS,
+    worker_tier_price,
+    workers_for_building,
+)
+from ui.panels import NAME_W, Palette, Panel, chip, simple_panel
+
+# Cross-cog resolvers `.info` dispatches through -- no cycle, since
+# neither cog imports this one back.
+from cogs.jobs import resolve_skill_key
+from cogs.market import resolve_item
+from cogs.town import resolve_building, resolve_worker
 
 # Each section is a list of command names; .help renders them as
 # clickable slash-command mentions (</name:id>) when the bot has cached
@@ -45,9 +64,10 @@ HELP_SECTIONS = [
     # treatment as .pickpocket/.smuggle above.
     (
         "🏰 Town",
-        ["townhall", "town", "buildings", "workers", "supply", "collect",
+        ["townhall", "town", "buildings", "workers", "fire", "supply", "collect",
          "gather", "study", "patrol"],
     ),
+    ("📖 Lookup", ["info"]),
 ]
 
 # .pickpocket, .smuggle, and .rob all share the same "current Criminal,
@@ -98,6 +118,192 @@ class Info(commands.Cog):
             "hireable workers, and a hundred construction materials to spend."
         )
         await ctx.send(view=panel)
+
+    # ══════════════════════════════ .info ═══════════════════════════════
+    # One universal lookup. Resolves the query against commands, trades,
+    # items/materials, buildings, workers, then recipes, in that order --
+    # first match wins (each registry's own resolve_* already fuzzy-
+    # matches key or display name, so this doesn't reinvent that).
+
+    @commands.hybrid_command(
+        name="info", description="Look up an item, trade, building, worker, recipe, or command",
+    )
+    @app_commands.describe(query="What to look up, e.g. 'rubble', 'farmer', 'quarry', '.work'")
+    async def info(self, ctx: commands.Context, *, query: str):
+        panel = self._resolve_info_panel(query)
+        if panel is None:
+            await ctx.send(
+                view=simple_panel(f"Nothing in the town archives matches **{query}**.", accent=Palette.RED),
+                ephemeral=True,
+            )
+            return
+        await ctx.send(view=panel)
+
+    def _resolve_info_panel(self, query: str) -> Panel | None:
+        cmd = self.bot.get_command(query.strip().lstrip("."))
+        if cmd is not None:
+            return self._info_command_panel(cmd)
+        job_key = resolve_skill_key(query)
+        if job_key is not None:
+            return self._info_job_panel(job_key)
+        item_key = resolve_item(query)
+        if item_key is not None:
+            return self._info_item_panel(item_key)
+        building_key = resolve_building(query)
+        if building_key is not None:
+            return self._info_building_panel(building_key)
+        worker_key = resolve_worker(query)
+        if worker_key is not None:
+            return self._info_worker_panel(worker_key)
+        return None
+
+    def _info_command_panel(self, cmd) -> Panel:
+        panel = Panel(accent=Palette.BLUE, timeout=None)
+        panel.header(f"📜 {self._cmd(cmd.qualified_name)}")
+        panel.text(cmd.description or "*No description set.*")
+        return panel
+
+    def _info_job_panel(self, job_key: str) -> Panel:
+        panel = Panel(accent=Palette.BLUE, timeout=None)
+        if job_key == "crafting":
+            panel.header("🛠️ Crafting")
+            panel.text(
+                "A standalone skill, not tied to any trade -- anyone can craft "
+                "regardless of their current job.\n`.recipes` to browse what's "
+                "unlocked · `.craft <recipe>` to make one."
+            )
+            return panel
+        info = JOBS[job_key]
+        panel.header(f"{info['emoji']} {info['name']}")
+        unlock = info["unlock_total_level"]
+        lines = ["Open from the start." if not unlock else f"Unlocks at **{unlock} total skill level**."]
+        lines.append(f"`.job choose {job_key}` to take it up · `.job info {job_key}` for its full yield table.")
+        if job_key in MINIGAMES:
+            lines.append(f"`.{MINIGAMES[job_key]['command']}` for its minigame.")
+        panel.text("\n".join(lines))
+        return panel
+
+    def _item_sources(self, item_key: str) -> list[str]:
+        """Every way `.info` knows of to actually get this item."""
+        sources = []
+        for info in JOBS.values():
+            if any(item_key == entry[0] for entry in info["yields"]):
+                sources.append(f"`.work` as {info['emoji']} {info['name']}")
+        if item_key in WORK_DROP_CONSUMABLES:
+            sources.append("a rare find from any `.work`, regardless of trade")
+        for group, keys in MATERIAL_GROUPS.items():
+            if item_key not in keys:
+                continue
+            if group == "universal":
+                sources.append("a lucky find from any `.work` (rarity improves with total skill)")
+            else:
+                building = TOWN_BUILDINGS[group]
+                tier = keys.index(item_key) // 2 + 1
+                sources.append(f"{building['name']}'s Tier {tier} output, once built")
+                sources.append(f"`.gather {group}` at Tier {tier}+")
+        for r in RECIPES.values():
+            if r["output_item"] == item_key:
+                ing_str = ", ".join(f"{qty}x {ITEMS[i]['name']}" for i, qty in r["ingredients"])
+                sources.append(f"`.craft {r['name']}` (needs {ing_str}, Crafting lv {r['unlock_level']})")
+        if item_key in STORE_POOL:
+            sources.append("sometimes stocked at `.shop`")
+        if item_key in MATERIALS:
+            rarity_order = list(RARITIES.keys()).index(ITEMS[item_key]["rarity"])
+            if rarity_order <= MATERIAL_SUPPLY_MAX_RARITY_ORDER:
+                sources.append("`.supply`")
+        return sources
+
+    def _item_uses(self, item_key: str) -> list[str]:
+        """Every way `.info` knows of to actually spend this item."""
+        uses = []
+        if item_key in CONSUMABLES:
+            c = CONSUMABLES[item_key]
+            uses.append(f"✨ {c['description']} -- usable with `.use`")
+        ingredient_of = sorted({
+            r["name"] for r in RECIPES.values()
+            if any(i == item_key for i, _qty in r["ingredients"])
+        })
+        if ingredient_of:
+            uses.append("Crafting ingredient for: " + ", ".join(ingredient_of))
+        building_uses = sorted({
+            b["name"] for b in TOWN_BUILDINGS.values()
+            if any(item_key in mats for _gold, mats in b["tiers"])
+        })
+        if building_uses:
+            uses.append("Building upgrade cost for: " + ", ".join(building_uses))
+        worker_uses = sorted({
+            w["name"] for w in TOWN_WORKERS.values()
+            if any(item_key in mats for _gold, mats in w["tiers"])
+        })
+        if worker_uses:
+            uses.append("Worker upgrade cost for: " + ", ".join(worker_uses))
+        if any(
+            item_key == town_hall_material(lvl)
+            for lvl in range(2, formulas.TOWN_HALL_MAX_LEVEL + 1)
+        ):
+            uses.append("Town Hall upgrade cost")
+        uses.append(f"Sells for {ITEMS[item_key]['value']:,} gold at `.market` (price drifts daily)")
+        return uses
+
+    def _info_item_panel(self, item_key: str) -> Panel:
+        info = ITEMS[item_key]
+        rarity = RARITIES[info["rarity"]]
+        panel = Panel(accent=Palette.GOLD, timeout=None)
+        panel.header(f"{info['emoji']} {info['name']}")
+        panel.text(f"{rarity['badge']} {rarity['name']} · worth {info['value']:,} gold")
+
+        panel.divider()
+        panel.subheader("📍 Where to get it")
+        sources = self._item_sources(item_key)
+        panel.text(
+            "\n".join(f"- {s}" for s in sources) if sources
+            else "*Not obtained directly -- check crafting or a lucky drop.*"
+        )
+
+        panel.divider()
+        panel.subheader("🔧 What it's for")
+        panel.text("\n".join(f"- {u}" for u in self._item_uses(item_key)))
+        return panel
+
+    def _info_building_panel(self, key: str) -> Panel:
+        info = TOWN_BUILDINGS[key]
+        panel = Panel(accent=Palette.IRON, timeout=None)
+        panel.header(f"{info['emoji']} {info['name']}")
+        panel.text(
+            f"*{info['flavor']}*\nUnlocks at Town Hall level **{info['unlock_hall_level']}**. "
+            "`.buildings` to build or upgrade it."
+        )
+        panel.divider()
+        panel.subheader("💰 Tier costs")
+        lines = []
+        for tier in range(1, MAX_BUILDING_TIER + 1):
+            gold, mats = building_tier_price(key, tier)
+            mat_str = ", ".join(f"{qty}x {ITEMS[m]['name']}" for m, qty in mats.items())
+            lines.append(f"Tier {tier}: {gold:,} gold + {mat_str}")
+        panel.text("\n".join(lines))
+        linked = workers_for_building(key)
+        if linked:
+            panel.footer("Workers: " + ", ".join(TOWN_WORKERS[w]["name"] for w in linked))
+        return panel
+
+    def _info_worker_panel(self, key: str) -> Panel:
+        info = TOWN_WORKERS[key]
+        building = TOWN_BUILDINGS[info["linked"]]
+        panel = Panel(accent=Palette.IRON, timeout=None)
+        panel.header(f"{info['emoji']} {info['name']}")
+        panel.text(
+            f"*{info['flavor']}*\nBoosts **{building['name']}**. `.workers` to hire or "
+            "train them (needs a Workers' Lodge built), `.fire` to dismiss."
+        )
+        panel.divider()
+        panel.subheader("💰 Tier costs")
+        lines = []
+        for tier in range(1, MAX_WORKER_TIER + 1):
+            gold, mats = worker_tier_price(key, tier)
+            mat_str = ", ".join(f"{qty}x {ITEMS[m]['name']}" for m, qty in mats.items())
+            lines.append(f"Tier {tier}: {gold:,} gold + {mat_str}")
+        panel.text("\n".join(lines))
+        return panel
 
     @commands.hybrid_command(
         name="cd", aliases=["cooldown", "cooldowns"],
