@@ -958,46 +958,129 @@ def apply_town_luck(base_chance: float, totals: dict[str, float]) -> float:
     return min(0.9, base_chance + totals.get("luck", 0.0))
 
 
-# ── .study and .patrol: the two commands a specific building unlocks ────
-# (see cogs/town.py). Cooldowns are tracked in the shared
-# minigame_cooldowns table under fake "job" keys ("study"/"patrol"),
-# same trick already used for .beg/.smuggle/.rob there.
+# ── .study: the command the Great Library unlocks ───────────────────────
+# (see cogs/town.py). Cooldown tracked in the shared minigame_cooldowns
+# table under a fake "job" key ("study"), same trick already used for
+# .beg/.smuggle/.rob there.
 
 STUDY_COOLDOWN = 4 * 60 * 60
 STUDY_GOLD_COST = 20_000
 STUDY_XP_PER_LIBRARY_TIER = 400
-PATROL_COOLDOWN = 6 * 60 * 60
 
-# ── .gather: the active, hands-on way to get materials ──────────────────
-# .supply only stocks common/uncommon materials now (see
-# MATERIAL_SUPPLY_MAX_RARITY in econ/data/materials.py) -- rare and
-# above have to be earned: either a production building's own passive
-# trickle once it's already at that tier, or .gather, a short-cooldown
-# active command per built production building. Each run yields a
-# batch of that building's CURRENT tier material, scaled by the
-# building's tier and how broadly you've levelled (total_level), plus a
-# small chance at ONE unit of the NEXT tier's material -- the bridge
-# that lets a building actually reach its next tier instead of being
-# stuck waiting on a material nothing yet produces.
+# ── .gather: "Read the Seam" ─────────────────────────────────────────────
+# A genuinely new mechanic, not a reskin of the decoy-tap engine behind
+# harvest/dig/fell/hunt/tend: three consecutive materials from a
+# production building's OWN rarity-ordered group (materials.py's
+# MATERIAL_GROUPS is already common->legendary in order) are shown in
+# sequence; tap whichever candidate continues that sequence among
+# decoys drawn from the same group. One wrong tap or a blown timer
+# ends the run right there, same as every other minigame. Reward is
+# proportional to rounds cleared (formulas.roll_minigame_reward's
+# completion-based shape), scaled off the building's own tier and
+# total_level instead of a trade skill level. Difficulty is gated by
+# BUILDING TIER (there's no skill level to gate it by): Medium needs
+# tier 3+, Hard needs the building maxed.
+#
+# .supply only stocks common/uncommon materials (see
+# MATERIAL_SUPPLY_MAX_RARITY_ORDER in econ/data/materials.py) -- rare
+# and above have to be earned, either from a production building's own
+# passive trickle once it's already at that tier, or from actually
+# playing this. A rare success also has a chance at ONE unit of the
+# NEXT tier's material -- the bridge that lets a building actually
+# reach its next tier instead of stalling on a material nothing yet
+# produces.
 
-GATHER_COOLDOWN = 45 * 60  # 45 minutes -- meant to be run several times a day
-GATHER_BASE_YIELD = 4
-GATHER_YIELD_PER_BUILDING_TIER = 3
+GATHER_COOLDOWN = 45 * 60  # meant to be run several times a day
+GATHER_MIN_ROUNDS = 3
+GATHER_MAX_ROUNDS = 6
+GATHER_ROUND_TIMEOUT = 9.0   # seconds, before difficulty tightens it
+GATHER_DECOYS = 2
+GATHER_PERFECT_BONUS = 1.5
+GATHER_TIER_UNLOCK = {"easy": 1, "medium": 3, "hard": 5}
+
+GATHER_BASE_YIELD = 5
+GATHER_YIELD_PER_BUILDING_TIER = 4
 GATHER_YIELD_PER_TOTAL_LEVEL = 0.05
 GATHER_YIELD_LEVEL_CAP = 150
 GATHER_NEXT_TIER_CHANCE = 0.20
 
 
-def gather_yield(building_tier: int, total_level: int) -> int:
+def gather_base_yield(building_tier: int, total_level: int) -> float:
+    """The full-clear yield an attempt is worth before completion and
+    difficulty scale it down/up."""
     level_bonus = 1.0 + GATHER_YIELD_PER_TOTAL_LEVEL * min(total_level, GATHER_YIELD_LEVEL_CAP)
-    return max(1, round((GATHER_BASE_YIELD + GATHER_YIELD_PER_BUILDING_TIER * building_tier) * level_bonus))
+    return (GATHER_BASE_YIELD + GATHER_YIELD_PER_BUILDING_TIER * building_tier) * level_bonus
+
+
+def gather_reward(
+    building_tier: int, total_level: int, correct: int, length: int, difficulty: str,
+) -> int:
+    """Whole units of material earned for clearing `correct` of `length`
+    rounds at `difficulty`. A flawless run gets GATHER_PERFECT_BONUS."""
+    if correct <= 0 or length <= 0:
+        return 0
+    base = gather_base_yield(building_tier, total_level)
+    completion = min(1.0, correct / length)
+    reward = base * completion * DIFFICULTIES[difficulty]["reward_mult"]
+    if correct >= length:
+        reward *= GATHER_PERFECT_BONUS
+    return max(0, round(reward))
 
 
 def roll_gather_bridge() -> bool:
-    """Whether this gather also turns up one unit of the NEXT tier's
-    material -- unlocked at a flat rate, not scaled by level, so it
-    stays a genuine "and sometimes you get lucky" moment."""
+    """Whether a flawless gather also turns up one unit of the NEXT
+    tier's material -- a flat rate, not scaled by level, so it stays a
+    genuine "and sometimes you get lucky" moment."""
     return random.random() < GATHER_NEXT_TIER_CHANCE
+
+
+# ── .patrol: "Round Up" ──────────────────────────────────────────────────
+# Also genuinely new: a lineup of townsfolk hides several intruders at
+# once (not one named target), tap out every intruder before the timer
+# runs out without arresting anyone innocent -- a multi-target
+# selection task, not a single-target identify-among-decoys one. One
+# wrong tap (a false arrest) or a blown timer ends the patrol right
+# there. Reward uses the same completion-based shape as .gather's,
+# scaled off the Watchtower's own tier (and its linked Guard Captain
+# worker, if hired) instead of a trade skill level. Difficulty gated by
+# Watchtower tier the same way .gather is gated by its own building.
+
+PATROL_COOLDOWN = 6 * 60 * 60
+PATROL_MIN_ROUNDS = 2
+PATROL_MAX_ROUNDS = 4
+PATROL_ROUND_TIMEOUT = 11.0  # seconds to clear the WHOLE lineup, before difficulty tightens it
+PATROL_PERFECT_BONUS = 1.5
+PATROL_TIER_UNLOCK = {"easy": 1, "medium": 3, "hard": 5}
+
+# Lineup size and how many of them are intruders, per difficulty.
+PATROL_LINEUP_SIZE = {"easy": 5, "medium": 7, "hard": 9}
+PATROL_INTRUDER_COUNT = {"easy": 2, "medium": 3, "hard": 4}
+
+PATROL_BASE_REWARD = 2_000
+PATROL_REWARD_PER_WATCHTOWER_TIER = 0.30
+PATROL_REWARD_PER_GUARD_TIER = 0.20
+
+
+def patrol_base_reward(watchtower_tier: int, guard_captain_tier: int) -> float:
+    return PATROL_BASE_REWARD * (
+        1.0 + PATROL_REWARD_PER_WATCHTOWER_TIER * watchtower_tier
+        + PATROL_REWARD_PER_GUARD_TIER * guard_captain_tier
+    )
+
+
+def patrol_reward(
+    watchtower_tier: int, guard_captain_tier: int, correct: int, length: int, difficulty: str,
+) -> int:
+    """Gold earned for clearing `correct` of `length` lineups (rounds)
+    at `difficulty`. A flawless patrol gets PATROL_PERFECT_BONUS."""
+    if correct <= 0 or length <= 0:
+        return 0
+    base = patrol_base_reward(watchtower_tier, guard_captain_tier)
+    completion = min(1.0, correct / length)
+    reward = base * completion * DIFFICULTIES[difficulty]["reward_mult"]
+    if correct >= length:
+        reward *= PATROL_PERFECT_BONUS
+    return max(0, round(reward))
 
 
 # A small, job-agnostic chance for ANY trade's `.work` to also turn up

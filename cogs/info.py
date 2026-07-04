@@ -242,7 +242,16 @@ class Info(commands.Cog):
             for lvl in range(2, formulas.TOWN_HALL_MAX_LEVEL + 1)
         ):
             uses.append("Town Hall upgrade cost")
-        uses.append(f"Sells for {ITEMS[item_key]['value']:,} gold at `.market` (price drifts daily)")
+        # `.market` only ever LISTS a trade's own yields and crafted-goods
+        # output -- materials (and shop-only consumables) never show up
+        # there to browse, even though `.sell` still works on them.
+        in_market = any(
+            item_key == entry[0] for info in JOBS.values() for entry in info["yields"]
+        ) or any(r["output_item"] == item_key for r in RECIPES.values())
+        if in_market:
+            uses.append(f"Sells for {ITEMS[item_key]['value']:,} gold via `.sell` (see today's price at `.market`)")
+        else:
+            uses.append(f"Sells for {ITEMS[item_key]['value']:,} gold via `.sell` (price drifts daily, not listed at `.market`)")
         return uses
 
     def _info_item_panel(self, item_key: str) -> Panel:

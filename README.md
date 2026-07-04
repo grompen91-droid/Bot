@@ -229,19 +229,32 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
     at a flat markup, no daily rotation; rare and above can't be
     bought at any price. Getting them means either a built production
     building's own passive trickle once it's already at that tier, or
-    **`.gather <building>`**, a short-cooldown active command per
-    built production building that pays out a batch of its current
-    material plus a chance at one unit of the next tier's, the bridge
-    that actually lets a building climb instead of stalling on a
-    material nothing yet produces. The town-wide "universal" pool
+    **`.gather <building>`** -- "Read the Seam," a genuinely new
+    minigame per built production building (not a reskin of the
+    harvest/dig/fell/hunt/tend decoy-tap engine): three consecutive
+    materials from that building's own rarity-ordered lineup are shown
+    in sequence, tap whichever candidate continues the pattern among
+    decoys before the timer runs out. One wrong tap or a blown timer
+    ends the run right there; a flawless clear has a chance at one
+    unit of the *next* tier's material too -- the bridge that lets a
+    building actually climb instead of stalling on a material nothing
+    yet produces. Difficulty (Easy/Medium/Hard, same shape as every
+    job minigame) is gated by the building's own tier since there's no
+    skill level to gate it by, and it has its own admin test twin,
+    `.gathertest <building> [tier]`. The town-wide "universal" pool
     (Town Hall's own ladder, the utility/bonus buildings) has no
     production building of its own, so it's earned differently: a
     small, job-agnostic chance on every ordinary `.work`, rarity
     improving the more total skill you've built.
   - Two buildings unlock their own extra command: a Great Library
     opens `.study` (spend materials + gold for an instant XP
-    injection into one trade), a Watchtower opens `.patrol` (a
-    slow-cooldown gold trickle from keeping the walls watched).
+    injection into one trade); a Watchtower opens **`.patrol`** --
+    "Round Up," another new minigame: a lineup of townsfolk hides
+    several intruders at once (not a single named target), tap out
+    every last one before the timer runs out without arresting anyone
+    innocent, a multi-target selection task distinct from every other
+    minigame's mechanic. Difficulty gated by the Watchtower's own tier,
+    admin test twin `.patroltest [tier]`.
 - **`.info <query>`**: one universal lookup for anything in the game --
   an item, a trade, a building, a worker, or another command. Resolves
   in that order (first match wins) and always answers the same two
@@ -287,9 +300,11 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
 | `.fire <worker>` | Dismiss a hired worker, freeing their hire slot (confirm-gated, no refund) |
 | `.supply` | Builder's Supply: buy common/uncommon materials with gold, no daily rotation |
 | `.collect` | Collect every production building's pending output into your satchel |
-| `.gather <building>` | Actively work a built production building for a batch of materials (short cooldown, per building) |
+| `.gather <building>` | "Read the Seam" minigame: trace a material's rarity pattern for a batch of it (Easy/Medium/Hard, gated by the building's own tier) |
+| `.gathertest <building> [tier]` | Admin-only: try Read the Seam at any simulated building tier, no cooldown/rewards |
 | `.study <trade>` | Spend gold + materials for an instant XP boost (needs a Great Library) |
-| `.patrol` | A slow-cooldown gold trickle from watching the walls (needs a Watchtower) |
+| `.patrol` | "Round Up" minigame: catch every intruder hidden in a townsfolk lineup (needs a Watchtower) |
+| `.patroltest [tier]` | Admin-only: try Round Up at any simulated Watchtower tier, no cooldown/rewards |
 | `.info <query>` | Look up an item, trade, building, worker, or command: where to get it, what it's for |
 | `.cd [member]` / `.cooldown` | Every cooldown someone is currently carrying, at a glance |
 | `.help` / `.about` | Guidance (`.help`'s command list is tappable slash-command mentions) |

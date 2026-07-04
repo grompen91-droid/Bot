@@ -7,6 +7,7 @@ town_workers.py / materials.py for the content itself.
 
 from __future__ import annotations
 
+import random
 import time
 
 import discord
@@ -15,6 +16,7 @@ from discord.ext import commands
 
 from econ import formulas
 from econ import town as town_lib
+from econ.buffs import active_buff_totals, apply_cooldown_buff, apply_gold_buff
 from econ.data.items import ITEMS, RARITIES
 from econ.data.materials import (
     MATERIAL_GROUPS,
@@ -30,7 +32,17 @@ from econ.data.town_buildings import (
     town_hall_material,
 )
 from econ.data.town_workers import MAX_WORKER_TIER, TOWN_WORKERS, worker_tier_price
-from ui.panels import AMT_W, NAME_W, QTY_W, WEALTH_W, Palette, Panel, chip, simple_panel
+from ui.panels import (
+    AMT_W,
+    NAME_W,
+    QTY_W,
+    WEALTH_W,
+    Palette,
+    Panel,
+    RoundPanel,
+    chip,
+    simple_panel,
+)
 
 EFFECT_LABELS = {
     "gold": "gold", "xp": "XP", "cooldown": "cooldown",
@@ -73,6 +85,311 @@ FIRE_CHOICES = [
     app_commands.Choice(name=f"{info['emoji']} {info['name']}", value=key)
     for key, info in TOWN_WORKERS.items()
 ]
+
+
+class GatherSession:
+    """'Read the Seam': three consecutive materials from a production
+    building's own rarity-ordered group (materials.py's MATERIAL_GROUPS
+    is already common->legendary in order) are shown in sequence; tap
+    whichever candidate continues that sequence among decoys drawn
+    from the same group. One wrong tap or a blown timer ends the run
+    right there, same as every other minigame in the game."""
+
+    def __init__(
+        self, db, gid: int, uid: int, building_key: str, building_tier: int,
+        total_level: int, difficulty: str, *, dry_run: bool = False,
+        buffs: dict | None = None,
+    ):
+        self.db = db
+        self.gid = gid
+        self.uid = uid
+        self.building_key = building_key
+        self.building_tier = building_tier
+        self.total_level = total_level
+        self.dry_run = dry_run
+        self.buffs = buffs or {}
+        self.difficulty = difficulty
+        self.tier = formulas.DIFFICULTIES[difficulty]
+        self.length = formulas.difficulty_length(
+            formulas.GATHER_MIN_ROUNDS, formulas.GATHER_MAX_ROUNDS, difficulty
+        )
+        self.group = MATERIAL_GROUPS[TOWN_BUILDINGS[building_key]["material_group"]]
+        self.correct = 0
+        self.done = False
+        self.current_panel: RoundPanel | None = None
+        self.shown: list[str] = []
+        self.target: str | None = None
+        self.choices: list[str] = []
+        self._roll_round()
+
+    def _footer_text(self, text: str) -> str:
+        return f"🧪 TEST MODE · {text}" if self.dry_run else text
+
+    def _roll_round(self) -> None:
+        n = len(self.group)
+        start = random.randrange(n)
+        self.shown = [self.group[(start + i) % n] for i in range(3)]
+        self.target = self.group[(start + 3) % n]
+        decoy_n = min(formulas.GATHER_DECOYS + self.tier["bonus"], n - 4)
+        pool = [m for m in self.group if m not in self.shown and m != self.target]
+        self.choices = random.sample(pool, min(decoy_n, len(pool))) + [self.target]
+        random.shuffle(self.choices)
+
+    def round_panel(self) -> Panel:
+        info = TOWN_BUILDINGS[self.building_key]
+        dots = "🟢" * self.correct + "⚪" * (self.length - self.correct)
+        timeout = max(1.0, formulas.GATHER_ROUND_TIMEOUT * self.tier["timeout_mult"])
+        panel = RoundPanel(self, accent=Palette.GOLD, author_id=self.uid, timeout=timeout)
+        panel.header(f"{info['emoji']} Read the Seam · {info['name']}")
+        seam = " → ".join(ITEMS[m]["emoji"] for m in self.shown)
+        panel.text(f"The seam runs {seam} → **?**\nWhat comes next?")
+        panel.text(f"`{dots}` ({self.correct}/{self.length})")
+        buttons = []
+        for key in self.choices:
+            btn = ui.Button(
+                label=ITEMS[key]["name"][:20], emoji=ITEMS[key]["emoji"],
+                style=discord.ButtonStyle.secondary,
+            )
+            btn.callback = self._make_handler(key)
+            buttons.append(btn)
+        for i in range(0, len(buttons), 5):
+            panel.buttons(*buttons[i : i + 5])
+        deadline = int(time.time() + timeout)
+        panel.footer(self._footer_text(f"⏱️ act by <t:{deadline}:R>"))
+        self.current_panel = panel
+        return panel
+
+    def _make_handler(self, key: str):
+        async def handler(interaction: discord.Interaction) -> None:
+            await self.on_tap(interaction, key)
+        return handler
+
+    async def on_tap(self, interaction: discord.Interaction, key: str) -> None:
+        if self.done:
+            await interaction.response.defer()
+            return
+        if self.current_panel is not None:
+            self.current_panel.stop()
+        if key != self.target:
+            self.done = True
+            panel = await self._finish(outcome="fail")
+            await interaction.response.edit_message(view=panel)
+            return
+        self.correct += 1
+        if self.correct == self.length:
+            self.done = True
+            panel = await self._finish(outcome="success")
+            await interaction.response.edit_message(view=panel)
+            return
+        self._roll_round()
+        next_panel = self.round_panel()
+        next_panel.message = interaction.message
+        await interaction.response.edit_message(view=next_panel)
+
+    async def on_round_timeout(self, message: discord.Message) -> None:
+        if self.done:
+            return
+        self.done = True
+        panel = await self._finish(outcome="fail")
+        try:
+            await message.edit(view=panel)
+        except discord.HTTPException:
+            pass
+
+    async def _finish(self, outcome: str) -> Panel:
+        info = TOWN_BUILDINGS[self.building_key]
+        material = production_output_material(self.building_key, self.building_tier)
+        qty = formulas.gather_reward(
+            self.building_tier, self.total_level, self.correct, self.length, self.difficulty,
+        )
+        bonus_material = None
+        if (
+            outcome == "success" and self.building_tier < MAX_BUILDING_TIER
+            and formulas.roll_gather_bridge()
+        ):
+            bonus_material = production_output_material(self.building_key, self.building_tier + 1)
+
+        if not self.dry_run:
+            if qty:
+                await self.db.add_item(self.gid, self.uid, material, qty)
+            if bonus_material:
+                await self.db.add_item(self.gid, self.uid, bonus_material, 1)
+
+        title = f"{info['emoji']} Read the Seam · {info['name']}"
+        if outcome == "success":
+            panel = Panel(accent=Palette.PURPLE, timeout=None)
+            panel.header(f"{title} · Flawless!")
+            panel.text("*You trace the seam true, tap by tap, straight to its rich heart.*")
+        else:
+            panel = Panel(accent=Palette.RED, timeout=None)
+            panel.header(f"{title} · The Seam Splits")
+            panel.text("*You misjudge the vein, and the seam splits away before you finish tracing it.*")
+
+        lines = []
+        if qty:
+            lines.append(f"{ITEMS[material]['emoji']} {chip((ITEMS[material]['name'], NAME_W), (f'+{qty}', -QTY_W))}")
+        else:
+            lines.append("Nothing to show for it this time.")
+        if bonus_material:
+            bonus_info = ITEMS[bonus_material]
+            lines.append(f"✨ A rare find: **1x {bonus_info['emoji']} {bonus_info['name']}**!")
+        panel.text("\n".join(lines))
+        panel.footer(self._footer_text(
+            f"{self.tier['emoji']} {self.tier['label']} · {self.correct}/{self.length} rounds cleared"
+        ))
+        return panel
+
+
+class PatrolSession:
+    """'Round Up': a lineup of townsfolk hides several intruders at
+    once (not one named target); tap out every intruder before the
+    timer runs out without arresting anyone innocent. A multi-target
+    selection task, not a reskin of the single-target identify-among-
+    decoys mechanic every other minigame in the game already uses. One
+    wrong tap (a false arrest) or a blown timer ends the patrol right
+    there."""
+
+    INNOCENT_EMOJI = ("🧑", "👩", "👨", "🧔", "👴", "👵")
+    INTRUDER_EMOJI = "🥷"
+
+    def __init__(
+        self, db, gid: int, uid: int, watchtower_tier: int, guard_captain_tier: int,
+        difficulty: str, *, dry_run: bool = False, buffs: dict | None = None,
+    ):
+        self.db = db
+        self.gid = gid
+        self.uid = uid
+        self.watchtower_tier = watchtower_tier
+        self.guard_captain_tier = guard_captain_tier
+        self.dry_run = dry_run
+        self.buffs = buffs or {}
+        self.difficulty = difficulty
+        self.tier = formulas.DIFFICULTIES[difficulty]
+        self.length = formulas.difficulty_length(
+            formulas.PATROL_MIN_ROUNDS, formulas.PATROL_MAX_ROUNDS, difficulty
+        )
+        self.correct = 0  # lineups fully cleared
+        self.done = False
+        self.current_panel: RoundPanel | None = None
+        self.lineup: list[bool] = []
+        self.slot_emoji: list[str] = []
+        self.caught: set[int] = set()
+        self.round_deadline: float = 0.0
+        self._roll_round()
+
+    def _footer_text(self, text: str) -> str:
+        return f"🧪 TEST MODE · {text}" if self.dry_run else text
+
+    def _roll_round(self) -> None:
+        size = formulas.PATROL_LINEUP_SIZE[self.difficulty]
+        n_intruders = formulas.PATROL_INTRUDER_COUNT[self.difficulty]
+        intruder_positions = set(random.sample(range(size), n_intruders))
+        self.lineup = [i in intruder_positions for i in range(size)]
+        self.slot_emoji = [
+            self.INTRUDER_EMOJI if is_intr else random.choice(self.INNOCENT_EMOJI)
+            for is_intr in self.lineup
+        ]
+        self.caught = set()
+        timeout = max(1.0, formulas.PATROL_ROUND_TIMEOUT * self.tier["timeout_mult"])
+        self.round_deadline = time.time() + timeout
+
+    def _remaining_intruders(self) -> int:
+        return sum(1 for i, is_intr in enumerate(self.lineup) if is_intr and i not in self.caught)
+
+    def round_panel(self) -> Panel:
+        dots = "🟢" * self.correct + "⚪" * (self.length - self.correct)
+        remaining = max(1.0, self.round_deadline - time.time())
+        panel = RoundPanel(self, accent=Palette.IRON, author_id=self.uid, timeout=remaining)
+        panel.header("🗼 Round Up")
+        panel.text(
+            f"Catch every intruder hiding in the crowd -- **{self._remaining_intruders()}** left. "
+            "Arrest an innocent and the patrol's over."
+        )
+        panel.text(f"`{dots}` ({self.correct}/{self.length})")
+        buttons = []
+        for i, emoji in enumerate(self.slot_emoji):
+            if i in self.caught:
+                btn = ui.Button(emoji="✅", style=discord.ButtonStyle.success, disabled=True)
+            else:
+                btn = ui.Button(emoji=emoji, style=discord.ButtonStyle.secondary)
+                btn.callback = self._make_handler(i)
+            buttons.append(btn)
+        for i in range(0, len(buttons), 5):
+            panel.buttons(*buttons[i : i + 5])
+        deadline = int(self.round_deadline)
+        panel.footer(self._footer_text(f"⏱️ act by <t:{deadline}:R>"))
+        self.current_panel = panel
+        return panel
+
+    def _make_handler(self, index: int):
+        async def handler(interaction: discord.Interaction) -> None:
+            await self.on_tap(interaction, index)
+        return handler
+
+    async def on_tap(self, interaction: discord.Interaction, index: int) -> None:
+        if self.done:
+            await interaction.response.defer()
+            return
+        if self.current_panel is not None:
+            self.current_panel.stop()
+        if not self.lineup[index]:
+            self.done = True
+            panel = await self._finish(outcome="fail")
+            await interaction.response.edit_message(view=panel)
+            return
+        self.caught.add(index)
+        if self._remaining_intruders() > 0:
+            next_panel = self.round_panel()
+            next_panel.message = interaction.message
+            await interaction.response.edit_message(view=next_panel)
+            return
+        self.correct += 1
+        if self.correct == self.length:
+            self.done = True
+            panel = await self._finish(outcome="success")
+            await interaction.response.edit_message(view=panel)
+            return
+        self._roll_round()
+        next_panel = self.round_panel()
+        next_panel.message = interaction.message
+        await interaction.response.edit_message(view=next_panel)
+
+    async def on_round_timeout(self, message: discord.Message) -> None:
+        if self.done:
+            return
+        self.done = True
+        panel = await self._finish(outcome="fail")
+        try:
+            await message.edit(view=panel)
+        except discord.HTTPException:
+            pass
+
+    async def _finish(self, outcome: str) -> Panel:
+        gold = formulas.patrol_reward(
+            self.watchtower_tier, self.guard_captain_tier, self.correct, self.length, self.difficulty,
+        )
+        if gold:
+            gold = round(apply_gold_buff(gold, self.buffs))
+        if not self.dry_run and gold:
+            await self.db.add_gold(self.gid, self.uid, gold)
+
+        if outcome == "success":
+            panel = Panel(accent=Palette.PURPLE, timeout=None)
+            panel.header("🗼 Round Up · Flawless!")
+            panel.text("*Every last intruder is in irons before the gate even shuts.*")
+        else:
+            panel = Panel(accent=Palette.RED, timeout=None)
+            panel.header("🗼 Round Up · The Patrol Ends")
+            panel.text("*A face slips past you in the crowd, and the patrol falls apart.*")
+
+        if gold:
+            panel.text(f"💰 {chip(('Confiscated', NAME_W), (f'{gold:,}', -AMT_W))} 🪙")
+        else:
+            panel.text("💰 No gold this time.")
+        panel.footer(self._footer_text(
+            f"{self.tier['emoji']} {self.tier['label']} · {self.correct}/{self.length} rounds cleared"
+        ))
+        return panel
 
 
 def _town_name(display_name: str) -> str:
@@ -368,15 +685,14 @@ class Town(commands.Cog):
         await ctx.send(view=panel)
 
     # ══════════════════════════════ .gather ══════════════════════════════
-    # The active counterpart to .collect's idle trickle: a short per-
-    # building cooldown you have to actually spend a command on, paying
-    # out a batch of that building's CURRENT material plus a chance at
-    # ONE unit of the NEXT tier's -- the only way to bridge to a tier
-    # whose material .supply doesn't sell and nothing yet produces.
+    # "Read the Seam" -- the active counterpart to .collect's idle
+    # trickle. See GatherSession above for the mechanic. Difficulty is
+    # gated by the BUILDING's own tier (there's no skill level to gate
+    # it by): Medium needs tier 3+, Hard needs it maxed.
 
     @commands.hybrid_command(
         name="gather",
-        description="Actively gather materials from one of your built production buildings",
+        description="Read the Seam: an active minigame for materials from a built production building",
     )
     @commands.guild_only()
     @app_commands.describe(building="Which production building to gather from")
@@ -398,42 +714,127 @@ class Town(commands.Cog):
                 ephemeral=True,
             )
             return
-
+        buffs = await active_buff_totals(self.db, gid, uid)
+        cooldown = apply_cooldown_buff(formulas.GATHER_COOLDOWN, buffs)
         cooldown_key = f"gather_{key}"
         last = await self.db.get_minigame_cooldown(gid, uid, cooldown_key)
         now = time.time()
-        if now < last + formulas.GATHER_COOLDOWN:
+        if now < last + cooldown:
             await ctx.send(
                 view=simple_panel(
                     f"The {info['name']} needs more time before it can be worked again. "
-                    f"Ready <t:{int(last + formulas.GATHER_COOLDOWN)}:R>.",
+                    f"Ready <t:{int(last + cooldown)}:R>.",
                     accent=Palette.RED,
                 ),
                 ephemeral=True,
             )
             return
+        await self._send_gather_difficulty_picker(ctx, key, tier, dry_run=False)
 
-        total_level = await self.db.total_level(gid, uid)
-        qty = formulas.gather_yield(tier, total_level)
-        material = production_output_material(key, tier)
-        await self.db.add_item(gid, uid, material, qty)
-        await self.db.set_minigame_cooldown(gid, uid, cooldown_key, now)
+    @commands.hybrid_command(
+        name="gathertest",
+        description="[Admin] Try the Read the Seam minigame at any building tier, no cooldown/rewards",
+    )
+    @commands.guild_only()
+    @commands.has_permissions(administrator=True)
+    @app_commands.describe(
+        building="Which production building's minigame to test",
+        tier="Building tier to simulate (default 1)",
+    )
+    @app_commands.choices(building=GATHER_CHOICES)
+    async def gathertest(
+        self, ctx: commands.Context, building: str,
+        tier: commands.Range[int, 1, MAX_BUILDING_TIER] = 1,
+    ):
+        key = _resolve_production_building(building)
+        if key is None:
+            await ctx.send(
+                view=simple_panel(f"No such production building: **{building}**.", accent=Palette.RED),
+                ephemeral=True,
+            )
+            return
+        await self._send_gather_difficulty_picker(ctx, key, tier, dry_run=True)
 
-        bonus_line = None
-        if tier < MAX_BUILDING_TIER and formulas.roll_gather_bridge():
-            next_material = production_output_material(key, tier + 1)
-            await self.db.add_item(gid, uid, next_material, 1)
-            next_info = ITEMS[next_material]
-            bonus_line = f"✨ A rare find: **1x {next_info['emoji']} {next_info['name']}**!"
+    async def _send_gather_difficulty_picker(
+        self, ctx: commands.Context, building_key: str, building_tier: int, *, dry_run: bool,
+    ) -> None:
+        """Easy is always open (once built); Medium/Hard unlock at
+        GATHER_TIER_UNLOCK's thresholds in the BUILDING's own tier.
+        Picking a tier starts the attempt (and, for a real run, burns
+        the cooldown)."""
+        info = TOWN_BUILDINGS[building_key]
+        panel = Panel(accent=Palette.GOLD, author_id=ctx.author.id, timeout=60)
+        panel.header(f"{info['emoji']} Read the Seam · {info['name']}")
+        panel.text(
+            "*Pick your difficulty. The seam shows three linked materials -- tap "
+            "whichever continues the pattern before time runs out. One wrong tap "
+            "or a blown timer ends the run.*"
+        )
+        lines, buttons = [], []
+        for key in formulas.DIFFICULTY_ORDER:
+            tier_cfg = formulas.DIFFICULTIES[key]
+            length = formulas.difficulty_length(
+                formulas.GATHER_MIN_ROUNDS, formulas.GATHER_MAX_ROUNDS, key
+            )
+            need = formulas.GATHER_TIER_UNLOCK[key]
+            unlocked = dry_run or building_tier >= need
+            mult = f"×{tier_cfg['reward_mult']:.2f}"
+            if unlocked:
+                lines.append(
+                    f"{tier_cfg['emoji']} {chip((tier_cfg['label'], NAME_W), (mult, -AMT_W))} "
+                    f"· {length} rounds"
+                )
+            else:
+                lines.append(
+                    f"🔒 {chip((tier_cfg['label'], NAME_W), (mult, -AMT_W))} "
+                    f"· needs Tier {need} (you're {building_tier})"
+                )
+            btn = ui.Button(
+                label=tier_cfg["label"], emoji=tier_cfg["emoji"],
+                style=discord.ButtonStyle.secondary, disabled=not unlocked,
+            )
+            if unlocked:
+                btn.callback = self._make_gather_start_handler(building_key, key, building_tier, dry_run)
+            buttons.append(btn)
+        cancel_btn = ui.Button(label="Cancel", style=discord.ButtonStyle.danger)
+        cancel_btn.callback = self._on_generic_cancel
+        buttons.append(cancel_btn)
+        panel.text("\n".join(lines))
+        panel.buttons(*buttons)
+        panel.message = await ctx.send(view=panel)
 
-        panel = Panel(accent=Palette.GREEN, timeout=None)
-        panel.header(f"{info['emoji']} Gathered from the {info['name']}!")
-        mat_info = ITEMS[material]
-        panel.text(f"{mat_info['emoji']} {chip((mat_info['name'], NAME_W), (f'+{qty}', -QTY_W))}")
-        if bonus_line:
-            panel.text(bonus_line)
-        panel.footer(f"Ready again <t:{int(now + formulas.GATHER_COOLDOWN)}:R>")
-        await ctx.send(view=panel)
+    def _make_gather_start_handler(
+        self, building_key: str, difficulty: str, building_tier: int, dry_run: bool,
+    ):
+        async def handler(interaction: discord.Interaction) -> None:
+            gid, uid = interaction.guild_id, interaction.user.id
+            buffs: dict = {}
+            if not dry_run:
+                buffs = await active_buff_totals(self.db, gid, uid)
+                cooldown = apply_cooldown_buff(formulas.GATHER_COOLDOWN, buffs)
+                cooldown_key = f"gather_{building_key}"
+                last = await self.db.get_minigame_cooldown(gid, uid, cooldown_key)
+                now = time.time()
+                if now < last + cooldown:
+                    await interaction.response.edit_message(
+                        view=simple_panel(
+                            f"Too late, the window's closed. Ready <t:{int(last + cooldown)}:R>.",
+                            accent=Palette.RED,
+                        )
+                    )
+                    return
+                # Cooldown burns the moment the attempt starts, win or
+                # lose, so walking away mid-attempt can't reroll a bad run.
+                await self.db.set_minigame_cooldown(gid, uid, cooldown_key, now)
+            total_level = await self.db.total_level(gid, uid)
+            session = GatherSession(
+                self.db, gid, uid, building_key, building_tier, total_level, difficulty,
+                dry_run=dry_run, buffs=buffs,
+            )
+            panel = session.round_panel()
+            panel.message = interaction.message
+            await interaction.response.edit_message(view=panel)
+        return handler
 
     # ══════════════════════════════ .buildings ═══════════════════════════
 
@@ -970,8 +1371,12 @@ class Town(commands.Cog):
         await ctx.send(view=panel)
 
     # ══════════════════════════════ .patrol ═══════════════════════════════
+    # "Round Up" -- see PatrolSession above for the mechanic. Difficulty
+    # is gated by the Watchtower's own tier, same idea as .gather.
 
-    @commands.hybrid_command(name="patrol", description="Walk the walls for a small payout (needs a Watchtower)")
+    @commands.hybrid_command(
+        name="patrol", description="Round Up: an active minigame to catch intruders (needs a Watchtower)",
+    )
     @commands.guild_only()
     async def patrol(self, ctx: commands.Context):
         gid, uid = ctx.guild.id, ctx.author.id
@@ -982,22 +1387,106 @@ class Town(commands.Cog):
                 ephemeral=True,
             )
             return
+        buffs = await active_buff_totals(self.db, gid, uid)
+        cooldown = apply_cooldown_buff(formulas.PATROL_COOLDOWN, buffs)
         last = await self.db.get_minigame_cooldown(gid, uid, "patrol")
         now = time.time()
-        if now < last + formulas.PATROL_COOLDOWN:
+        if now < last + cooldown:
             await ctx.send(
-                view=simple_panel(f"Still on watch. Ready <t:{int(last + formulas.PATROL_COOLDOWN)}:R>.", accent=Palette.RED),
+                view=simple_panel(f"Still on watch. Ready <t:{int(last + cooldown)}:R>.", accent=Palette.RED),
                 ephemeral=True,
             )
             return
         guard_captain_tier = await self.db.get_worker_tier(gid, uid, "guard_captain")
-        gold = round(2_000 * (1 + 0.3 * watchtower_tier + 0.2 * guard_captain_tier))
-        await self.db.set_minigame_cooldown(gid, uid, "patrol", now)
-        await self.db.add_gold(gid, uid, gold)
-        panel = Panel(accent=Palette.GREEN, timeout=None)
-        panel.header("🗼 Patrol Complete")
-        panel.text(f"You catch a smuggler slipping past the gate and confiscate **{formulas.fmt_gold(gold)}**.")
-        await ctx.send(view=panel)
+        await self._send_patrol_difficulty_picker(ctx, watchtower_tier, guard_captain_tier, dry_run=False)
+
+    @commands.hybrid_command(
+        name="patroltest",
+        description="[Admin] Try the Round Up minigame at any Watchtower tier, no cooldown/rewards",
+    )
+    @commands.guild_only()
+    @commands.has_permissions(administrator=True)
+    @app_commands.describe(tier="Watchtower tier to simulate (default 1)")
+    async def patroltest(
+        self, ctx: commands.Context, tier: commands.Range[int, 1, MAX_BUILDING_TIER] = 1,
+    ):
+        await self._send_patrol_difficulty_picker(ctx, tier, 0, dry_run=True)
+
+    async def _send_patrol_difficulty_picker(
+        self, ctx: commands.Context, watchtower_tier: int, guard_captain_tier: int, *, dry_run: bool,
+    ) -> None:
+        panel = Panel(accent=Palette.GOLD, author_id=ctx.author.id, timeout=60)
+        panel.header("🗼 Round Up")
+        panel.text(
+            "*Pick your difficulty. A lineup of townsfolk hides several intruders "
+            "at once -- tap out every last one before the timer runs out. Arrest "
+            "one innocent face and the whole patrol falls apart.*"
+        )
+        lines, buttons = [], []
+        for key in formulas.DIFFICULTY_ORDER:
+            tier_cfg = formulas.DIFFICULTIES[key]
+            length = formulas.difficulty_length(
+                formulas.PATROL_MIN_ROUNDS, formulas.PATROL_MAX_ROUNDS, key
+            )
+            need = formulas.PATROL_TIER_UNLOCK[key]
+            unlocked = dry_run or watchtower_tier >= need
+            mult = f"×{tier_cfg['reward_mult']:.2f}"
+            size = formulas.PATROL_LINEUP_SIZE[key]
+            n_intr = formulas.PATROL_INTRUDER_COUNT[key]
+            if unlocked:
+                lines.append(
+                    f"{tier_cfg['emoji']} {chip((tier_cfg['label'], NAME_W), (mult, -AMT_W))} "
+                    f"· {length} lineups · {n_intr}/{size} intruders"
+                )
+            else:
+                lines.append(
+                    f"🔒 {chip((tier_cfg['label'], NAME_W), (mult, -AMT_W))} "
+                    f"· needs Watchtower Tier {need} (you're {watchtower_tier})"
+                )
+            btn = ui.Button(
+                label=tier_cfg["label"], emoji=tier_cfg["emoji"],
+                style=discord.ButtonStyle.secondary, disabled=not unlocked,
+            )
+            if unlocked:
+                btn.callback = self._make_patrol_start_handler(
+                    watchtower_tier, guard_captain_tier, key, dry_run
+                )
+            buttons.append(btn)
+        cancel_btn = ui.Button(label="Cancel", style=discord.ButtonStyle.danger)
+        cancel_btn.callback = self._on_generic_cancel
+        buttons.append(cancel_btn)
+        panel.text("\n".join(lines))
+        panel.buttons(*buttons)
+        panel.message = await ctx.send(view=panel)
+
+    def _make_patrol_start_handler(
+        self, watchtower_tier: int, guard_captain_tier: int, difficulty: str, dry_run: bool,
+    ):
+        async def handler(interaction: discord.Interaction) -> None:
+            gid, uid = interaction.guild_id, interaction.user.id
+            buffs: dict = {}
+            if not dry_run:
+                buffs = await active_buff_totals(self.db, gid, uid)
+                cooldown = apply_cooldown_buff(formulas.PATROL_COOLDOWN, buffs)
+                last = await self.db.get_minigame_cooldown(gid, uid, "patrol")
+                now = time.time()
+                if now < last + cooldown:
+                    await interaction.response.edit_message(
+                        view=simple_panel(
+                            f"Too late, the window's closed. Ready <t:{int(last + cooldown)}:R>.",
+                            accent=Palette.RED,
+                        )
+                    )
+                    return
+                await self.db.set_minigame_cooldown(gid, uid, "patrol", now)
+            session = PatrolSession(
+                self.db, gid, uid, watchtower_tier, guard_captain_tier, difficulty,
+                dry_run=dry_run, buffs=buffs,
+            )
+            panel = session.round_panel()
+            panel.message = interaction.message
+            await interaction.response.edit_message(view=panel)
+        return handler
 
 
 async def setup(bot: commands.Bot):
