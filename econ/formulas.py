@@ -896,14 +896,24 @@ TIER_BACKLOAD_SHARE = [w / _TIER_BACKLOAD_TOTAL for w in _TIER_BACKLOAD_WEIGHTS]
 # -- unchanged from the old flat-per-tier totals, only the SHAPE of the
 # climb to get there changed.
 BONUS_BUILDING_MAX_PCT = {
-    "gold": 0.25,      # Guild Hall: up to +25% gold at tier 5
+    "gold": 0.15,      # Guild Hall: up to +15% gold at tier 5 (trimmed from 25% -- population now
+                       # takes a real slice of the gold budget too, see POPULATION_GOLD_PER_CITIZEN)
     "xp": 0.25,        # Great Library: up to +25% XP at tier 5
     "cooldown": 0.15,  # Town Square: up to -15% cooldown at tier 5
     "crit": 0.10,      # Tavern: up to +10% crit chance at tier 5
     "luck": 0.15,      # Temple: up to +15% bonus-find chance at tier 5
     "defense": 0.30,   # Watchtower: up to +30% crime defense/luck at tier 5
 }
-TOWNWIDE_WORKER_MAX_PCT = 0.75  # every town-wide worker adds up to +75% to its linked effect at tier 5
+# Per-effect like BONUS_BUILDING_MAX_PCT above -- only "gold" (Town
+# Crier) is trimmed, the rest keep the old flat 75%.
+TOWNWIDE_WORKER_MAX_PCT = {
+    "gold": 0.45,      # Town Crier: trimmed from 75%, same reason as Guild Hall above
+    "xp": 0.75,
+    "cooldown": 0.75,
+    "crit": 0.75,
+    "luck": 0.75,
+    "defense": 0.75,
+}
 
 # Steeper than BUILDING_GOLD_GROWTH/WORKER_GOLD_GROWTH -- tier 1 costs
 # exactly the same as it would on the standard curve (growth^0 = 1
@@ -921,18 +931,18 @@ def bonus_building_pct(effect: str, tier: int) -> float:
     return BONUS_BUILDING_MAX_PCT[effect] * sum(TIER_BACKLOAD_SHARE[:tier])
 
 
-def townwide_worker_pct(tier: int) -> float:
+def townwide_worker_pct(effect: str, tier: int) -> float:
     """Cumulative % a town-wide worker adds to its linked effect at
     `tier` (0..5), same back-loaded shape as bonus_building_pct."""
     if tier <= 0:
         return 0.0
-    return TOWNWIDE_WORKER_MAX_PCT * sum(TIER_BACKLOAD_SHARE[:tier])
+    return TOWNWIDE_WORKER_MAX_PCT[effect] * sum(TIER_BACKLOAD_SHARE[:tier])
 
-# Ceilings on the totals above -- sized so maxing BOTH a bonus building
-# (tier 5) and its linked town-wide worker (tier 5) lands almost
-# exactly on the cap (0.05*5 + 0.15*5 = 1.00), the same "your best
-# possible build just reaches the ceiling" tuning as CRIT_CAP/
-# BONUS_FIND_CAP above.
+# Ceilings on the totals above -- sized so maxing a bonus building (tier
+# 5), its linked town-wide worker (tier 5), and (for "gold" specifically)
+# a fully populated town together land almost exactly on the cap --
+# same "your best possible build just reaches the ceiling" tuning as
+# CRIT_CAP/BONUS_FIND_CAP above.
 TOWN_GOLD_CAP = 1.0      # town bonuses alone can't more than double gold income
 TOWN_XP_CAP = 1.0        # ...or more than double XP gain
 TOWN_COOLDOWN_CAP = 0.6  # town bonuses alone can't cut cooldown by more than 60%
@@ -961,21 +971,25 @@ def apply_town_luck(base_chance: float, totals: dict[str, float]) -> float:
 # ── population: a derived stat, not another grind timer ─────────────────
 # No new DB state at all -- population is read straight off what's
 # already built: Town Hall's level, every building's tier summed, and
-# how many workers are hired. It feeds a small permanent gold bonus
-# (folded into the same town_bonus_totals stack as Guild Hall/Town
-# Crier, so it shares TOWN_GOLD_CAP rather than stacking past it) and
-# sets which .caravan routes are open -- a bigger town can spare a
-# bigger expedition, see econ/data/caravans.py.
+# how many workers are hired. It feeds a real gold bonus now (folded
+# into the same town_bonus_totals stack as Guild Hall/Town Crier, so it
+# shares TOWN_GOLD_CAP rather than stacking past it) and sets which
+# .caravan routes are open -- a bigger town can spare a bigger
+# expedition, see econ/data/caravans.py.
 
-POPULATION_BASE = 20
-POPULATION_PER_HALL_LEVEL = 15
-POPULATION_PER_BUILDING_TIER = 8
-POPULATION_PER_WORKER = 5
-# Deliberately small -- a fully maxed town (population ~900) only adds
-# ~9% gold this way. Guild Hall/Town Crier stay the dedicated, much
-# bigger source; population is a background flavour bonus for
-# investing broadly, not a way to route around that back-loaded climb.
-POPULATION_GOLD_PER_CITIZEN = 0.0001
+POPULATION_BASE = 250
+POPULATION_PER_HALL_LEVEL = 150
+POPULATION_PER_BUILDING_TIER = 90
+POPULATION_PER_WORKER = 60
+# A fully maxed town (hall 9, every building tier 5, all 20 workers
+# hired) tops out at population 10,000 -- and that alone is worth +40%
+# gold. Guild Hall/Town Crier were trimmed (BONUS_BUILDING_MAX_PCT/
+# TOWNWIDE_WORKER_MAX_PCT's "gold" entries: 25%->15%, 75%->45%) by
+# exactly the 40% handed to population here, so the combined ceiling
+# (15% + 45% + 40% = 100%) still lands right on TOWN_GOLD_CAP -- the
+# same total budget, just with population now a real player in it
+# instead of background flavour.
+POPULATION_GOLD_PER_CITIZEN = 0.00004
 
 
 def town_population(hall_level: int, building_tier_sum: int, workers_hired: int) -> int:
@@ -1144,6 +1158,64 @@ def roll_universal_material_rarity(total_level: int) -> str:
     }
     rarities = list(weights.keys())
     return random.choices(rarities, weights=list(weights.values()), k=1)[0]
+
+
+# ── .caravan: send your town on a long trade route ───────────────────────
+# The idle half of "going out" (see cogs/town.py's Scout the Trail for
+# the active half): send one caravan for real-world hours, come back
+# later to collect. Reward swings on a weighted outcome roll rather than
+# a flat rate -- Watchtower's "defense" bonus (already summed into
+# town_bonus_totals for .patrol) shifts the odds away from the two bad
+# outcomes here too, giving that bonus a second, genuine use.
+
+CARAVAN_OUTCOMES = [
+    # (label, weight, gold_mult, material_mult)
+    ("Disaster", 0.06, 0.35, 0.5),
+    ("Bandit Toll", 0.22, 0.70, 0.7),
+    ("Smooth Journey", 0.45, 1.00, 1.0),
+    ("Lucky Find", 0.19, 1.35, 1.3),
+    ("Perfect Run", 0.08, 1.75, 1.6),
+]
+CARAVAN_BAD_OUTCOMES = ("Disaster", "Bandit Toll")
+CARAVAN_GOOD_OUTCOMES = ("Lucky Find", "Perfect Run")
+CARAVAN_DEFENSE_SHIFT = 0.5  # at the full +30% Watchtower bonus, half of the bad-outcome weight moves onto the good ones
+CARAVAN_MATERIAL_QTY = (2, 5)
+
+
+def roll_caravan_outcome(defense_bonus: float) -> tuple[str, float, float]:
+    """(label, gold_mult, material_mult), weighted by CARAVAN_OUTCOMES and
+    nudged by the Watchtower's town-wide defense bonus."""
+    shift = min(1.0, max(0.0, defense_bonus)) * CARAVAN_DEFENSE_SHIFT
+    weights = []
+    moved = 0.0
+    for label, weight, _, _ in CARAVAN_OUTCOMES:
+        if label in CARAVAN_BAD_OUTCOMES:
+            reduction = weight * shift
+            weights.append(weight - reduction)
+            moved += reduction
+        else:
+            weights.append(weight)
+    if moved:
+        for i, (label, *_rest) in enumerate(CARAVAN_OUTCOMES):
+            if label in CARAVAN_GOOD_OUTCOMES:
+                weights[i] += moved / len(CARAVAN_GOOD_OUTCOMES)
+    labels = [o[0] for o in CARAVAN_OUTCOMES]
+    mults = {o[0]: (o[2], o[3]) for o in CARAVAN_OUTCOMES}
+    chosen = random.choices(labels, weights=weights, k=1)[0]
+    return (chosen, *mults[chosen])
+
+
+def caravan_gold_reward(base_gold_reward: int, gold_mult: float) -> int:
+    return max(0, round(base_gold_reward * gold_mult))
+
+
+def caravan_material_qty(material_mult: float) -> int:
+    lo, hi = CARAVAN_MATERIAL_QTY
+    return max(0, round(random.randint(lo, hi) * material_mult))
+
+
+def caravan_ready_at(departed_at: float, duration_hours: float) -> float:
+    return departed_at + duration_hours * 3600
 
 
 # ═══════════════════════════ progress bars ═════════════════════════════

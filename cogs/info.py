@@ -92,9 +92,18 @@ class Info(commands.Cog):
 
     @commands.hybrid_command(name="help", description="A guide to life in the town")
     async def help(self, ctx: commands.Context):
+        town_founded = False
+        if ctx.guild is not None:
+            town = await self.db.get_town(ctx.guild.id, ctx.author.id)
+            town_founded = town["hall_level"] > 0
+
         panel = Panel(timeout=None)
         panel.header("📜 Commands")
         for title, names in HELP_SECTIONS:
+            if title == "🏰 Town" and not town_founded:
+                # .townhall is the only door in until it's actually founded --
+                # the rest only mean anything once there's a town to run.
+                names = ["townhall"]
             panel.field(title, " · ".join(self._cmd(n) for n in names))
         panel.field(
             "⏳ Cooldowns",

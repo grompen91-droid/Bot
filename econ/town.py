@@ -63,7 +63,7 @@ async def town_bonus_totals(db, guild_id: int, user_id: int) -> dict[str, float]
         if not building or building["kind"] != "bonus":
             continue
         effect = building["effect"]
-        totals[effect] = totals.get(effect, 0.0) + formulas.townwide_worker_pct(tier)
+        totals[effect] = totals.get(effect, 0.0) + formulas.townwide_worker_pct(effect, tier)
 
     if town["hall_level"] > 0:
         population = formulas.town_population(
