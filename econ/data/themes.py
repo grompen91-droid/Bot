@@ -27,7 +27,7 @@ THEMES = {
     },
     "bug_finder": {
         "name": "Bug Finder", "emoji": "🐛", "layout": "dashboard",
-        "accent": discord.Colour(0x39B54A),
+        "accent": discord.Colour(0x9FE2BF),
         "flair": "credited by the town for hunting down a genuine bug",
         "description": "Awarded for reporting a real bug. Admin-granted only.",
     },
