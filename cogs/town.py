@@ -56,6 +56,10 @@ EFFECT_LABELS = {
     "gold": "gold", "xp": "XP", "cooldown": "cooldown",
     "crit": "crit chance", "luck": "bonus-find chance", "defense": "crime defense",
 }
+# Above this gold total, the "Auto Buy Materials" button (buildings/
+# workers) makes you confirm before it spends -- a small top-up is a
+# one-click convenience, a five-figure one deserves a second look.
+AUTO_BUY_CONFIRM_THRESHOLD = 10_000
 GATHER_CHOICES = [
     app_commands.Choice(name=f"{info['emoji']} {info['name']}", value=key)
     for key, info in TOWN_BUILDINGS.items() if info["kind"] == "production"
@@ -447,6 +451,34 @@ async def _try_pay(db, gid: int, uid: int, gold_cost: int, materials: dict[str, 
             await db.add_item(gid, uid, m, q)
         return False
     return True
+
+
+def _material_rarity_order(key: str) -> int:
+    return list(RARITIES.keys()).index(ITEMS[key]["rarity"])
+
+
+async def _auto_buy_plan(
+    db, gid: int, uid: int, materials: dict[str, int],
+) -> tuple[dict[str, int], int] | None:
+    """(missing_qty, gold_cost) to top up every shortfall in `materials`
+    via Builder's Supply, at the same per-unit price `.supply` charges
+    (see MATERIAL_SUPPLY_MARKUP). None if ANY shortfall material is
+    rarer than .supply stocks (see MATERIAL_SUPPLY_MAX_RARITY_ORDER) --
+    in that case there's nothing an auto-buy button could safely cover,
+    so the caller should hide it rather than offer a partial top-up.
+    An empty `missing` dict (nothing short) is a valid, non-None result."""
+    missing: dict[str, int] = {}
+    total_cost = 0
+    for mat, qty in materials.items():
+        owned = await db.get_item_qty(gid, uid, mat)
+        shortfall = qty - owned
+        if shortfall <= 0:
+            continue
+        if _material_rarity_order(mat) > MATERIAL_SUPPLY_MAX_RARITY_ORDER:
+            return None
+        missing[mat] = shortfall
+        total_cost += round(ITEMS[mat]["value"] * MATERIAL_SUPPLY_MARKUP * shortfall)
+    return missing, total_cost
 
 
 class Town(commands.Cog):
@@ -951,25 +983,20 @@ class Town(commands.Cog):
             return
         panel.message = await ctx.send(view=panel)
 
-    async def _on_building_select(self, interaction: discord.Interaction) -> None:
-        key = interaction.data["values"][0]
-        gid, uid = interaction.guild_id, interaction.user.id
+    async def _build_building_upgrade_panel(self, gid: int, uid: int, key: str) -> Panel:
+        """Confirm panel for building `key`'s next tier -- shared by the
+        `.buildings` select and the auto-buy flow's "back"/refresh steps,
+        so both always show the same live gold/material picture."""
         town = await self.db.get_town(gid, uid)
         tier = await self.db.get_building_tier(gid, uid, key)
         info = TOWN_BUILDINGS[key]
         if tier <= 0 and town["hall_level"] < info["unlock_hall_level"]:
-            await interaction.response.edit_message(
-                view=simple_panel(
-                    f"**{info['name']}** needs Town Hall level {info['unlock_hall_level']}.",
-                    accent=Palette.RED,
-                )
+            return simple_panel(
+                f"**{info['name']}** needs Town Hall level {info['unlock_hall_level']}.",
+                accent=Palette.RED,
             )
-            return
         if tier >= MAX_BUILDING_TIER:
-            await interaction.response.edit_message(
-                view=simple_panel(f"**{info['name']}** is already fully built.", accent=Palette.RED)
-            )
-            return
+            return simple_panel(f"**{info['name']}** is already fully built.", accent=Palette.RED)
         next_tier = tier + 1
         gold_cost, materials = building_tier_price(key, next_tier)
         user = await self.db.get_user(gid, uid)
@@ -987,10 +1014,25 @@ class Town(commands.Cog):
             f"Your purse: {user['gold']:,} gold"
         )
         confirm_btn = ui.Button(label="Confirm", emoji="✅", style=discord.ButtonStyle.success)
-        cancel_btn = ui.Button(label="Cancel", style=discord.ButtonStyle.danger)
         confirm_btn.callback = self._make_building_confirm_handler(key, next_tier)
+        buttons = [confirm_btn]
+        plan = await _auto_buy_plan(self.db, gid, uid, materials)
+        if plan is not None and plan[0]:
+            _missing, cost = plan
+            auto_buy_btn = ui.Button(
+                label=f"Auto Buy Materials ({cost:,}g)", emoji="🧱", style=discord.ButtonStyle.secondary,
+            )
+            auto_buy_btn.callback = self._make_auto_buy_handler("building", key)
+            buttons.append(auto_buy_btn)
+        cancel_btn = ui.Button(label="Cancel", style=discord.ButtonStyle.danger)
         cancel_btn.callback = self._on_generic_cancel
-        panel.buttons(confirm_btn, cancel_btn)
+        buttons.append(cancel_btn)
+        panel.buttons(*buttons)
+        return panel
+
+    async def _on_building_select(self, interaction: discord.Interaction) -> None:
+        key = interaction.data["values"][0]
+        panel = await self._build_building_upgrade_panel(interaction.guild_id, interaction.user.id, key)
         await interaction.response.edit_message(view=panel)
 
     def _make_building_confirm_handler(self, key: str, next_tier: int):
@@ -1099,22 +1141,16 @@ class Town(commands.Cog):
             return
         panel.message = await ctx.send(view=panel)
 
-    async def _on_worker_select(self, interaction: discord.Interaction) -> None:
-        key = interaction.data["values"][0]
-        gid, uid = interaction.guild_id, interaction.user.id
+    async def _build_worker_upgrade_panel(self, gid: int, uid: int, key: str) -> Panel:
+        """Confirm panel for worker `key`'s next tier -- shared by the
+        `.workers` select and the auto-buy flow's "back"/refresh steps."""
         info = TOWN_WORKERS[key]
         tier = await self.db.get_worker_tier(gid, uid, key)
         used, capacity = await town_lib.hired_worker_slots_used(self.db, gid, uid)
         if tier <= 0 and used >= capacity:
-            await interaction.response.edit_message(
-                view=simple_panel("No free hire slots. Upgrade your Workers' Lodge first.", accent=Palette.RED)
-            )
-            return
+            return simple_panel("No free hire slots. Upgrade your Workers' Lodge first.", accent=Palette.RED)
         if tier >= MAX_WORKER_TIER:
-            await interaction.response.edit_message(
-                view=simple_panel(f"**{info['name']}** is already fully trained.", accent=Palette.RED)
-            )
-            return
+            return simple_panel(f"**{info['name']}** is already fully trained.", accent=Palette.RED)
         next_tier = tier + 1
         gold_cost, materials = worker_tier_price(key, next_tier)
         user = await self.db.get_user(gid, uid)
@@ -1133,10 +1169,25 @@ class Town(commands.Cog):
             f"\n\nYour purse: {user['gold']:,} gold"
         )
         confirm_btn = ui.Button(label="Confirm", emoji="✅", style=discord.ButtonStyle.success)
-        cancel_btn = ui.Button(label="Cancel", style=discord.ButtonStyle.danger)
         confirm_btn.callback = self._make_worker_confirm_handler(key, next_tier)
+        buttons = [confirm_btn]
+        plan = await _auto_buy_plan(self.db, gid, uid, materials)
+        if plan is not None and plan[0]:
+            _missing, cost = plan
+            auto_buy_btn = ui.Button(
+                label=f"Auto Buy Materials ({cost:,}g)", emoji="🧱", style=discord.ButtonStyle.secondary,
+            )
+            auto_buy_btn.callback = self._make_auto_buy_handler("worker", key)
+            buttons.append(auto_buy_btn)
+        cancel_btn = ui.Button(label="Cancel", style=discord.ButtonStyle.danger)
         cancel_btn.callback = self._on_generic_cancel
-        panel.buttons(confirm_btn, cancel_btn)
+        buttons.append(cancel_btn)
+        panel.buttons(*buttons)
+        return panel
+
+    async def _on_worker_select(self, interaction: discord.Interaction) -> None:
+        key = interaction.data["values"][0]
+        panel = await self._build_worker_upgrade_panel(interaction.guild_id, interaction.user.id, key)
         await interaction.response.edit_message(view=panel)
 
     def _make_worker_confirm_handler(self, key: str, next_tier: int):
@@ -1179,6 +1230,101 @@ class Town(commands.Cog):
         if not isinstance(panel, Panel):
             panel = simple_panel("Build a Workers' Lodge first (see `.buildings`).", accent=Palette.RED)
         panel.message = interaction.message
+        await interaction.response.edit_message(view=panel)
+
+    # ── "Auto Buy Materials": one click to top up a shortfall from ───────
+    # Builder's Supply, offered on the buildings/workers confirm panels
+    # ONLY when every short material is something .supply actually sells
+    # (see _auto_buy_plan) -- a rare+ shortfall means no button at all,
+    # rather than a button that can't fully solve the shortfall. Above
+    # AUTO_BUY_CONFIRM_THRESHOLD gold it asks for a second confirm first.
+
+    async def _rebuild_upgrade_panel(self, gid: int, uid: int, kind: str, key: str) -> Panel:
+        if kind == "building":
+            return await self._build_building_upgrade_panel(gid, uid, key)
+        return await self._build_worker_upgrade_panel(gid, uid, key)
+
+    async def _current_upgrade_materials(
+        self, gid: int, uid: int, kind: str, key: str,
+    ) -> dict[str, int] | None:
+        """This kind/key's next-tier material requirement, or None if
+        it's maxed/locked out from under the auto-buy button."""
+        if kind == "building":
+            tier = await self.db.get_building_tier(gid, uid, key)
+            if tier >= MAX_BUILDING_TIER:
+                return None
+            _gold, materials = building_tier_price(key, tier + 1)
+            return materials
+        tier = await self.db.get_worker_tier(gid, uid, key)
+        if tier >= MAX_WORKER_TIER:
+            return None
+        _gold, materials = worker_tier_price(key, tier + 1)
+        return materials
+
+    def _make_auto_buy_handler(self, kind: str, key: str):
+        async def handler(interaction: discord.Interaction) -> None:
+            gid, uid = interaction.guild_id, interaction.user.id
+            materials = await self._current_upgrade_materials(gid, uid, kind, key)
+            plan = await _auto_buy_plan(self.db, gid, uid, materials) if materials is not None else None
+            if plan is None or not plan[0]:
+                panel = await self._rebuild_upgrade_panel(gid, uid, kind, key)
+                await interaction.response.edit_message(view=panel)
+                return
+            missing, cost = plan
+            if cost > AUTO_BUY_CONFIRM_THRESHOLD:
+                panel = self._build_auto_buy_confirm_panel(uid, kind, key, missing, cost)
+                await interaction.response.edit_message(view=panel)
+                return
+            await self._execute_auto_buy(interaction, kind, key, missing, cost)
+        return handler
+
+    def _build_auto_buy_confirm_panel(
+        self, uid: int, kind: str, key: str, missing: dict[str, int], cost: int,
+    ) -> Panel:
+        panel = Panel(accent=Palette.IRON, author_id=uid, timeout=60)
+        panel.header("🧱 Auto Buy Materials?")
+        lines = [f"{ITEMS[m]['emoji']} {ITEMS[m]['name']} x{q:,}" for m, q in missing.items()]
+        panel.text(
+            "\n".join(lines) + f"\n\nTotal: **{formulas.fmt_gold(cost)}** from Builder's Supply"
+        )
+        confirm_btn = ui.Button(label="Buy It All", emoji="🧱", style=discord.ButtonStyle.success)
+        confirm_btn.callback = self._make_auto_buy_confirm_handler(kind, key)
+        cancel_btn = ui.Button(label="Cancel", style=discord.ButtonStyle.secondary)
+        cancel_btn.callback = self._make_auto_buy_cancel_handler(kind, key)
+        panel.buttons(confirm_btn, cancel_btn)
+        return panel
+
+    def _make_auto_buy_confirm_handler(self, kind: str, key: str):
+        async def handler(interaction: discord.Interaction) -> None:
+            gid, uid = interaction.guild_id, interaction.user.id
+            materials = await self._current_upgrade_materials(gid, uid, kind, key)
+            plan = await _auto_buy_plan(self.db, gid, uid, materials) if materials is not None else None
+            if plan is None or not plan[0]:
+                panel = await self._rebuild_upgrade_panel(gid, uid, kind, key)
+                await interaction.response.edit_message(view=panel)
+                return
+            missing, cost = plan
+            await self._execute_auto_buy(interaction, kind, key, missing, cost)
+        return handler
+
+    def _make_auto_buy_cancel_handler(self, kind: str, key: str):
+        async def handler(interaction: discord.Interaction) -> None:
+            panel = await self._rebuild_upgrade_panel(interaction.guild_id, interaction.user.id, kind, key)
+            await interaction.response.edit_message(view=panel)
+        return handler
+
+    async def _execute_auto_buy(
+        self, interaction: discord.Interaction, kind: str, key: str, missing: dict[str, int], cost: int,
+    ) -> None:
+        gid, uid = interaction.guild_id, interaction.user.id
+        if not await self.db.spend_gold(gid, uid, cost):
+            await interaction.response.edit_message(
+                view=simple_panel(f"That would cost {cost:,} gold.", accent=Palette.RED)
+            )
+            return
+        for mat, qty in missing.items():
+            await self.db.add_item(gid, uid, mat, qty)
+        panel = await self._rebuild_upgrade_panel(gid, uid, kind, key)
         await interaction.response.edit_message(view=panel)
 
     # ══════════════════════════════ .fire ════════════════════════════════
