@@ -717,16 +717,16 @@ class Town(commands.Cog):
             "common and uncommon only. Rarer stock has to be earned, not bought.*"
         )
 
+        # Rare+ items simply aren't listed here at all -- a dead row
+        # that can't be bought is just clutter, not information; the
+        # footer below already says where to actually get them.
         lines = []
         select = ui.Select(placeholder="🧱 Buy a bundle…")
         for key in item_keys:
+            if self._rarity_order(key) > MATERIAL_SUPPLY_MAX_RARITY_ORDER:
+                continue
             info = ITEMS[key]
             owned = await self.db.get_item_qty(gid, uid, key)
-            if self._rarity_order(key) > MATERIAL_SUPPLY_MAX_RARITY_ORDER:
-                lines.append(
-                    f"🔒 {chip((info['name'], NAME_W), (f'x{owned}', QTY_W), ('earn it', -13))}"
-                )
-                continue
             price = round(info["value"] * MATERIAL_SUPPLY_MARKUP * MATERIAL_SUPPLY_BUNDLE)
             lines.append(
                 f"{info['emoji']} {chip((info['name'], NAME_W), (f'x{owned}', QTY_W), (f'{price:,}', -AMT_W))} 🪙"
@@ -736,7 +736,7 @@ class Town(commands.Cog):
                 value=key,
                 emoji=info["emoji"],
             )
-        panel.text("\n".join(lines))
+        panel.text("\n".join(lines) if lines else "*Nothing common/uncommon left in this group.*")
         if category_key != "universal":
             info = TOWN_BUILDINGS[category_key]
             panel.footer(
