@@ -99,6 +99,7 @@ class Jobs(commands.Cog):
         level = skill["level"]
         buffs = await active_buff_totals(self.db, guild_id, member.id)
         town_totals = await town_system.town_bonus_totals(self.db, guild_id, member.id)
+        has_town = (await self.db.get_town(guild_id, member.id))["hall_level"] > 0
 
         now = time.time()
         cooldown = apply_cooldown_buff(
@@ -113,7 +114,7 @@ class Jobs(commands.Cog):
 
         if job_key == "criminal":
             return await self._build_criminal_work_panel(
-                guild_id, member, skill, level, now, buffs, town_totals
+                guild_id, member, skill, level, now, buffs, town_totals, has_town
             )
 
         tier = await self.db.get_tool_tier(guild_id, member.id, job_key)
@@ -178,8 +179,10 @@ class Jobs(commands.Cog):
         # A second, independent chance at a town-wide construction
         # material (see formulas.WORK_DROP_MATERIAL_CHANCE) -- the only
         # earn-it-by-working path for materials .supply no longer sells.
+        # Gated on having founded a town at all: construction materials
+        # are useless without one, so they simply don't drop pre-.townhall.
         found_material, found_material_qty = None, 0
-        if random.random() < formulas.WORK_DROP_MATERIAL_CHANCE:
+        if has_town and random.random() < formulas.WORK_DROP_MATERIAL_CHANCE:
             rarity = formulas.roll_universal_material_rarity(total_before)
             found_material = random_universal_material(rarity)
             found_material_qty = random.randint(*formulas.WORK_DROP_MATERIAL_QTY)
@@ -268,7 +271,7 @@ class Jobs(commands.Cog):
 
     async def _build_criminal_work_panel(
         self, guild_id: int, member: discord.abc.User, skill, level: int, now: float,
-        buffs: dict[str, float], town_totals: dict[str, float],
+        buffs: dict[str, float], town_totals: dict[str, float], has_town: bool,
     ) -> Panel:
         """Criminal has no goods to gather, only gold and infamy. Both
         the payout and the flavour of the crime scale with how
@@ -310,7 +313,7 @@ class Jobs(commands.Cog):
             await self.db.add_item(guild_id, member.id, found_consumable, 1)
 
         found_material, found_material_qty = None, 0
-        if random.random() < formulas.WORK_DROP_MATERIAL_CHANCE:
+        if has_town and random.random() < formulas.WORK_DROP_MATERIAL_CHANCE:
             rarity = formulas.roll_universal_material_rarity(total_before)
             found_material = random_universal_material(rarity)
             found_material_qty = random.randint(*formulas.WORK_DROP_MATERIAL_QTY)
