@@ -18,6 +18,7 @@ from econ import formulas
 from econ import town as town_lib
 from econ.buffs import active_buff_totals, apply_cooldown_buff, apply_gold_buff
 from econ.data.caravans import CARAVAN_ROUTE_ORDER, CARAVAN_ROUTES
+from econ.data.expeditions import EXPEDITION_CHOICE_ORDER, EXPEDITION_CHOICES
 from econ.data.items import ITEMS, RARITIES
 from econ.data.materials import (
     MATERIAL_GROUPS,
@@ -595,7 +596,7 @@ class Town(commands.Cog):
         worker_tiers = await town_lib.get_worker_tiers(self.db, gid, uid)
         now = time.time()
 
-        population = formulas.town_population(level, sum(building_tiers.values()), len(worker_tiers))
+        population = town["population"]
 
         panel = Panel(accent=Palette.GOLD, author_id=uid, timeout=180)
         panel.header(f"🏰 {_town_name(display_name)}")
@@ -635,12 +636,58 @@ class Town(commands.Cog):
             panel.subheader("✨ Town Bonuses")
             panel.text(" · ".join(bonus_lines))
 
+        hint = await self._next_upgrade_hint(gid, uid, level, building_tiers, worker_tiers)
+        if hint:
+            panel.divider()
+            panel.subheader("🎯 Next Move")
+            panel.text(hint)
+
         panel.footer("`.buildings` to build/upgrade · `.workers` to hire · `.supply` for materials")
         if total_pending > 0:
             collect_btn = ui.Button(label="Collect All", emoji="📦", style=discord.ButtonStyle.success)
             collect_btn.callback = self._on_collect_button
             panel.buttons(collect_btn)
         return panel
+
+    async def _next_upgrade_hint(
+        self, gid: int, uid: int, level: int, building_tiers: dict[str, int], worker_tiers: dict[str, int],
+    ) -> str | None:
+        """Cheapest next upgrade across Town Hall/buildings/workers, by
+        gold cost alone -- a quick "what should I do next" nudge, not a
+        full ledger of every option (see `.buildings`/`.workers` for that)."""
+        candidates: list[tuple[int, str, str]] = []
+
+        if level < formulas.TOWN_HALL_MAX_LEVEL:
+            gold, _qty = formulas.town_hall_upgrade_cost(level + 1)
+            candidates.append((gold, f"Town Hall to Level {level + 1}", "🏰"))
+
+        for key, info in TOWN_BUILDINGS.items():
+            if level < info["unlock_hall_level"]:
+                continue
+            tier = building_tiers.get(key, 0)
+            if tier >= MAX_BUILDING_TIER:
+                continue
+            gold, _mats = building_tier_price(key, tier + 1)
+            verb = "Build" if tier == 0 else f"Upgrade to Tier {tier + 1}"
+            candidates.append((gold, f"{verb} {info['name']}", info["emoji"]))
+
+        lodge_tier = building_tiers.get("workers_lodge", 0)
+        if lodge_tier > 0:
+            used, capacity = await town_lib.hired_worker_slots_used(self.db, gid, uid)
+            for key, info in TOWN_WORKERS.items():
+                tier = worker_tiers.get(key, 0)
+                if tier >= MAX_WORKER_TIER:
+                    continue
+                if tier == 0 and used >= capacity:
+                    continue  # no free hire slot for a brand new worker
+                gold, _mats = worker_tier_price(key, tier + 1)
+                verb = "Hire" if tier == 0 else f"Train to Tier {tier + 1}"
+                candidates.append((gold, f"{verb} {info['name']}", info["emoji"]))
+
+        if not candidates:
+            return None
+        gold, label, emoji = min(candidates, key=lambda c: c[0])
+        return f"{emoji} Cheapest next step: **{label}** -- {gold:,} gold (+materials)"
 
     @commands.hybrid_command(name="town", description="Your town: overview, bonuses, and pending collection")
     @commands.guild_only()
@@ -1652,6 +1699,188 @@ class Town(commands.Cog):
     async def _on_caravan_send_again(self, interaction: discord.Interaction) -> None:
         gid, uid = interaction.guild_id, interaction.user.id
         panel = await self._build_caravan_picker_panel(gid, uid, interaction.user.display_name)
+        await interaction.response.edit_message(view=panel)
+
+    # ══════════════════════════════ .expedition ═════════════════════════
+    # The only way to earn Population. Similar to .venture (pick one of
+    # a few risk tiers, each a genuine success/loss gamble) but paced
+    # over real time instead of resolved in one shot: 5 legs, one choice
+    # every 15 minutes, so a full trip takes real, deliberate check-ins.
+
+    @commands.hybrid_command(
+        name="expedition", description="Send settlers out to grow your town's Population (needs a town)",
+    )
+    @commands.guild_only()
+    async def expedition(self, ctx: commands.Context):
+        gid, uid = ctx.guild.id, ctx.author.id
+        town = await self.db.get_town(gid, uid)
+        if town["hall_level"] <= 0:
+            await ctx.send(
+                view=simple_panel("Found your town with `.townhall` first.", accent=Palette.RED),
+                ephemeral=True,
+            )
+            return
+        panel = await self._build_expedition_panel(gid, uid, ctx.author.display_name)
+        panel.message = await ctx.send(view=panel)
+
+    async def _build_expedition_panel(self, gid: int, uid: int, display_name: str) -> Panel:
+        expedition = await self.db.get_expedition(gid, uid)
+        if expedition is None:
+            return await self._build_expedition_start_panel(gid, uid, display_name)
+        now = time.time()
+        ready_at = expedition["last_choice_at"] + formulas.EXPEDITION_CHOICE_COOLDOWN
+        if now < ready_at:
+            panel = Panel(accent=Palette.GOLD, author_id=uid, timeout=180)
+            panel.header(f"🧭 {_town_name(display_name)} · Expedition Under Way")
+            panel.text(
+                f"Leg **{expedition['legs_done']}/{formulas.EXPEDITION_LEGS}** done, "
+                f"**+{expedition['population_gained']:,}** Population so far this trip.\n"
+                f"Next decision ready <t:{int(ready_at)}:R>."
+            )
+            return panel
+        return await self._build_expedition_choice_panel(gid, uid, expedition)
+
+    async def _build_expedition_start_panel(self, gid: int, uid: int, display_name: str) -> Panel:
+        user = await self.db.get_user(gid, uid)
+        panel = Panel(accent=Palette.GOLD, author_id=uid, timeout=60)
+        panel.header(f"🧭 {_town_name(display_name)} · Send Settlers Out?")
+        cooldown_min = formulas.EXPEDITION_CHOICE_COOLDOWN // 60
+        panel.text(
+            f"**{formulas.fmt_gold(formulas.EXPEDITION_START_COST)}** funds an expedition of "
+            f"**{formulas.EXPEDITION_LEGS}** legs -- one decision every **{cooldown_min} minutes**, "
+            "real time. This is the only way to grow your town's **Population**, which feeds a "
+            "real gold bonus.\n\n"
+            f"Your purse: {user['gold']:,} gold"
+        )
+        confirm_btn = ui.Button(label="Send Them Out", emoji="🧭", style=discord.ButtonStyle.success)
+        cancel_btn = ui.Button(label="Cancel", style=discord.ButtonStyle.secondary)
+        confirm_btn.callback = self._on_expedition_start_confirm
+        cancel_btn.callback = self._on_generic_cancel
+        panel.buttons(confirm_btn, cancel_btn)
+        return panel
+
+    async def _on_expedition_start_confirm(self, interaction: discord.Interaction) -> None:
+        gid, uid = interaction.guild_id, interaction.user.id
+        if not await self.db.spend_gold(gid, uid, formulas.EXPEDITION_START_COST):
+            await interaction.response.edit_message(
+                view=simple_panel(
+                    f"Sending settlers out costs {formulas.EXPEDITION_START_COST:,} gold.",
+                    accent=Palette.RED,
+                )
+            )
+            return
+        started = await self.db.start_expedition(gid, uid, time.time())
+        if not started:
+            await self.db.add_gold(gid, uid, formulas.EXPEDITION_START_COST)
+            await interaction.response.edit_message(
+                view=simple_panel("An expedition is already under way.", accent=Palette.RED)
+            )
+            return
+        ready_at = int(time.time() + formulas.EXPEDITION_CHOICE_COOLDOWN)
+        panel = Panel(accent=Palette.GOLD, author_id=uid, timeout=180)
+        panel.header(f"🧭 {_town_name(interaction.user.display_name)} · Expedition Begins")
+        panel.text(
+            f"Your settlers set out. First decision ready <t:{ready_at}:R> -- "
+            "run `.expedition` again once it's time to choose."
+        )
+        await interaction.response.edit_message(view=panel)
+
+    async def _build_expedition_choice_panel(self, gid: int, uid: int, expedition: dict) -> Panel:
+        user = await self.db.get_user(gid, uid)
+        fame = formulas.reputation_fame(user["reputation"])
+        fame_mult = formulas.fame_multiplier(fame)
+        leg_num = expedition["legs_done"] + 1
+        panel = Panel(accent=Palette.GOLD, author_id=uid, timeout=120)
+        panel.header(f"🧭 Expedition · Leg {leg_num}/{formulas.EXPEDITION_LEGS}")
+        blocks = []
+        for choice in EXPEDITION_CHOICES.values():
+            lo, hi = choice["reward"]
+            range_s = f"{round(lo * fame_mult):,}-{round(hi * fame_mult):,}"
+            win_s = f"win {choice['success']:.0%}"
+            loss_lo, loss_hi = choice["loss"]
+            lose_s = (
+                f"risk losing {loss_lo:,}-{loss_hi:,} Population on a bad turn"
+                if loss_hi else "a safe miss, nothing lost"
+            )
+            blocks.append(
+                f"{choice['emoji']} **{choice['name']}** · {choice['risk']}\n"
+                f"{chip((win_s, 8), (range_s, -12))} pop · *{lose_s}*"
+            )
+        panel.text("\n\n".join(blocks))
+        footer = f"+{expedition['population_gained']:,} Population so far this trip"
+        if fame > 0:
+            footer += f" · ×{fame_mult:.2f} from Fame"
+        panel.footer(footer)
+        buttons = []
+        for key in EXPEDITION_CHOICE_ORDER:
+            choice = EXPEDITION_CHOICES[key]
+            btn = ui.Button(label=choice["name"], emoji=choice["emoji"], style=discord.ButtonStyle.secondary)
+            btn.callback = self._make_expedition_resolver(key)
+            buttons.append(btn)
+        panel.buttons(*buttons)
+        return panel
+
+    def _make_expedition_resolver(self, choice_key: str):
+        async def resolver(interaction: discord.Interaction) -> None:
+            await self._resolve_expedition_leg(interaction, choice_key)
+        return resolver
+
+    async def _resolve_expedition_leg(self, interaction: discord.Interaction, choice_key: str) -> None:
+        gid, uid = interaction.guild_id, interaction.user.id
+        expedition = await self.db.get_expedition(gid, uid)
+        if expedition is None:
+            await interaction.response.edit_message(
+                view=simple_panel(
+                    "No expedition under way. Run `.expedition` to start one.", accent=Palette.RED,
+                )
+            )
+            return
+        now = time.time()
+        ready_at = expedition["last_choice_at"] + formulas.EXPEDITION_CHOICE_COOLDOWN
+        if now < ready_at:
+            await interaction.response.edit_message(
+                view=simple_panel(f"Too soon, ready <t:{int(ready_at)}:R>.", accent=Palette.RED)
+            )
+            return
+
+        user = await self.db.get_user(gid, uid)
+        fame = formulas.reputation_fame(user["reputation"])
+        fame_mult = formulas.fame_multiplier(fame)
+        choice = EXPEDITION_CHOICES[choice_key]
+        success, delta = formulas.roll_expedition_leg(choice, fame_mult)
+        new_population = await self.db.add_population(gid, uid, delta)
+
+        legs_done = expedition["legs_done"] + 1
+        population_gained = max(0, expedition["population_gained"] + delta)
+        concluded = legs_done >= formulas.EXPEDITION_LEGS
+        if concluded:
+            await self.db.clear_expedition(gid, uid)
+        else:
+            await self.db.advance_expedition(gid, uid, legs_done, population_gained, now)
+
+        panel = Panel(accent=Palette.GREEN if success else Palette.RED, timeout=None)
+        panel.header(f"{choice['emoji']} {choice['name']} · Leg {legs_done}/{formulas.EXPEDITION_LEGS}")
+        if success:
+            panel.text(f"✅ *{random.choice(choice['success_flavour'])}*")
+            panel.text(f"🧑‍🤝‍🧑 {chip(('Gained', NAME_W), (f'+{delta:,}', -AMT_W))}")
+        else:
+            panel.text(f"❌ *{random.choice(choice['fail_flavour'])}*")
+            if delta:
+                panel.text(f"🧑‍🤝‍🧑 {chip(('Lost', NAME_W), (f'{delta:,}', -AMT_W))}")
+            else:
+                panel.text("🧑‍🤝‍🧑 Nothing lost, nothing gained.")
+
+        if concluded:
+            panel.footer(
+                f"🏁 Expedition complete -- +{population_gained:,} Population this trip, "
+                f"now {new_population:,} total. Run `.expedition` to send settlers out again."
+            )
+        else:
+            ready = int(now + formulas.EXPEDITION_CHOICE_COOLDOWN)
+            panel.footer(
+                f"+{population_gained:,} Population so far this trip, {new_population:,} total\n"
+                f"next decision <t:{ready}:R>"
+            )
         await interaction.response.edit_message(view=panel)
 
 

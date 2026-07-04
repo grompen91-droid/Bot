@@ -255,22 +255,29 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
     innocent, a multi-target selection task distinct from every other
     minigame's mechanic. Difficulty gated by the Watchtower's own tier,
     admin test twin `.patroltest [tier]`.
-  - **Population**, a derived stat with no dedicated DB column --
-    computed straight from Town Hall level, every building's tier
-    summed, and workers hired, capping at 10,000 in a fully maxed
-    town. It's a real gold contributor (+40% at max) rather than
-    background flavour: Guild Hall and Town Crier's own maximums were
-    trimmed by exactly that much so the combined ceiling still lands
-    on the same cap. It also gates **`.caravan`**, the idle half of
-    "going out" (Scout the Trail, coming soon, is the active half):
-    send a trade caravan out for real hours (2-40h, depending on the
-    route) and check back later to collect. Four routes (Local Trade
-    Run through Legendary Venture) unlock as Population grows, each a
-    flat gold cost up front and a weighted outcome roll on return --
-    Disaster/Bandit Toll/Smooth Journey/Lucky Find/Perfect Run --
-    nudged toward the good outcomes by Watchtower's crime-defense
-    bonus, paying back gold plus a handful of that route's own
-    rarity-tier materials.
+  - **Population**, a real earned total (not derived from Town Hall
+    level or any building/worker) that only ever grows through
+    **`.expedition`** -- a gold contributor (see `population_gold_bonus`
+    in `econ/formulas.py`) alongside Guild Hall/Town Crier, whose own
+    maximums were trimmed to make room for it in the same
+    `TOWN_GOLD_CAP`. It also gates **`.caravan`**, the idle half of
+    "going out": send a trade caravan out for real hours (2-40h,
+    depending on the route) and check back later to collect. Four
+    routes (Local Trade Run through Legendary Venture) unlock as
+    Population grows, each a flat gold cost up front and a weighted
+    outcome roll on return -- Disaster/Bandit Toll/Smooth Journey/Lucky
+    Find/Perfect Run -- nudged toward the good outcomes by Watchtower's
+    crime-defense bonus, paying back gold plus a handful of that
+    route's own rarity-tier materials.
+  - **`.expedition`** is the active half of "going out," similar in
+    shape to `.venture` (pick one of three risk tiers, each a genuine
+    success/loss gamble) but paced over real time instead of resolved
+    in one shot: 50,000 gold funds a 5-leg expedition, one choice every
+    15 real minutes, so a full trip takes deliberate check-ins rather
+    than one sitting. Reward is Population, not gold, and scales with
+    Fame (the positive side of the same reputation counter `.pickpocket`/
+    `.rob` push negative) -- a well-regarded town draws more settlers on
+    the same expedition. Runs alongside `.caravan`, not instead of it.
 - **`.info <query>`**: one universal lookup for anything in the game --
   an item, a trade, a building, a worker, or another command. Resolves
   in that order (first match wins) and always answers the same two
@@ -322,6 +329,7 @@ Every command is **hybrid**, `.work` and `/work` both do the same thing.
 | `.patrol` | "Round Up" minigame: catch every intruder hidden in a townsfolk lineup (needs a Watchtower) |
 | `.patroltest [tier]` | Admin-only: try Round Up at any simulated Watchtower tier, no cooldown/rewards |
 | `.caravan` | Send a trade caravan out (gated by Population) for real hours, or collect one that's back |
+| `.expedition` | Spend 50k gold on a 5-leg expedition (one choice every 15 real minutes) to earn Population |
 | `.info <query>` | Look up an item, trade, building, worker, or command: where to get it, what it's for |
 | `.cd [member]` / `.cooldown` | Every cooldown someone is currently carrying, at a glance |
 | `.help` / `.about` | Guidance (`.help`'s command list is tappable slash-command mentions) |
@@ -364,6 +372,8 @@ econ/
                      to one building
     caravans.py      the 4 .caravan routes, gated by Population, each
                      with a duration/gold-cost/reward-rarity
+    expeditions.py   the 3 .expedition risk tiers, each a Population
+                     gain/loss gamble scaled by Fame
 ui/
   panels.py          Components V2 medieval panel builder (fluent API)
   profile_card.py    renders .profile as a PNG via Pillow (avatar,
@@ -383,8 +393,8 @@ cogs/
   craft.py           .recipes / .craft, the standalone Crafting skill
   consumables.py     .use / .buffs
   town.py            .townhall/.town/.buildings/.workers/.supply/
-                     .collect/.study/.patrol/.caravan -- the mid-game
-                     settlement
+                     .collect/.study/.patrol/.caravan/.expedition --
+                     the mid-game settlement
   info.py            help, about
 ```
 

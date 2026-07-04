@@ -66,7 +66,7 @@ HELP_SECTIONS = [
     (
         "🏰 Town",
         ["townhall", "town", "buildings", "workers", "fire", "supply", "collect",
-         "gather", "study", "patrol", "caravan"],
+         "gather", "study", "patrol", "caravan", "expedition"],
     ),
     ("📖 Lookup", ["info"]),
 ]
@@ -473,8 +473,9 @@ class Info(commands.Cog):
                 f"{status(mg_last.get('patrol', 0.0) + formulas.PATROL_COOLDOWN)}"
             )
 
-        # .caravan isn't a cooldown so much as "is one already out" --
-        # same "hidden until it applies to you" rule, gated on founding.
+        # .caravan/.expedition aren't cooldowns so much as "is one
+        # already under way" -- same "hidden until it applies to you"
+        # rule, gated on founding.
         if (await self.db.get_town(gid, uid))["hall_level"] > 0:
             active_caravan = await self.db.get_caravan(gid, uid)
             if active_caravan is not None:
@@ -483,6 +484,13 @@ class Info(commands.Cog):
                 lines.append(f"🐎 {chip(('.caravan', NAME_W))} {status(ready_at)}")
             else:
                 lines.append(f"🐎 {chip(('.caravan', NAME_W))} ✅ ready to send")
+
+            active_expedition = await self.db.get_expedition(gid, uid)
+            if active_expedition is not None:
+                ready_at = active_expedition["last_choice_at"] + formulas.EXPEDITION_CHOICE_COOLDOWN
+                lines.append(f"🧭 {chip(('.expedition', NAME_W))} {status(ready_at)}")
+            else:
+                lines.append(f"🧭 {chip(('.expedition', NAME_W))} ✅ ready to send")
 
         panel = Panel(timeout=None)
         panel.header(f"⏳ {target.display_name}'s Cooldowns")

@@ -23,23 +23,19 @@ async def get_worker_tiers(db, guild_id: int, user_id: int) -> dict[str, int]:
 
 
 async def get_population(db, guild_id: int, user_id: int) -> int:
-    """Derived stat, no dedicated DB column -- read straight off the
-    town's existing progress. See formulas.town_population."""
+    """A real earned total, not derived from hall level/buildings/
+    workers -- .expedition is the only thing that ever moves it (see
+    Database.add_population)."""
     town = await db.get_town(guild_id, user_id)
-    if town["hall_level"] <= 0:
-        return 0
-    building_tiers = await get_building_tiers(db, guild_id, user_id)
-    worker_tiers = await get_worker_tiers(db, guild_id, user_id)
-    return formulas.town_population(
-        town["hall_level"], sum(building_tiers.values()), len(worker_tiers)
-    )
+    return town["population"] if town["hall_level"] > 0 else 0
 
 
 async def town_bonus_totals(db, guild_id: int, user_id: int) -> dict[str, float]:
     """{"gold": x, "xp": x, "cooldown": x, "crit": x, "luck": x,
     "defense": x}, summed from every built bonus building plus its
-    linked town-wide worker (if hired), plus a small population-based
-    gold bonus. An effect with nothing built simply isn't a key. Feeds
+    linked town-wide worker (if hired), plus a gold bonus from
+    Population (earned via .expedition). An effect with nothing built
+    simply isn't a key. Feeds
     formulas.apply_town_gold/xp/cooldown/crit/luck, stacked alongside
     coin_multiplier in cogs/jobs.py -- not through buffs.py's
     temporary-potion caps."""
@@ -65,11 +61,8 @@ async def town_bonus_totals(db, guild_id: int, user_id: int) -> dict[str, float]
         effect = building["effect"]
         totals[effect] = totals.get(effect, 0.0) + formulas.townwide_worker_pct(effect, tier)
 
-    if town["hall_level"] > 0:
-        population = formulas.town_population(
-            town["hall_level"], sum(building_tiers.values()), len(worker_tiers)
-        )
-        totals["gold"] = totals.get("gold", 0.0) + formulas.population_gold_bonus(population)
+    if town["hall_level"] > 0 and town["population"] > 0:
+        totals["gold"] = totals.get("gold", 0.0) + formulas.population_gold_bonus(town["population"])
     return totals
 
 

@@ -3,11 +3,13 @@ a trade route that takes real time to complete, then come back later and
 collect however it went. See econ/formulas.py's ".caravan" section for
 the duration/reward/outcome math, cogs/town.py for the UI.
 
-Routes are gated by POPULATION (formulas.town_population), not hall
-level or a building tier -- a caravan is about how much town you can
-spare, not what you've specifically built. Only one caravan can be out
-at a time (town_caravans is keyed on (guild_id, user_id), not a history
-table), so this stays a periodic check-in, not something to spam.
+Routes are gated by POPULATION (a real earned total -- see
+econ/town.py's get_population, only ever grown by `.expedition`), not
+hall level or a building tier -- a caravan is about how much town you
+can spare, not what you've specifically built. Only one caravan can be
+out at a time (town_caravans is keyed on (guild_id, user_id), not a
+history table), so this stays a periodic check-in, not something to
+spam.
 """
 
 CARAVAN_ROUTES: dict[str, dict] = {

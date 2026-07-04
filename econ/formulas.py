@@ -968,45 +968,51 @@ def apply_town_luck(base_chance: float, totals: dict[str, float]) -> float:
     return min(0.9, base_chance + totals.get("luck", 0.0))
 
 
-# ── population: a derived stat, not another grind timer ─────────────────
-# No new DB state at all -- population is read straight off what's
-# already built: Town Hall's level, every building's tier summed, and
-# how many workers are hired. It feeds a real gold bonus now (folded
-# into the same town_bonus_totals stack as Guild Hall/Town Crier, so it
-# shares TOWN_GOLD_CAP rather than stacking past it) and sets which
-# .caravan routes are open -- a bigger town can spare a bigger
-# expedition, see econ/data/caravans.py.
-
-POPULATION_BASE = 250
-POPULATION_PER_HALL_LEVEL = 150
-POPULATION_PER_BUILDING_TIER = 90
-POPULATION_PER_WORKER = 60
-# A fully maxed town (hall 9, every building tier 5, all 20 workers
-# hired) tops out at population 10,000 -- and that alone is worth +40%
-# gold. Guild Hall/Town Crier were trimmed (BONUS_BUILDING_MAX_PCT/
-# TOWNWIDE_WORKER_MAX_PCT's "gold" entries: 25%->15%, 75%->45%) by
-# exactly the 40% handed to population here, so the combined ceiling
-# (15% + 45% + 40% = 100%) still lands right on TOWN_GOLD_CAP -- the
-# same total budget, just with population now a real player in it
-# instead of background flavour.
+# ── population: earned, not derived ──────────────────────────────────────
+# No formula reads hall level/buildings/workers for this -- population
+# is a real stored total (towns.population) that only ever moves through
+# .expedition (see the section below and Database.add_population). It
+# feeds a real gold bonus, folded into the same town_bonus_totals stack
+# as Guild Hall/Town Crier, so it shares TOWN_GOLD_CAP rather than
+# stacking past it. Guild Hall/Town Crier's own "gold" maximums
+# (BONUS_BUILDING_MAX_PCT/TOWNWIDE_WORKER_MAX_PCT's "gold" entries:
+# 25%->15%, 75%->45%) were trimmed by 40 points to make room for this,
+# so the combined ceiling (15% + 45% + 40% = 100%) still lands right on
+# TOWN_GOLD_CAP -- the same total budget, just with population as a real
+# player in it instead of a side effect of building/hiring.
 POPULATION_GOLD_PER_CITIZEN = 0.00004
-
-
-def town_population(hall_level: int, building_tier_sum: int, workers_hired: int) -> int:
-    if hall_level <= 0:
-        return 0
-    return (
-        POPULATION_BASE
-        + POPULATION_PER_HALL_LEVEL * hall_level
-        + POPULATION_PER_BUILDING_TIER * building_tier_sum
-        + POPULATION_PER_WORKER * workers_hired
-    )
 
 
 def population_gold_bonus(population: int) -> float:
     """Uncapped on its own -- the combined "gold" total it feeds into
     still passes through TOWN_GOLD_CAP in apply_town_gold."""
     return population * POPULATION_GOLD_PER_CITIZEN
+
+
+# ── .expedition: the only way to earn Population ─────────────────────────
+# Similar shape to .venture (pick one of several risk tiers, each a
+# genuine success/loss gamble), but paced over real time instead of
+# resolved in one shot: an expedition is 5 legs, one choice at a time,
+# gated by a 15-minute cooldown between each -- so a full trip takes at
+# least 75 minutes of actually checking back in, not something to blow
+# through in one sitting. Reward is Population, not gold, and scales
+# with Fame (econ/formulas.reputation_fame/fame_multiplier) -- a
+# reputable town draws more settlers on the same expedition.
+EXPEDITION_START_COST = 50_000
+EXPEDITION_LEGS = 5
+EXPEDITION_CHOICE_COOLDOWN = 15 * 60
+
+
+def roll_expedition_leg(choice: dict, fame_mult: float) -> tuple[bool, int]:
+    """(success, population delta). Failure on a risky choice can cost
+    Population already earned (floored at 0 town-wide by
+    Database.add_population), the same real-stakes shape as .venture's
+    gold loss on a bad turn."""
+    if random.random() < choice["success"]:
+        lo, hi = choice["reward"]
+        return True, round(random.randint(lo, hi) * fame_mult)
+    lo, hi = choice["loss"]
+    return False, -random.randint(lo, hi) if hi else 0
 
 
 # ── .study: the command the Great Library unlocks ───────────────────────

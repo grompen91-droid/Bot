@@ -186,6 +186,26 @@ MIGRATIONS: list[str] = [
         PRIMARY KEY (guild_id, user_id)
     );
     """,
+    # v14, .expedition: a brand new command alongside .caravan, not a
+    # replacement for it. Population stops being derived from hall
+    # level/buildings/workers and becomes a real earned total (see
+    # econ/town.py's get_population) that ONLY grows through
+    # .expedition's choices (scaled by Fame) -- .caravan keeps working
+    # exactly as before, still gated by whatever population you've
+    # earned. town_expeditions has the same "one active run at a time"
+    # shape as town_caravans, plus a running population_gained tally so
+    # the final summary panel can report the whole trip's take at once.
+    """
+    ALTER TABLE towns ADD COLUMN population BIGINT NOT NULL DEFAULT 0;
+    CREATE TABLE IF NOT EXISTS town_expeditions (
+        guild_id          BIGINT NOT NULL,
+        user_id           BIGINT NOT NULL,
+        legs_done         BIGINT NOT NULL DEFAULT 0,
+        population_gained BIGINT NOT NULL DEFAULT 0,
+        last_choice_at    DOUBLE PRECISION NOT NULL DEFAULT 0,
+        PRIMARY KEY (guild_id, user_id)
+    );
+    """,
 ]
 
 
@@ -597,12 +617,29 @@ class Database:
     async def get_town(self, guild_id: int, user_id: int) -> dict:
         """Read-only, never creates a row -- hall_level 0 means "not
         founded yet," same "peek" shape as peek_skill, so merely
-        checking (.help, .cd) can't phantom-create a town."""
+        checking (.help, .cd) can't phantom-create a town. `population`
+        is a real earned total (see econ/town.py's get_population), not
+        derived from hall_level/buildings/workers -- it only moves
+        through add_population, which .expedition alone calls."""
         row = await self.fetchone(
-            "SELECT hall_level, founded_at FROM towns WHERE guild_id = ? AND user_id = ?",
+            "SELECT hall_level, founded_at, population FROM towns WHERE guild_id = ? AND user_id = ?",
             guild_id, user_id,
         )
-        return dict(row) if row is not None else {"hall_level": 0, "founded_at": 0.0}
+        return dict(row) if row is not None else {"hall_level": 0, "founded_at": 0.0, "population": 0}
+
+    async def add_population(self, guild_id: int, user_id: int, delta: int) -> int:
+        """Add (or subtract) population, floored at 0. Read-modify-write
+        rather than an atomic SQL increment -- .expedition is the only
+        writer and it's already serialized per-player by its own 15
+        minute choice cooldown, so there's no concurrent-write race to
+        guard against here the way spend_gold has to."""
+        town = await self.get_town(guild_id, user_id)
+        new_population = max(0, town["population"] + delta)
+        await self.execute(
+            "UPDATE towns SET population = ? WHERE guild_id = ? AND user_id = ?",
+            new_population, guild_id, user_id,
+        )
+        return new_population
 
     async def found_town(self, guild_id: int, user_id: int, founded_at: float) -> bool:
         """Create the town at hall level 1. False (no-op) if it already
@@ -734,6 +771,42 @@ class Database:
     async def clear_caravan(self, guild_id: int, user_id: int) -> None:
         await self.execute(
             "DELETE FROM town_caravans WHERE guild_id = ? AND user_id = ?",
+            guild_id, user_id,
+        )
+
+    # ── .expedition: the only source of Population ──────────────────────
+
+    async def get_expedition(self, guild_id: int, user_id: int) -> dict | None:
+        """None means no expedition is currently under way."""
+        row = await self.fetchone(
+            "SELECT legs_done, population_gained, last_choice_at FROM town_expeditions "
+            "WHERE guild_id = ? AND user_id = ?",
+            guild_id, user_id,
+        )
+        return dict(row) if row is not None else None
+
+    async def start_expedition(self, guild_id: int, user_id: int, now: float) -> bool:
+        """False (no-op) if one is already under way, so a double-clicked
+        start can't queue a second expedition."""
+        inserted = await self.execute_rowcount(
+            "INSERT INTO town_expeditions (guild_id, user_id, legs_done, population_gained, last_choice_at) "
+            "VALUES (?, ?, 0, 0, ?) ON CONFLICT (guild_id, user_id) DO NOTHING",
+            guild_id, user_id, now,
+        )
+        return bool(inserted)
+
+    async def advance_expedition(
+        self, guild_id: int, user_id: int, legs_done: int, population_gained: int, now: float,
+    ) -> None:
+        await self.execute(
+            "UPDATE town_expeditions SET legs_done = ?, population_gained = ?, last_choice_at = ? "
+            "WHERE guild_id = ? AND user_id = ?",
+            legs_done, population_gained, now, guild_id, user_id,
+        )
+
+    async def clear_expedition(self, guild_id: int, user_id: int) -> None:
+        await self.execute(
+            "DELETE FROM town_expeditions WHERE guild_id = ? AND user_id = ?",
             guild_id, user_id,
         )
 
