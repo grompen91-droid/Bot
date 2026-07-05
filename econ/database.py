@@ -997,6 +997,18 @@ class Database:
             guild_id, user_id, key, amount,
         )
 
+    async def set_stat(
+        self, guild_id: int, user_id: int, key: str, value: int
+    ) -> None:
+        """Overwrite a stat outright, where incr_stat only adds -- the
+        minigame win streaks need this to reset to 0 on a failed run."""
+        await self.execute(
+            "INSERT INTO stats (guild_id, user_id, key, value) VALUES (?, ?, ?, ?) "
+            "ON CONFLICT (guild_id, user_id, key) "
+            "DO UPDATE SET value = excluded.value",
+            guild_id, user_id, key, value,
+        )
+
     async def get_stats(self, guild_id: int, user_id: int) -> dict[str, int]:
         rows = await self.fetchall(
             "SELECT key, value FROM stats WHERE guild_id = ? AND user_id = ?",

@@ -26,6 +26,7 @@ from econ.data.expeditions import (
     EXPEDITION_UPGRADE_PERKS,
 )
 from econ.data.gather_minigames import GATHER_MINIGAMES, SCAVENGE_MINIGAME
+from econ.data.minigames import pick_flavor
 from econ.data.items import ITEMS, RARITIES
 from econ.data.materials import (
     MATERIAL_GROUPS,
@@ -123,12 +124,20 @@ FIRE_CHOICES = [
 ]
 
 
+BANKED_GATHER_TEXTS = [
+    "You stop while you can still call it a win.",
+    "Quit while you're ahead, there's wisdom in that.",
+    "Not the grandest haul, but it's yours, safe and counted.",
+]
+
+
 async def _gather_finish_panel(
     db, gid: int, uid: int, config: dict, outcome: str, correct: int, length: int,
     tier: dict, difficulty: str, dry_run: bool, *,
     building_key: str | None = None, building_tier: int | None = None,
     total_level: int | None = None, material_key: str | None = None,
-    hall_level: int | None = None, fail_text: str | None = None,
+    hall_level: int | None = None, fail_text: str | list | None = None,
+    ready_at: float | None = None,
 ) -> Panel:
     """Shared reward+panel logic for every `.gather`/`.scavenge` minigame
     kind: pays out a construction material, scaled off either a
@@ -166,15 +175,15 @@ async def _gather_finish_panel(
     if outcome == "success":
         panel = Panel(accent=Palette.PURPLE, timeout=None)
         panel.header(f"{title} · Flawless!")
-        panel.text(f"*{config['success_text']}*")
+        panel.text(f"*{pick_flavor(config['success_text'])}*")
     elif outcome == "banked":
         panel = Panel(accent=Palette.GOLD, timeout=None)
         panel.header(f"{title} · Banked Early")
-        panel.text("*You stop while you can still call it a win.*")
+        panel.text(f"*{pick_flavor(BANKED_GATHER_TEXTS)}*")
     else:
         panel = Panel(accent=Palette.RED, timeout=None)
         panel.header(f"{title} · {config['fail_header']}")
-        panel.text(f"*{fail_text or config['fail_text']}*")
+        panel.text(f"*{pick_flavor(fail_text or config['fail_text'])}*")
 
     lines = []
     if qty:
@@ -186,6 +195,8 @@ async def _gather_finish_panel(
         lines.append(f"✨ A rare find: **1x {bonus_info['emoji']} {bonus_info['name']}**!")
     panel.text("\n".join(lines))
     footer_text = f"{tier['emoji']} {tier['label']} · {correct}/{length} rounds cleared"
+    if ready_at and not dry_run:
+        footer_text += f"\n⏳ ready again <t:{int(ready_at)}:R>"
     panel.footer(f"🧪 TEST MODE · {footer_text}" if dry_run else footer_text)
     return panel
 
@@ -203,7 +214,7 @@ class GatherSessionBase:
         difficulty: str, *, dry_run: bool = False, buffs: dict | None = None,
         building_key: str | None = None, building_tier: int | None = None,
         total_level: int | None = None, material_key: str | None = None,
-        hall_level: int | None = None,
+        hall_level: int | None = None, ready_at: float | None = None,
     ):
         self.db = db
         self.gid = gid
@@ -214,6 +225,9 @@ class GatherSessionBase:
         self.total_level = total_level
         self.material_key = material_key
         self.hall_level = hall_level
+        # When the cooldown burned at the start of this attempt lets the
+        # player go again -- surfaced on the result panel.
+        self.ready_at = ready_at
         self.dry_run = dry_run
         self.buffs = buffs or {}
         self.difficulty = difficulty
@@ -242,7 +256,7 @@ class GatherSessionBase:
             self.tier, self.difficulty, self.dry_run,
             building_key=self.building_key, building_tier=self.building_tier,
             total_level=self.total_level, material_key=self.material_key,
-            hall_level=self.hall_level,
+            hall_level=self.hall_level, ready_at=self.ready_at,
         )
 
 
@@ -465,13 +479,14 @@ class GatherPressLuckSession(GatherSessionBase):
                 building_key=self.building_key, building_tier=self.building_tier,
                 total_level=self.total_level, material_key=self.material_key,
                 hall_level=self.hall_level, fail_text=self.config["empty_fail_text"],
+                ready_at=self.ready_at,
             )
         return await _gather_finish_panel(
             self.db, self.gid, self.uid, self.config, outcome, self.correct, self.length,
             self.tier, self.difficulty, self.dry_run,
             building_key=self.building_key, building_tier=self.building_tier,
             total_level=self.total_level, material_key=self.material_key,
-            hall_level=self.hall_level,
+            hall_level=self.hall_level, ready_at=self.ready_at,
         )
 
 
@@ -561,7 +576,7 @@ class GatherReflexSession(GatherSessionBase):
             self.tier, self.difficulty, self.dry_run,
             building_key=self.building_key, building_tier=self.building_tier,
             total_level=self.total_level, material_key=self.material_key,
-            hall_level=self.hall_level, fail_text=fail_text,
+            hall_level=self.hall_level, fail_text=fail_text, ready_at=self.ready_at,
         )
 
 
@@ -669,9 +684,21 @@ class PatrolSession:
     INNOCENT_EMOJI = ("🧑", "👩", "👨", "🧔", "👴", "👵")
     INTRUDER_EMOJI = "🥷"
 
+    SUCCESS_TEXTS = [
+        "Every last intruder is in irons before the gate even shuts.",
+        "The cells are full and the streets are quiet. A clean night's work.",
+        "Not one of them made it past you. The watch drinks to your name tonight.",
+    ]
+    FAIL_TEXTS = [
+        "A face slips past you in the crowd, and the patrol falls apart.",
+        "You clap irons on the wrong wrist, and the real culprits scatter.",
+        "Somewhere behind you, a shadow clears the wall. The patrol's blown.",
+    ]
+
     def __init__(
         self, db, gid: int, uid: int, watchtower_tier: int, guard_captain_tier: int,
         difficulty: str, *, dry_run: bool = False, buffs: dict | None = None,
+        ready_at: float | None = None,
     ):
         self.db = db
         self.gid = gid
@@ -680,6 +707,9 @@ class PatrolSession:
         self.guard_captain_tier = guard_captain_tier
         self.dry_run = dry_run
         self.buffs = buffs or {}
+        # When the cooldown burned at the start of this patrol lets the
+        # player go again -- surfaced on the result panel.
+        self.ready_at = ready_at
         self.difficulty = difficulty
         self.tier = formulas.DIFFICULTIES[difficulty]
         self.length = formulas.difficulty_length(
@@ -793,19 +823,20 @@ class PatrolSession:
         if outcome == "success":
             panel = Panel(accent=Palette.PURPLE, timeout=None)
             panel.header("🗼 Round Up · Flawless!")
-            panel.text("*Every last intruder is in irons before the gate even shuts.*")
+            panel.text(f"*{pick_flavor(self.SUCCESS_TEXTS)}*")
         else:
             panel = Panel(accent=Palette.RED, timeout=None)
             panel.header("🗼 Round Up · The Patrol Ends")
-            panel.text("*A face slips past you in the crowd, and the patrol falls apart.*")
+            panel.text(f"*{pick_flavor(self.FAIL_TEXTS)}*")
 
         if gold:
             panel.text(f"💰 {chip(('Confiscated', NAME_W), (f'{gold:,}', -AMT_W))} 🪙")
         else:
             panel.text("💰 No gold this time.")
-        panel.footer(self._footer_text(
-            f"{self.tier['emoji']} {self.tier['label']} · {self.correct}/{self.length} rounds cleared"
-        ))
+        footer = f"{self.tier['emoji']} {self.tier['label']} · {self.correct}/{self.length} rounds cleared"
+        if self.ready_at and not self.dry_run:
+            footer += f"\n⏳ ready again <t:{int(self.ready_at)}:R>"
+        panel.footer(self._footer_text(footer))
         return panel
 
 
@@ -1191,7 +1222,7 @@ class Town(commands.Cog):
         min_rounds: int, max_rounds: int, dry_run: bool, buffs: dict | None = None,
         building_key: str | None = None, building_tier: int | None = None,
         total_level: int | None = None, material_key: str | None = None,
-        hall_level: int | None = None,
+        hall_level: int | None = None, ready_at: float | None = None,
     ) -> None:
         """Shared session-start plumbing for both `.gather` and
         `.scavenge`: picks the right mechanic class for this config's
@@ -1203,6 +1234,7 @@ class Town(commands.Cog):
             self.db, gid, uid, config, min_rounds, max_rounds, difficulty,
             dry_run=dry_run, buffs=buffs, building_key=building_key, building_tier=building_tier,
             total_level=total_level, material_key=material_key, hall_level=hall_level,
+            ready_at=ready_at,
         )
         if dry_run:
             await sendable.send(
@@ -1325,6 +1357,9 @@ class Town(commands.Cog):
         buttons.append(cancel_btn)
         panel.text("\n".join(lines))
         panel.buttons(*buttons)
+        panel.footer(
+            f"⏳ each building can be worked every ~{formulas.fmt_duration(formulas.GATHER_COOLDOWN)}"
+        )
         panel.message = await ctx.send(view=panel)
 
     def _make_gather_start_handler(
@@ -1333,6 +1368,7 @@ class Town(commands.Cog):
         async def handler(interaction: discord.Interaction) -> None:
             gid, uid = interaction.guild_id, interaction.user.id
             buffs: dict = {}
+            ready_at: float | None = None
             if not dry_run:
                 buffs = await active_buff_totals(self.db, gid, uid)
                 cooldown = apply_cooldown_buff(formulas.GATHER_COOLDOWN, buffs)
@@ -1350,12 +1386,13 @@ class Town(commands.Cog):
                 # Cooldown burns the moment the attempt starts, win or
                 # lose, so walking away mid-attempt can't reroll a bad run.
                 await self.db.set_minigame_cooldown(gid, uid, cooldown_key, now)
+                ready_at = now + cooldown
             total_level = await self.db.total_level(gid, uid)
             await self._start_gather_session(
                 InteractionSender(interaction), gid, uid, GATHER_MINIGAMES[building_key], difficulty,
                 min_rounds=formulas.GATHER_MIN_ROUNDS, max_rounds=formulas.GATHER_MAX_ROUNDS,
                 dry_run=dry_run, buffs=buffs, building_key=building_key, building_tier=building_tier,
-                total_level=total_level,
+                total_level=total_level, ready_at=ready_at,
             )
         return handler
 
@@ -2074,6 +2111,9 @@ class Town(commands.Cog):
         buttons.append(cancel_btn)
         panel.text("\n".join(lines))
         panel.buttons(*buttons)
+        panel.footer(
+            f"⏳ one scavenge every ~{formulas.fmt_duration(formulas.SCAVENGE_COOLDOWN)}"
+        )
         panel.message = await ctx.send(view=panel)
 
     def _make_scavenge_start_handler(
@@ -2082,6 +2122,7 @@ class Town(commands.Cog):
         async def handler(interaction: discord.Interaction) -> None:
             gid, uid = interaction.guild_id, interaction.user.id
             buffs: dict = {}
+            ready_at: float | None = None
             if not dry_run:
                 buffs = await active_buff_totals(self.db, gid, uid)
                 cooldown = apply_cooldown_buff(formulas.SCAVENGE_COOLDOWN, buffs)
@@ -2096,12 +2137,13 @@ class Town(commands.Cog):
                     )
                     return
                 await self.db.set_minigame_cooldown(gid, uid, "scavenge", now)
+                ready_at = now + cooldown
             total_level = await self.db.total_level(gid, uid)
             await self._start_gather_session(
                 InteractionSender(interaction), gid, uid, SCAVENGE_MINIGAME, difficulty,
                 min_rounds=formulas.SCAVENGE_MIN_ROUNDS, max_rounds=formulas.SCAVENGE_MAX_ROUNDS,
                 dry_run=dry_run, buffs=buffs, material_key=material_key,
-                total_level=total_level, hall_level=hall_level,
+                total_level=total_level, hall_level=hall_level, ready_at=ready_at,
             )
         return handler
 
@@ -2251,6 +2293,9 @@ class Town(commands.Cog):
         buttons.append(cancel_btn)
         panel.text("\n".join(lines))
         panel.buttons(*buttons)
+        panel.footer(
+            f"⏳ one patrol every ~{formulas.fmt_duration(formulas.PATROL_COOLDOWN)}"
+        )
         panel.message = await ctx.send(view=panel)
 
     def _make_patrol_start_handler(
@@ -2259,6 +2304,7 @@ class Town(commands.Cog):
         async def handler(interaction: discord.Interaction) -> None:
             gid, uid = interaction.guild_id, interaction.user.id
             buffs: dict = {}
+            ready_at: float | None = None
             if not dry_run:
                 buffs = await active_buff_totals(self.db, gid, uid)
                 cooldown = apply_cooldown_buff(formulas.PATROL_COOLDOWN, buffs)
@@ -2273,9 +2319,10 @@ class Town(commands.Cog):
                     )
                     return
                 await self.db.set_minigame_cooldown(gid, uid, "patrol", now)
+                ready_at = now + cooldown
             session = PatrolSession(
                 self.db, gid, uid, watchtower_tier, guard_captain_tier, difficulty,
-                dry_run=dry_run, buffs=buffs,
+                dry_run=dry_run, buffs=buffs, ready_at=ready_at,
             )
             panel = session.round_panel()
             panel.message = interaction.message

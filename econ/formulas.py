@@ -25,6 +25,17 @@ def fmt_gold(amount: int) -> str:
     return f"{amount:,} {CURRENCY}"
 
 
+def fmt_duration(seconds: float) -> str:
+    """Rough, friendly duration: "45m", "2h", "1h 30m", "12h". Used in
+    footers and pickers where an exact <t:...:R> timestamp would be
+    wrong (a rate, not a deadline)."""
+    minutes = max(1, round(seconds / 60))
+    if minutes < 60:
+        return f"{minutes}m"
+    hours, rem = divmod(minutes, 60)
+    return f"{hours}h {rem}m" if rem else f"{hours}h"
+
+
 # ═══════════════════════════ skill XP curve ════════════════════════════
 # Polynomial curve: cheap early levels, steadily steeper. At ~12 XP per
 # work: level 2 in ~5 works, level 10 in ~45, level 25 in ~250.
@@ -581,6 +592,36 @@ def difficulty_unlocked(skill_level: int, difficulty: str) -> bool:
 MINIGAME_XP_PER_ROUND = 3
 MINIGAME_PERFECT_BONUS = 1.5
 MINIGAME_MIN_LEVEL_WITHOUT_JOB = 5   # same access rule as .brew
+
+# Hot streaks: clearing the SAME minigame several runs in a row builds a
+# small gold bonus on top of everything else, and one failed run breaks
+# it. Deliberately modest next to reward_mult/perfect_bonus -- it's
+# there to make coming back every cooldown feel like it's building
+# toward something, not to move the economy. Tracked per minigame in
+# the stats table ("{cmd}_streak", with "{cmd}_best_streak" kept for
+# bragging rights); banking early (bake's oven) neither extends nor
+# breaks it.
+MINIGAME_STREAK_BONUS_PER_WIN = 0.05
+MINIGAME_STREAK_BONUS_CAP = 0.25     # caps out at a 5-win streak
+
+
+def streak_multiplier(streak: int) -> float:
+    """Gold multiplier carried into a run by the CURRENT streak (the
+    wins already banked before this attempt started)."""
+    bonus = min(max(streak, 0) * MINIGAME_STREAK_BONUS_PER_WIN, MINIGAME_STREAK_BONUS_CAP)
+    return 1.0 + bonus
+
+
+def minigame_payout_estimate(
+    unlock_level: int, max_unlock_level: int, skill_level: int,
+    total_level: int, reward_mult: float,
+) -> int:
+    """Ballpark full-clear payout for the difficulty picker: the same
+    pieces roll_minigame_reward multiplies, minus variance, fame/infamy,
+    streaks, and the perfect bonus. Close enough to answer "is Hard
+    worth it for me right now?" at a glance."""
+    base = minigame_round_base(unlock_level, max_unlock_level, skill_level)
+    return round(base * MINIGAME_PAID_ROUNDS * coin_multiplier(total_level) * reward_mult)
 
 # Cooldown interpolates the same way the reward floor does: a starter
 # trade's minigame can be replayed often for a small payout, a

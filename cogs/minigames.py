@@ -36,7 +36,7 @@ from econ.buffs import (
     apply_xp_buff,
 )
 from econ.data.jobs import JOBS, MAX_JOB_UNLOCK_LEVEL
-from econ.data.minigames import MINIGAMES
+from econ.data.minigames import MINIGAMES, pick_flavor
 from ui.panels import (
     AMT_W,
     NAME_W,
@@ -47,6 +47,34 @@ from ui.panels import (
     chip,
     simple_panel,
 )
+
+
+# Shared flavour pools every session kind draws on, so repeated runs
+# don't read like the same form letter (per-game success/fail variants
+# live in econ/data/minigames.py; these are the outcome-agnostic ones).
+TIMEOUT_TEXTS = [
+    "You hesitate a moment too long, and the chance slips away.",
+    "The moment comes and goes while you're still deciding.",
+    "Time's up. Whatever you were waiting for, it wasn't this.",
+]
+BANKED_TEXTS = [
+    "You stop while you can still call it a win.",
+    "Quit while you're ahead, there's wisdom in that.",
+    "Not the grandest haul, but it's yours, safe and counted.",
+]
+NEAR_MISS_TEXTS = [
+    "One round short. It was nearly yours.",
+    "So close you could taste it.",
+    "Next time. You know you had it.",
+]
+CAUGHT_TEXTS = [
+    "Alarm bells ring out and guards swarm the vault. You barely escape "
+    "with your life, but your reputation is in ruins.",
+    "A whistle, then shouting, then every door in the bank slams shut. You "
+    "slip out a window with nothing, and everyone knows your face now.",
+    "They were waiting for you. You run until your lungs burn, and by "
+    "dawn your name is worthless in every den in town.",
+]
 
 
 class BaseMinigameSession:
@@ -64,7 +92,7 @@ class BaseMinigameSession:
     def __init__(
         self, db, gid: int, uid: int, job_key: str, level: int, xp: int,
         last_work: float, *, dry_run: bool = False, buffs: dict | None = None,
-        difficulty: str = "easy",
+        difficulty: str = "easy", ready_at: float | None = None,
     ):
         self.db = db
         self.gid = gid
@@ -77,6 +105,10 @@ class BaseMinigameSession:
         self.dry_run = dry_run
         self.buffs = buffs or {}
         self.difficulty = difficulty
+        # When the cooldown burned at the start of this attempt lets the
+        # player go again -- shown on the result panel so a grinder
+        # never has to run the command just to get told "not yet".
+        self.ready_at = ready_at
         self.tier = formulas.DIFFICULTIES[difficulty]
         self.length = formulas.difficulty_length(
             self.config["min_len"], self.config["max_len"], difficulty
@@ -101,6 +133,9 @@ class BaseMinigameSession:
         is_criminal = self.job_key == "criminal"
         user = await self.db.get_user(self.gid, self.uid)
         total = await self.db.total_level(self.gid, self.uid)
+        cmd = self.config["command"]
+        stats = {} if self.dry_run else await self.db.get_stats(self.gid, self.uid)
+        prev_streak = stats.get(f"{cmd}_streak", 0)
         # Criminal itself unlocks free (0), but .rob should pay like the
         # single biggest score in the game, not a starter trade -- the
         # config can override which unlock tier the reward floor uses.
@@ -112,7 +147,9 @@ class BaseMinigameSession:
             if is_criminal
             else formulas.fame_multiplier(formulas.reputation_fame(user["reputation"]))
         )
-        extra_mult = rep_mult * self.tier["reward_mult"]
+        extra_mult = (
+            rep_mult * self.tier["reward_mult"] * formulas.streak_multiplier(prev_streak)
+        )
         reward, perfect = formulas.roll_minigame_reward(
             self.correct, self.length, unlock, MAX_JOB_UNLOCK_LEVEL,
             self.level, total, perfect_bonus=formulas.MINIGAME_PERFECT_BONUS,
@@ -125,6 +162,15 @@ class BaseMinigameSession:
         caught = is_criminal and outcome == "fail"
         infamy_note: str | None = None
         fame_gained = 0
+        perfect_count = stats.get(f"{cmd}_perfect", 0) + (1 if perfect else 0)
+        # Success extends the hot streak, a fail breaks it; banking early
+        # (bake's oven) does neither -- a cautious win shouldn't cost the
+        # streak, but it shouldn't build one either.
+        new_streak = prev_streak
+        if outcome == "success":
+            new_streak = prev_streak + 1
+        elif outcome == "fail":
+            new_streak = 0
 
         if not self.dry_run:
             await self.db.update_skill(
@@ -132,12 +178,17 @@ class BaseMinigameSession:
             )
             if reward:
                 await self.db.add_gold(self.gid, self.uid, reward)
-            cmd = self.config["command"]
             await self.db.incr_stat(self.gid, self.uid, f"{cmd}_completed")
             if perfect:
                 await self.db.incr_stat(self.gid, self.uid, f"{cmd}_perfect")
             if reward:
                 await self.db.incr_stat(self.gid, self.uid, f"gold_from_{cmd}", reward)
+            if new_streak != prev_streak:
+                await self.db.set_stat(self.gid, self.uid, f"{cmd}_streak", new_streak)
+                if new_streak > stats.get(f"{cmd}_best_streak", 0):
+                    await self.db.set_stat(
+                        self.gid, self.uid, f"{cmd}_best_streak", new_streak
+                    )
 
             if is_criminal:
                 if outcome == "success":
@@ -159,23 +210,21 @@ class BaseMinigameSession:
         if outcome == "success":
             panel = Panel(accent=Palette.GREEN, timeout=None)
             panel.header(f"{title} · A Flawless Run!" if perfect else f"{title} · Complete")
-            panel.text(f"*{extra_text or self.config['success_text']}*")
+            panel.text(f"*{pick_flavor(extra_text or self.config['success_text'])}*")
         elif outcome == "banked":
             panel = Panel(accent=Palette.GOLD, timeout=None)
             panel.header(f"{title} · Pulled Early")
-            panel.text(f"*{extra_text or 'You stop while you can still call it a win.'}*")
+            panel.text(f"*{pick_flavor(extra_text) if extra_text else random.choice(BANKED_TEXTS)}*")
         elif caught:
             panel = Panel(accent=Palette.RED, timeout=None)
             panel.header(f"{title} · Caught!")
-            panel.text(
-                "*Alarm bells ring out and guards swarm the vault. You "
-                "barely escape with your life, but your reputation is "
-                "in ruins.*"
-            )
+            panel.text(f"*{random.choice(CAUGHT_TEXTS)}*")
         else:
             panel = Panel(accent=Palette.RED, timeout=None)
             panel.header(f"{title} · It Slips Away")
-            panel.text(f"*{fail_text or self.config['fail_text']}*")
+            panel.text(f"*{pick_flavor(fail_text or self.config['fail_text'])}*")
+            if self.correct == self.length - 1 and self.length >= 2:
+                panel.text(f"-# {random.choice(NEAR_MISS_TEXTS)}")
 
         reward_line = (
             f"💰 {chip(('Reward', NAME_W), (f'{reward:,}', -AMT_W))} 🪙"
@@ -188,13 +237,23 @@ class BaseMinigameSession:
             footer += f" · +{xp_gain} XP"
         if levels_gained and not self.dry_run:
             footer += f" · ⭐ now level {new_level}"
+        if perfect and not self.dry_run:
+            footer += f" · ✨ flawless run #{perfect_count}"
         if fame_gained:
             footer += f" · 🌟 +{fame_gained} fame"
         if infamy_note:
             footer += f" · 🗡️ {infamy_note}"
+        if not self.dry_run:
+            if new_streak >= 2:
+                next_pct = round((formulas.streak_multiplier(new_streak) - 1) * 100)
+                footer += f" · 🔥 {new_streak} in a row (+{next_pct}% gold next run)"
+            elif outcome == "fail" and prev_streak >= 2:
+                footer += f" · 💔 streak of {prev_streak} broken"
         buff_line = active_buff_summary(self.buffs)
         if buff_line:
             footer += f"\n✨ active: {buff_line}"
+        if self.ready_at and not self.dry_run:
+            footer += f"\n⏳ ready again <t:{int(self.ready_at)}:R>"
         panel.footer(self._footer_text(footer))
         return panel
 
@@ -206,8 +265,7 @@ class BaseMinigameSession:
             return
         self.done = True
         panel = await self._finish(
-            outcome="fail",
-            fail_text="You hesitate a moment too long, and the chance slips away.",
+            outcome="fail", fail_text=random.choice(TIMEOUT_TEXTS),
         )
         try:
             await message.edit(view=panel)
@@ -295,6 +353,13 @@ class FishSession(BaseMinigameSession):
     """Pure reflex: wait for the bite, then reel before the window
     closes. Tapping too early or too late both fail the whole cast."""
 
+    WAIT_TEXTS = [
+        "The line goes still. Watch close...",
+        "The float bobs once, then nothing. Wait for it...",
+        "Ripples spread and fade. Something's down there...",
+        "The water's gone glassy. Any second now...",
+    ]
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.phase = "idle"  # idle -> biting -> resolved
@@ -305,7 +370,7 @@ class FishSession(BaseMinigameSession):
         dots = "🟢" * self.correct + "⚪" * (self.length - self.correct)
         panel = Panel(accent=Palette.BLUE, author_id=self.uid, timeout=None)
         panel.header(self.config["title"])
-        panel.text("🌊 *The line goes still. Watch close...*")
+        panel.text(f"🌊 *{random.choice(self.WAIT_TEXTS)}*")
         panel.text(f"`{dots}`  ({self.correct}/{self.length})")
         btn = ui.Button(label="Reel In?", emoji="🎣", style=discord.ButtonStyle.secondary)
         btn.callback = self._on_reel
@@ -386,14 +451,37 @@ class BakeSession(BaseMinigameSession):
         self.scoops = 0
         self.current_panel: RoundPanel | None = None
 
+    # One pool per "how close to the hidden target" band -- the BAND is
+    # the signal a player reads, so variants within a band must all say
+    # the same thing, just not in the same words every run.
+    HINTS_EMPTY = [
+        "The bowl is empty. Start folding in ingredients.",
+        "A bare bowl and a full pantry. Get folding.",
+    ]
+    HINTS_NEAR = [
+        "The dough feels heavy, almost too heavy...",
+        "It's dense now. One more could be one too many...",
+        "The spoon drags. You're right at the edge of it...",
+    ]
+    HINTS_MID = [
+        "The dough is coming together nicely.",
+        "Getting there, it's starting to hold its shape.",
+        "Not bad. A few more folds and it'll be close.",
+    ]
+    HINTS_THIN = [
+        "Still thin, needs more.",
+        "Far too loose. Keep adding.",
+        "It's barely batter yet. More.",
+    ]
+
     def _hint(self) -> str:
         if self.scoops == 0:
-            return "The bowl is empty. Start folding in ingredients."
+            return random.choice(self.HINTS_EMPTY)
         if self.scoops >= self.target - 1:
-            return "The dough feels heavy, almost too heavy..."
+            return random.choice(self.HINTS_NEAR)
         if self.scoops >= max(1, self.target - 3):
-            return "The dough is coming together nicely."
-        return "Still thin, needs more."
+            return random.choice(self.HINTS_MID)
+        return random.choice(self.HINTS_THIN)
 
     def round_panel(self) -> Panel:
         timeout = max(1.0, self.config["step_timeout"] * self.tier["timeout_mult"])
@@ -713,23 +801,30 @@ class Minigames(commands.Cog):
             "harder, but pay far better.*"
         )
         # Same list style as .shop's tool ladder: icon, then a
-        # fixed-width chip so the reward multiplier column lines up
-        # down the page, whether a tier is open or still locked.
+        # fixed-width chip so the payout column lines up down the page,
+        # whether a tier is open or still locked. The number is what a
+        # full clear would roughly pay THIS player right now -- a real
+        # answer to "is Hard worth it?", not an abstract multiplier.
+        total = await self.db.total_level(gid, uid)
+        unlock = config.get("reward_tier_level", JOBS[job_key]["unlock_total_level"])
         lines = []
         buttons = []
         for key in formulas.DIFFICULTY_ORDER:
             tier = formulas.DIFFICULTIES[key]
             length = formulas.difficulty_length(config["min_len"], config["max_len"], key)
             unlocked = dry_run or formulas.difficulty_unlocked(skill_level, key)
-            mult = f"×{tier['reward_mult']:.2f}"
+            est = formulas.minigame_payout_estimate(
+                unlock, MAX_JOB_UNLOCK_LEVEL, skill_level, total, tier["reward_mult"]
+            )
+            payout = f"~{est:,}"
             if unlocked:
                 lines.append(
-                    f"{tier['emoji']} {chip((tier['label'], NAME_W), (mult, -AMT_W))} "
+                    f"{tier['emoji']} {chip((tier['label'], NAME_W), (payout, -AMT_W))} 🪙 "
                     f"· {length} rounds"
                 )
             else:
                 lines.append(
-                    f"🔒 {chip((tier['label'], NAME_W), (mult, -AMT_W))} "
+                    f"🔒 {chip((tier['label'], NAME_W), (payout, -AMT_W))} 🪙 "
                     f"· unlocks lvl {tier['unlock_level']} (you're {skill_level})"
                 )
             btn = ui.Button(
@@ -745,6 +840,11 @@ class Minigames(commands.Cog):
         buttons.append(cancel_btn)
         panel.text("\n".join(lines))
         panel.buttons(*buttons)
+        cooldown = apply_cooldown_buff(self._cooldown_for(job_key, config), buffs or {})
+        panel.footer(
+            f"⏳ one attempt every ~{formulas.fmt_duration(cooldown)} · "
+            "payouts are estimates, before fame, streaks, and a perfect bonus"
+        )
         message = await ctx.send(view=panel)
         panel.message = message
 
@@ -792,6 +892,7 @@ class Minigames(commands.Cog):
                 InteractionSender(interaction), gid, uid, job_key, config,
                 skill["level"], skill["xp"], skill["last_work"],
                 dry_run=False, buffs=buffs, difficulty=difficulty,
+                ready_at=now + cooldown,
             )
         return handler
 
@@ -799,6 +900,7 @@ class Minigames(commands.Cog):
         self, sendable, gid: int, uid: int, job_key: str, config: dict,
         session_level: int, xp: int, last_work: float, *, dry_run: bool,
         buffs: dict | None = None, difficulty: str = "easy",
+        ready_at: float | None = None,
     ) -> None:
         """`sendable` is anything with an async .send(view=...) -> Message
         (commands.Context, or InteractionSender for the difficulty-pick
@@ -806,7 +908,7 @@ class Minigames(commands.Cog):
         session_cls = SESSION_CLASSES[config["kind"]]
         session = session_cls(
             self.db, gid, uid, job_key, session_level, xp, last_work,
-            dry_run=dry_run, buffs=buffs, difficulty=difficulty,
+            dry_run=dry_run, buffs=buffs, difficulty=difficulty, ready_at=ready_at,
         )
 
         if dry_run:
@@ -860,6 +962,7 @@ class Minigames(commands.Cog):
                 InteractionSender(inner), gid, uid, job_key, config,
                 skill["level"], skill["xp"], skill["last_work"],
                 dry_run=False, buffs=buffs, difficulty=difficulty,
+                ready_at=now + cooldown,
             )
 
         async def on_cancel(inner: discord.Interaction) -> None:

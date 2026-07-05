@@ -49,6 +49,24 @@ REAGENT_KEYS = list(REAGENTS)
 REVEAL_DELAY = 1.1     # seconds between flashing each reagent, at Easy
 ANSWER_TIMEOUT = 20    # seconds to tap each reagent before the view expires, at Easy
 
+# Flavour pools, one line picked per brew so repeat runs don't read
+# like the same form letter (same idea as econ/data/minigames.py).
+PERFECT_TEXTS = [
+    "Every reagent, in perfect order. The cauldron glows gold.",
+    "The mixture turns clear as glass, then blooms into colour. Perfect.",
+    "The cauldron settles to a slow, contented simmer. Not a step wrong.",
+]
+TIMEOUT_SPOIL_TEXTS = [
+    "You hesitate too long over the cauldron, and the brew spoils.",
+    "While you stand there deciding, the mixture boils over and burns.",
+    "The window passes. Whatever it was becoming, it isn't anymore.",
+]
+NEAR_MISS_TEXTS = [
+    "One reagent short. It was nearly yours.",
+    "So close you could smell it setting.",
+    "Next brew. You had the order, just not the nerve.",
+]
+
 
 class BrewSession:
     """One player's in-progress cauldron attempt: holds the target
@@ -62,6 +80,7 @@ class BrewSession:
     def __init__(
         self, db, gid: int, uid: int, level: int, xp: int, last_work: float,
         *, dry_run: bool = False, buffs: dict | None = None, difficulty: str = "easy",
+        ready_at: float | None = None,
     ):
         self.db = db
         self.gid = gid
@@ -72,6 +91,10 @@ class BrewSession:
         self.dry_run = dry_run
         self.buffs = buffs or {}
         self.difficulty = difficulty
+        # When the cooldown burned at the start of this brew lets the
+        # player go again -- shown on the result panel so a grinder
+        # never has to run .brew just to get told "not yet".
+        self.ready_at = ready_at
         self.tier = formulas.DIFFICULTIES[difficulty]
         self.length = formulas.brew_sequence_length(difficulty)
         self.reveal_delay = max(0.4, REVEAL_DELAY * self.tier["timeout_mult"])
@@ -154,11 +177,16 @@ class BrewSession:
     ) -> Panel:
         total = await self.db.total_level(self.gid, self.uid)
         user = await self.db.get_user(self.gid, self.uid)
+        stats = {} if self.dry_run else await self.db.get_stats(self.gid, self.uid)
+        prev_streak = stats.get("brew_streak", 0)
         fame_mult = formulas.fame_multiplier(formulas.reputation_fame(user["reputation"]))
         reward, perfect = formulas.roll_brew_reward(
             self.progress, self.length, self.level, total,
             JOBS["alchemist"]["unlock_total_level"], MAX_JOB_UNLOCK_LEVEL,
-            extra_multiplier=fame_mult * self.tier["reward_mult"],
+            extra_multiplier=(
+                fame_mult * self.tier["reward_mult"]
+                * formulas.streak_multiplier(prev_streak)
+            ),
         )
         reward = round(apply_gold_buff(reward, self.buffs))
         xp_gain = round(apply_xp_buff(self.progress * formulas.BREW_XP_PER_SYMBOL, self.buffs))
@@ -168,6 +196,8 @@ class BrewSession:
         )
         fame_gained = 0
         potion = None
+        perfect_count = stats.get("brews_perfect", 0) + (1 if perfect else 0)
+        new_streak = prev_streak + 1 if success else 0
         if success and random.random() < BREW_POTION_CHANCE.get(self.difficulty, 0.30):
             potion = random.choice(BREW_POTIONS)
         if not self.dry_run:
@@ -181,6 +211,12 @@ class BrewSession:
                 await self.db.incr_stat(self.gid, self.uid, "brews_perfect")
             if reward:
                 await self.db.incr_stat(self.gid, self.uid, "gold_from_brewing", reward)
+            if new_streak != prev_streak:
+                await self.db.set_stat(self.gid, self.uid, "brew_streak", new_streak)
+                if new_streak > stats.get("brew_best_streak", 0):
+                    await self.db.set_stat(
+                        self.gid, self.uid, "brew_best_streak", new_streak
+                    )
             if success:
                 await self.db.add_reputation(self.gid, self.uid, formulas.MINIGAME_FAME_ON_SUCCESS)
                 fame_gained = formulas.MINIGAME_FAME_ON_SUCCESS
@@ -191,19 +227,21 @@ class BrewSession:
         if success:
             panel.header("🧪 A Flawless Brew!" if perfect else "🧪 Brew Complete")
             panel.text(
-                "*Every reagent, in perfect order. The cauldron glows gold.*"
+                f"*{random.choice(PERFECT_TEXTS)}*"
                 if perfect else
                 "*You recall the sequence and the potion sets true.*"
             )
         elif timed_out:
             panel.header("🧪 The Brew Spoils")
-            panel.text("*You hesitate too long over the cauldron, and the brew spoils.*")
+            panel.text(f"*{random.choice(TIMEOUT_SPOIL_TEXTS)}*")
         else:
             panel.header("🧪 The Brew Spoils")
             panel.text(
                 f"*You reach for {REAGENTS[wrong_key]}, but the recipe called "
                 f"for {REAGENTS[expected_key]}. The mixture curdles.*"
             )
+        if not success and self.progress == self.length - 1:
+            panel.text(f"-# {random.choice(NEAR_MISS_TEXTS)}")
 
         reward_line = (
             f"💰 {chip(('Reward', NAME_W), (f'{reward:,}', -AMT_W))} 🪙"
@@ -223,11 +261,21 @@ class BrewSession:
             footer += f" · +{xp_gain} XP"
         if levels_gained and not self.dry_run:
             footer += f" · ⭐ now level {new_level}"
+        if perfect and not self.dry_run:
+            footer += f" · ✨ flawless brew #{perfect_count}"
         if fame_gained:
             footer += f" · 🌟 +{fame_gained} fame"
+        if not self.dry_run:
+            if new_streak >= 2:
+                next_pct = round((formulas.streak_multiplier(new_streak) - 1) * 100)
+                footer += f" · 🔥 {new_streak} in a row (+{next_pct}% gold next brew)"
+            elif not success and prev_streak >= 2:
+                footer += f" · 💔 streak of {prev_streak} broken"
         buff_line = active_buff_summary(self.buffs)
         if buff_line:
             footer += f"\n✨ active: {buff_line}"
+        if self.ready_at and not self.dry_run:
+            footer += f"\n⏳ cauldron ready again <t:{int(self.ready_at)}:R>"
         if self.dry_run:
             footer = "🧪 TEST MODE, nothing was actually awarded · " + footer
         panel.footer(footer)
@@ -319,23 +367,29 @@ class Brew(commands.Cog):
             "harder, but pay far better.*"
         )
         # Same list style as .shop's tool ladder: icon, then a
-        # fixed-width chip so the reward multiplier column lines up
-        # down the page, whether a tier is open or still locked.
+        # fixed-width chip so the payout column lines up down the page,
+        # whether a tier is open or still locked. The number is what a
+        # full clear would roughly pay THIS player right now.
+        total = await self.db.total_level(gid, uid)
+        unlock = JOBS["alchemist"]["unlock_total_level"]
         lines = []
         buttons = []
         for key in formulas.DIFFICULTY_ORDER:
             tier = formulas.DIFFICULTIES[key]
             length = formulas.brew_sequence_length(key)
             unlocked = dry_run or formulas.difficulty_unlocked(skill_level, key)
-            mult = f"×{tier['reward_mult']:.2f}"
+            est = formulas.minigame_payout_estimate(
+                unlock, MAX_JOB_UNLOCK_LEVEL, skill_level, total, tier["reward_mult"]
+            )
+            payout = f"~{est:,}"
             if unlocked:
                 lines.append(
-                    f"{tier['emoji']} {chip((tier['label'], NAME_W), (mult, -AMT_W))} "
+                    f"{tier['emoji']} {chip((tier['label'], NAME_W), (payout, -AMT_W))} 🪙 "
                     f"· {length} reagents"
                 )
             else:
                 lines.append(
-                    f"🔒 {chip((tier['label'], NAME_W), (mult, -AMT_W))} "
+                    f"🔒 {chip((tier['label'], NAME_W), (payout, -AMT_W))} 🪙 "
                     f"· unlocks lvl {tier['unlock_level']} (you're {skill_level})"
                 )
             btn = ui.Button(
@@ -351,6 +405,11 @@ class Brew(commands.Cog):
         buttons.append(cancel_btn)
         panel.text("\n".join(lines))
         panel.buttons(*buttons)
+        cooldown = apply_cooldown_buff(formulas.BREW_COOLDOWN, buffs or {})
+        panel.footer(
+            f"⏳ one brew every ~{formulas.fmt_duration(cooldown)} · "
+            "payouts are estimates, before fame, streaks, and a perfect bonus"
+        )
         message = await ctx.send(view=panel)
         panel.message = message
 
@@ -393,7 +452,7 @@ class Brew(commands.Cog):
             skill = await self.db.get_skill(gid, uid, "alchemist")
             session = BrewSession(
                 self.db, gid, uid, skill["level"], skill["xp"], skill["last_work"],
-                buffs=buffs, difficulty=difficulty,
+                buffs=buffs, difficulty=difficulty, ready_at=now + cooldown,
             )
             await self._run_brew(InteractionSender(interaction), session)
         return handler
