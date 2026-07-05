@@ -262,7 +262,7 @@ class GatherSessionBase:
 
 class GatherMatchSession(GatherSessionBase):
     """Bot names a target among a few decoys, tap the right one before
-    the timer runs out -- powers Sawmill and Weaver's Yard's `.gather`."""
+    the timer runs out -- powers Sawmill's `.gather`."""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -334,8 +334,7 @@ class GatherMatchSession(GatherSessionBase):
 class GatherSpotDiffSession(GatherSessionBase):
     """A grid of near-identical tiles hides one that looks *just*
     subtly different -- no named target, you have to actually scan the
-    grid and spot it yourself. Powers Quarry, Mason's Workshop, and
-    `.scavenge` itself."""
+    grid and spot it yourself. Powers Quarry and `.scavenge` itself."""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -583,7 +582,7 @@ class GatherReflexSession(GatherSessionBase):
 class GatherPairsSession(GatherSessionBase):
     """A face-down grid: flip two tiles at a time. A match stays
     revealed and banks progress; a mismatch ends the attempt right
-    there. Powers Herb Garden and Gem Cutter's Den."""
+    there. Powers Herb Garden."""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -665,10 +664,271 @@ class GatherPairsSession(GatherSessionBase):
             await interaction.response.edit_message(view=panel)
 
 
+class GatherSequenceSession(GatherSessionBase):
+    """A pattern flashes by one symbol at a time; repeat it back from
+    memory, in order. The pattern length is the round count, so partial
+    recall banks partial progress, same as the cauldron brew. Powers
+    Weaver's Yard."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        keys = list(self.config["options"])
+        self.sequence = [random.choice(keys) for _ in range(self.length)]
+        # Harder tiers flash the pattern faster and give less time to
+        # answer, on top of the longer sequence from difficulty_length.
+        self.reveal_delay = max(0.4, self.config["reveal_delay"] * self.tier["timeout_mult"])
+        self.answer_timeout = max(
+            4, round(self.config["answer_timeout"] * self.tier["timeout_mult"])
+        )
+
+    async def run(self, sendable) -> None:
+        """Reveal-then-answer flow, driven by the session itself (like
+        GatherReflexSession.run): flash each symbol in place, then swap
+        the message to the tappable answer panel."""
+        cfg = self.config
+        intro = Panel(accent=Palette.PURPLE, timeout=None)
+        intro.header(cfg["title"])
+        intro.text(
+            f"{self.tier['emoji']} {self.tier['label']} · "
+            f"Pattern length: **{self.length}** threads"
+        )
+        intro.footer(self._footer_text("👀 watch closely, and remember the order"))
+        message = await sendable.send(view=intro)
+        for i, key in enumerate(self.sequence, start=1):
+            await asyncio.sleep(self.reveal_delay)
+            flash = Panel(accent=Palette.PURPLE, timeout=None)
+            flash.header(cfg["title"])
+            flash.text(f"Thread {i}/{self.length}")
+            flash.text(f"# {cfg['options'][key]}")
+            try:
+                await message.edit(view=flash)
+            except discord.HTTPException:
+                return
+        await asyncio.sleep(self.reveal_delay)
+        panel = self.round_panel()
+        panel.message = message
+        try:
+            await message.edit(view=panel)
+        except discord.HTTPException:
+            pass
+
+    def round_panel(self) -> Panel:
+        cfg = self.config
+        dots = "🟢" * self.correct + "⚪" * (self.length - self.correct)
+        panel = RoundPanel(
+            self, accent=Palette.GOLD, author_id=self.uid, timeout=self.answer_timeout
+        )
+        panel.header(cfg["title"])
+        panel.text("*Weave the pattern back, in order.*")
+        panel.text(f"`{dots}`  ({self.correct}/{self.length})")
+        buttons = []
+        for key, emoji in cfg["options"].items():
+            btn = ui.Button(emoji=emoji, style=discord.ButtonStyle.secondary)
+            btn.callback = self._make_handler(key)
+            buttons.append(btn)
+        for i in range(0, len(buttons), 5):
+            panel.buttons(*buttons[i : i + 5])
+        deadline = int(time.time()) + self.answer_timeout
+        panel.footer(self._footer_text(f"⏱️ answer by <t:{deadline}:R>"))
+        self.current_panel = panel
+        return panel
+
+    def _make_handler(self, key: str):
+        async def handler(interaction: discord.Interaction) -> None:
+            await self.on_tap(interaction, key)
+        return handler
+
+    async def on_tap(self, interaction: discord.Interaction, key: str) -> None:
+        if self.done:
+            await interaction.response.defer()
+            return
+        if self.current_panel is not None:
+            self.current_panel.stop()
+        if key != self.sequence[self.correct]:
+            self.done = True
+            panel = await self._finish(outcome="fail")
+            await interaction.response.edit_message(view=panel)
+            return
+        self.correct += 1
+        if self.correct == self.length:
+            self.done = True
+            panel = await self._finish(outcome="success")
+            await interaction.response.edit_message(view=panel)
+            return
+        next_panel = self.round_panel()
+        next_panel.message = interaction.message
+        await interaction.response.edit_message(view=next_panel)
+
+
+class GatherCountSession(GatherSessionBase):
+    """A pallet of mixed tiles is laid out in the open; tally how many
+    of the named one are in it and tap the matching number before time
+    runs out. No hidden information, just fast, accurate counting.
+    Powers Mason's Workshop."""
+
+    ROW_W = 5
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Harder tiers add a whole extra row to count through, on top
+        # of the shrinking round_timeout.
+        self.grid_size = self.config["grid_size"] + self.tier["bonus"] * self.ROW_W
+        self.target_key = ""
+        self.grid: list[str] = []
+        self.answer = 0
+        self.choices: list[int] = []
+        self._roll_round()
+
+    def _roll_round(self) -> None:
+        options = self.config["emojis"]
+        keys = list(options)
+        self.target_key = random.choice(keys)
+        # Enough of the target to make counting real work, never so many
+        # the grid is mostly target (which would be countable at a glance).
+        self.answer = random.randint(3, max(4, self.grid_size // 3))
+        others = [k for k in keys if k != self.target_key]
+        filler = [random.choice(others) for _ in range(self.grid_size - self.answer)]
+        cells = [self.target_key] * self.answer + filler
+        random.shuffle(cells)
+        self.grid = cells
+        # The true count plus three near misses, so a rough guess isn't
+        # enough but the options never give the answer away by spread.
+        pool = [
+            n for n in range(max(1, self.answer - 3), self.answer + 4)
+            if n != self.answer
+        ]
+        self.choices = random.sample(pool, 3) + [self.answer]
+        random.shuffle(self.choices)
+
+    def round_panel(self) -> Panel:
+        cfg = self.config
+        options = cfg["emojis"]
+        dots = "🟢" * self.correct + "⚪" * (self.length - self.correct)
+        timeout = max(2.0, cfg["round_timeout"] * self.tier["timeout_mult"])
+        panel = RoundPanel(self, accent=Palette.GOLD, author_id=self.uid, timeout=timeout)
+        panel.header(cfg["title"])
+        label = self.target_key.replace("_", " ").title()
+        panel.text(f"How many {options[self.target_key]} **{label}** on the pallet?")
+        rows = [
+            "".join(options[k] for k in self.grid[i : i + self.ROW_W])
+            for i in range(0, len(self.grid), self.ROW_W)
+        ]
+        panel.text("\n".join(rows))
+        panel.text(f"`{dots}`  ({self.correct}/{self.length})")
+        buttons = []
+        for n in self.choices:
+            btn = ui.Button(label=str(n), style=discord.ButtonStyle.secondary)
+            btn.callback = self._make_handler(n)
+            buttons.append(btn)
+        panel.buttons(*buttons)
+        deadline = int(time.time() + timeout)
+        panel.footer(self._footer_text(f"⏱️ tally by <t:{deadline}:R>"))
+        self.current_panel = panel
+        return panel
+
+    def _make_handler(self, count: int):
+        async def handler(interaction: discord.Interaction) -> None:
+            await self.on_tap(interaction, count)
+        return handler
+
+    async def on_tap(self, interaction: discord.Interaction, count: int) -> None:
+        if self.done:
+            await interaction.response.defer()
+            return
+        if self.current_panel is not None:
+            self.current_panel.stop()
+        if count != self.answer:
+            self.done = True
+            panel = await self._finish(outcome="fail")
+            await interaction.response.edit_message(view=panel)
+            return
+        self.correct += 1
+        if self.correct == self.length:
+            self.done = True
+            panel = await self._finish(outcome="success")
+            await interaction.response.edit_message(view=panel)
+            return
+        self._roll_round()
+        next_panel = self.round_panel()
+        next_panel.message = interaction.message
+        await interaction.response.edit_message(view=next_panel)
+
+
+class GatherVerifySession(GatherSessionBase):
+    """Items cross the bench one at a time, each under a claimed label
+    (an even chance it's honest); call each one Genuine or Fake before
+    the timer runs out. A judgement call against your own knowledge of
+    what each stone looks like, not a search or a memory test. Powers
+    Gem Cutter's Den."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.true_key = ""
+        self.claimed_key = ""
+        self._roll_round()
+
+    def _roll_round(self) -> None:
+        keys = list(self.config["gems"])
+        self.true_key = random.choice(keys)
+        if random.random() < 0.5:
+            self.claimed_key = self.true_key
+        else:
+            self.claimed_key = random.choice([k for k in keys if k != self.true_key])
+
+    def round_panel(self) -> Panel:
+        cfg = self.config
+        dots = "🟢" * self.correct + "⚪" * (self.length - self.correct)
+        timeout = max(1.5, cfg["round_timeout"] * self.tier["timeout_mult"])
+        panel = RoundPanel(self, accent=Palette.GOLD, author_id=self.uid, timeout=timeout)
+        panel.header(cfg["title"])
+        panel.text(f"# {cfg['gems'][self.true_key]}")
+        panel.text(
+            f"*The merchant swears this one is **{self.claimed_key.title()}**. Your call.*"
+        )
+        panel.text(f"`{dots}`  ({self.correct}/{self.length})")
+        genuine_btn = ui.Button(label="Genuine", emoji="✅", style=discord.ButtonStyle.success)
+        genuine_btn.callback = self._make_handler(True)
+        fake_btn = ui.Button(label="Fake", emoji="❌", style=discord.ButtonStyle.danger)
+        fake_btn.callback = self._make_handler(False)
+        panel.buttons(genuine_btn, fake_btn)
+        deadline = int(time.time() + timeout)
+        panel.footer(self._footer_text(f"⏱️ call it by <t:{deadline}:R>"))
+        self.current_panel = panel
+        return panel
+
+    def _make_handler(self, called_genuine: bool):
+        async def handler(interaction: discord.Interaction) -> None:
+            await self.on_tap(interaction, called_genuine)
+        return handler
+
+    async def on_tap(self, interaction: discord.Interaction, called_genuine: bool) -> None:
+        if self.done:
+            await interaction.response.defer()
+            return
+        if self.current_panel is not None:
+            self.current_panel.stop()
+        if called_genuine != (self.claimed_key == self.true_key):
+            self.done = True
+            panel = await self._finish(outcome="fail")
+            await interaction.response.edit_message(view=panel)
+            return
+        self.correct += 1
+        if self.correct == self.length:
+            self.done = True
+            panel = await self._finish(outcome="success")
+            await interaction.response.edit_message(view=panel)
+            return
+        self._roll_round()
+        next_panel = self.round_panel()
+        next_panel.message = interaction.message
+        await interaction.response.edit_message(view=next_panel)
+
+
 GATHER_SESSION_CLASSES = {
     "match": GatherMatchSession, "spotdiff": GatherSpotDiffSession,
     "pressluck": GatherPressLuckSession, "reflex": GatherReflexSession,
-    "pairs": GatherPairsSession,
+    "pairs": GatherPairsSession, "sequence": GatherSequenceSession,
+    "count": GatherCountSession, "verify": GatherVerifySession,
 }
 
 
@@ -1243,7 +1503,10 @@ class Town(commands.Cog):
                     accent=Palette.PURPLE,
                 )
             )
-        if isinstance(session, GatherReflexSession):
+        # Reflex and Sequence drive their own message flow (a waiting
+        # loop and a reveal-then-answer pass, respectively); every other
+        # kind starts straight on its first tappable round.
+        if isinstance(session, (GatherReflexSession, GatherSequenceSession)):
             await session.run(sendable)
         else:
             panel = session.round_panel()

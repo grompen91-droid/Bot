@@ -8,24 +8,33 @@ section owns the reward math (gather_reward, scavenge_reward, ...).
 Every production building used to share one identical mechanic ("Read
 the Seam": guess which material continues a hidden, unlabelled
 sequence -- undoable without memorising an arbitrary internal list
-order). Each building now gets an explicit, clearly-telegraphed task
-instead, reusing the same five proven kinds cogs/minigames.py already
-built out for the job minigames (see that file's own kind docstring
-for the shared mechanics), just re-themed and paying out a
-construction material instead of gold/XP:
+order). Each building now gets its OWN mechanic, no two buildings
+alike: five reuse the proven kinds cogs/minigames.py built out for the
+job minigames (see that file's own kind docstring), re-themed and
+paying out a construction material instead of gold/XP, and three are
+unique to the town (implemented in cogs/town.py's Gather*Session
+classes):
 
 kind:
     "match"     bot names a target among a few decoys, tap the right
-                one before the timer runs out (sawmill, weavers_yard)
+                one before the timer runs out (sawmill)
     "spotdiff"  a grid of near-identical tiles hides one that looks
-                subtly different, spot it yourself (quarry,
-                masons_workshop, and .scavenge itself)
+                subtly different, spot it yourself (quarry, and
+                .scavenge itself)
     "pressluck" keep adding loads toward a hidden limit; one too many
                 ruins the attempt, or bank early for less (brickworks)
     "reflex"    wait for the right instant, then act before the window
                 closes; too early or late both fail it (foundry)
     "pairs"     a face-down grid, flip two at a time to find matches
-                (herb_garden, gem_cutters_den)
+                (herb_garden)
+    "sequence"  a pattern flashes by one symbol at a time; repeat it
+                back from memory, in order (weavers_yard)
+    "count"     a pallet of mixed tiles is laid out; tally how many of
+                the named one are in it and tap the right number
+                before time runs out (masons_workshop)
+    "verify"    items cross the bench one at a time under a claimed
+                label; call each Genuine or Fake, one wrong call ends
+                it (gem_cutters_den)
 
 `how_to` is the one or two sentences the difficulty picker shows before
 an attempt starts -- the fix for the old mechanic's "very unclear what
@@ -145,58 +154,63 @@ GATHER_MINIGAMES = {
         ],
     },
     "weavers_yard": {
-        "kind": "match", "title": "🧵 Follow the Weave",
-        "how_to": "The bot names which thread just snagged -- tap the matching "
-                   "spool among the decoys before the pattern pulls apart.",
-        "options": {"warp": "🔵", "weft": "🟢", "selvage": "🟣", "bobbin": "🟠"},
-        "decoys": 2, "round_timeout": 6,
-        "prompt": "thread snags, catch it before the pattern's ruined!",
-        "fail_header": "The Pattern Snags",
+        "kind": "sequence", "title": "🧵 Memorize the Pattern",
+        "how_to": "The master weaver's pattern flashes by one thread at a time. "
+                   "Watch closely, then weave it back in the exact same order -- "
+                   "one thread out of place ruins the bolt.",
+        "options": {"crimson": "🟥", "gold": "🟨", "indigo": "🟦", "moss": "🟩", "plum": "🟪"},
+        "reveal_delay": 1.1, "answer_timeout": 18,
+        "fail_header": "The Pattern's Lost",
         "fail_text": [
-            "You catch the wrong thread and the weave pulls apart.",
-            "One wrong spool and the pattern unravels three rows deep.",
-            "The shuttle jams on the thread you missed, and the bolt is ruined.",
+            "You thread the wrong colour and the pattern unravels before your eyes.",
+            "One thread out of order, and the shuttle carries the mistake through the whole bolt.",
+            "The motif slips from memory halfway across the loom.",
         ],
         "success_text": [
-            "Every snag caught, the bolt comes off the loom flawless.",
-            "The pattern runs true from selvage to selvage, not a thread out of place.",
-            "Cloth this clean sells before it's even off the loom.",
+            "Every thread in order, the pattern flows flawless across the bolt.",
+            "You weave the motif back from memory without a single slip.",
+            "The finished cloth matches the master's pattern thread for thread.",
         ],
     },
     "masons_workshop": {
-        "kind": "spotdiff", "title": "🏺 Find the Flaw",
-        "how_to": "A grid of carved tiles hides one hairline flaw that looks just a "
-                   "little different. Spot it and tap it before time runs out.",
-        "common_emoji": "▪️", "odd_emoji": "▫️",
-        "grid_size": 9, "round_timeout": 7,
-        "fail_header": "The Chisel Slips",
+        "kind": "count", "title": "🏺 Tally the Pallet",
+        "how_to": "A pallet of mixed stone rolls in. Count how many of the named "
+                   "block are on it and tap the right tally before the cart moves "
+                   "on -- one bad count ends the shift.",
+        "emojis": {"brick": "🧱", "block": "🪨", "urn": "🏺", "slab": "⬜"},
+        "grid_size": 15, "round_timeout": 10,
+        "fail_header": "The Count Is Off",
         "fail_text": [
-            "You chisel a sound stone by mistake and the whole carving splits.",
-            "The flaw was one tile over. The crack runs straight through your work.",
-            "A clean strike on the wrong stone, and the whole panel shears away.",
+            "Your tally comes up wrong and the wall runs a course short.",
+            "You call the count too fast, and the mismeasured pallet jams the whole yard.",
+            "Two short. The foreman recounts it in front of everyone.",
         ],
         "success_text": [
-            "Every flaw found and chiselled away before it could spread.",
-            "The finished carving is smooth as river stone, no flaw survived you.",
-            "Each hairline crack caught early. The piece will outlast the town.",
+            "Every pallet counted true, the wall rises without a single gap.",
+            "Your tallies match the ledger to the last block.",
+            "Counted, stacked, and mortared. The workshop runs on your numbers today.",
         ],
     },
     "gem_cutters_den": {
-        "kind": "pairs", "title": "💎 Cut the Facets",
-        "how_to": "A row of rough cuts lies face-down. Flip two at a time to find a "
-                   "matching pair -- a mismatch shatters the stone outright.",
-        "gems": {"shard": "🔹", "flake": "🔸", "sliver": "🔶", "chip": "🔷", "dust": "🔺", "grain": "🔻"},
-        "hidden_emoji": "⬛", "round_timeout": 13,
-        "fail_header": "Shattered",
+        "kind": "verify", "title": "💎 Appraise the Stones",
+        "how_to": "Stones cross your bench one at a time, each under a merchant's "
+                   "label. Look at the stone, judge whether the label is honest, and "
+                   "call it Genuine or Fake -- one bad appraisal ends the sitting.",
+        "gems": {
+            "ruby": "🔴", "sapphire": "🔵", "emerald": "🟢",
+            "topaz": "🟡", "amethyst": "🟣", "pearl": "⚪",
+        },
+        "round_timeout": 6,
+        "fail_header": "A Bad Appraisal",
         "fail_text": [
-            "A mismatched cut runs clean through the stone and it shatters.",
-            "The wrong two cuts meet at an angle the stone can't bear.",
-            "A flash of dust and splinters where a gem used to be.",
+            "You vouch for a fake, and word gets around the den before sundown.",
+            "The 'ruby' you passed turns out to be dyed glass. Your eye is doubted for weeks.",
+            "You wave a forgery through, and the buyer comes back shouting.",
         ],
         "success_text": [
-            "Every facet cut true, the stone catches the light perfectly.",
-            "The finished stone scatters lamplight across the whole den.",
-            "Each cut mirrors its twin. Buyers will fight over this one.",
+            "Every stone called true, the merchants pay full price without a murmur.",
+            "Genuine from glass at a glance. Your word is gospel in the den today.",
+            "Not one fake slips past your loupe.",
         ],
     },
 }

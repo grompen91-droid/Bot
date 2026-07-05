@@ -1119,11 +1119,12 @@ STUDY_XP_PER_LIBRARY_TIER = 400
 # ── .gather ────────────────────────────────────────────────────────────
 # The active counterpart to a production building's passive trickle
 # (.collect). Each of the 8 production buildings gets its own clearly-
-# telegraphed minigame -- see econ/data/gather_minigames.py for the
-# roster and cogs/town.py's Gather*Session classes for the mechanics --
-# reusing the same five proven kinds cogs/minigames.py already built out
-# for the job minigames, just re-themed and paying out a construction
-# material instead of gold/XP. Reward is proportional to rounds cleared
+# telegraphed minigame, no two buildings sharing a mechanic -- see
+# econ/data/gather_minigames.py for the roster and cogs/town.py's
+# Gather*Session classes for the mechanics -- five re-themed from the
+# proven job-minigame kinds and three unique to the town (sequence,
+# count, verify), all paying out a construction material instead of
+# gold/XP. Reward is proportional to rounds cleared
 # (same completion-based shape as roll_minigame_reward), scaled off the
 # building's own tier and total_level instead of a trade skill level.
 # Difficulty is gated by BUILDING TIER (there's no skill level to gate it
