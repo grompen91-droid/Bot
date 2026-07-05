@@ -66,7 +66,7 @@ HELP_SECTIONS = [
     (
         "🏰 Town",
         ["townhall", "town", "buildings", "workers", "fire", "supply", "collect",
-         "gather", "study", "patrol", "caravan", "expedition"],
+         "gather", "scavenge", "study", "patrol", "caravan", "expedition"],
     ),
     ("📖 Lookup", ["info"]),
 ]
@@ -205,6 +205,9 @@ class Info(commands.Cog):
             if item_key not in keys:
                 continue
             if group == "universal":
+                rarity_order = list(RARITIES.keys()).index(ITEMS[item_key]["rarity"])
+                if rarity_order > MATERIAL_SUPPLY_MAX_RARITY_ORDER:
+                    sources.append(f"`.scavenge {ITEMS[item_key]['name']}`, once Town Hall is high enough level")
                 sources.append("a lucky find from any `.work` (rarity improves with total skill)")
             else:
                 building = TOWN_BUILDINGS[group]
@@ -460,8 +463,15 @@ class Info(commands.Cog):
                 f"{status(mg_last.get(f'gather_{building_key}', 0.0) + formulas.GATHER_COOLDOWN)}"
             )
 
-        # .study/.patrol stay hidden until their building is actually
-        # built, same rule as .brew staying hidden pre-Alchemist above.
+        # .study/.patrol/.scavenge stay hidden until they actually apply
+        # (their building built, or a town founded at all), same rule as
+        # .brew staying hidden pre-Alchemist above.
+        town = await self.db.get_town(gid, uid)
+        if town["hall_level"] > 0:
+            lines.append(
+                f"🧰 {chip(('.scavenge', NAME_W))} "
+                f"{status(mg_last.get('scavenge', 0.0) + formulas.SCAVENGE_COOLDOWN)}"
+            )
         if await self.db.get_building_tier(gid, uid, "great_library") > 0:
             lines.append(
                 f"📚 {chip(('.study', NAME_W))} "
@@ -476,7 +486,6 @@ class Info(commands.Cog):
         # .caravan/.expedition aren't cooldowns so much as "is one
         # already under way" -- same "hidden until it applies to you"
         # rule, gated on founding.
-        town = await self.db.get_town(gid, uid)
         if town["hall_level"] > 0:
             active_caravan = await self.db.get_caravan(gid, uid)
             if active_caravan is not None:

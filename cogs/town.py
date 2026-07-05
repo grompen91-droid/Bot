@@ -7,6 +7,7 @@ town_workers.py / materials.py for the content itself.
 
 from __future__ import annotations
 
+import asyncio
 import random
 import time
 
@@ -24,6 +25,7 @@ from econ.data.expeditions import (
     EXPEDITION_UPGRADE_PERK_ORDER,
     EXPEDITION_UPGRADE_PERKS,
 )
+from econ.data.gather_minigames import GATHER_MINIGAMES, SCAVENGE_MINIGAME
 from econ.data.items import ITEMS, RARITIES
 from econ.data.materials import (
     MATERIAL_GROUPS,
@@ -45,6 +47,7 @@ from ui.panels import (
     NAME_W,
     QTY_W,
     WEALTH_W,
+    InteractionSender,
     Palette,
     Panel,
     RoundPanel,
@@ -64,6 +67,27 @@ GATHER_CHOICES = [
     app_commands.Choice(name=f"{info['emoji']} {info['name']}", value=key)
     for key, info in TOWN_BUILDINGS.items() if info["kind"] == "production"
 ]
+# `.scavenge` only ever targets the 12 rare+ "universal" materials --
+# common/uncommon are already `.supply`'s job (see MATERIAL_SUPPLY_MAX_RARITY_ORDER).
+SCAVENGE_CHOICES = [
+    app_commands.Choice(name=f"{ITEMS[key]['emoji']} {ITEMS[key]['name']}", value=key)
+    for key in MATERIAL_GROUPS["universal"]
+    if list(RARITIES.keys()).index(ITEMS[key]["rarity"]) > MATERIAL_SUPPLY_MAX_RARITY_ORDER
+]
+
+
+def resolve_universal_material(query: str) -> str | None:
+    """Fuzzy-match one of `.scavenge`'s 12 rare+ "universal" materials
+    by key or display name."""
+    valid = {c.value for c in SCAVENGE_CHOICES}
+    q = query.strip().lower().replace(" ", "_").replace("'", "")
+    if q in valid:
+        return q
+    q2 = query.strip().lower()
+    for key in valid:
+        if ITEMS[key]["name"].lower() == q2:
+            return key
+    return None
 
 
 def resolve_building(query: str, *, production_only: bool = False) -> str | None:
@@ -99,67 +123,161 @@ FIRE_CHOICES = [
 ]
 
 
-class GatherSession:
-    """'Read the Seam': three consecutive materials from a production
-    building's own rarity-ordered group (materials.py's MATERIAL_GROUPS
-    is already common->legendary in order) are shown in sequence; tap
-    whichever candidate continues that sequence among decoys drawn
-    from the same group. One wrong tap or a blown timer ends the run
-    right there, same as every other minigame in the game."""
+async def _gather_finish_panel(
+    db, gid: int, uid: int, config: dict, outcome: str, correct: int, length: int,
+    tier: dict, difficulty: str, dry_run: bool, *,
+    building_key: str | None = None, building_tier: int | None = None,
+    total_level: int | None = None, material_key: str | None = None,
+    hall_level: int | None = None, fail_text: str | None = None,
+) -> Panel:
+    """Shared reward+panel logic for every `.gather`/`.scavenge` minigame
+    kind: pays out a construction material, scaled off either a
+    production building's own tier (`.gather`, building_key set) or the
+    material the player explicitly chose plus the town's Hall level
+    (`.scavenge`, material_key set), with the same small chance at a
+    bonus unit of the next tier up on a flawless `.gather` run.
+
+    `outcome` is one of "success" (full clear), "banked" (Brickworks'
+    press-your-luck, stopped early on purpose), or "fail". `fail_text`
+    lets a kind override the config's default fail line (Foundry's
+    early-vs-late reflex miss, Brickworks' "never even started")."""
+    if building_key is not None:
+        material = production_output_material(building_key, building_tier)
+        qty = formulas.gather_reward(building_tier, total_level, correct, length, difficulty)
+        bonus_material = None
+        if (
+            outcome == "success" and building_tier < MAX_BUILDING_TIER
+            and formulas.roll_gather_bridge()
+        ):
+            bonus_material = production_output_material(building_key, building_tier + 1)
+    else:
+        material = material_key
+        rarity = ITEMS[material]["rarity"]
+        qty = formulas.scavenge_reward(rarity, hall_level, total_level, correct, length, difficulty)
+        bonus_material = None
+
+    if not dry_run:
+        if qty:
+            await db.add_item(gid, uid, material, qty)
+        if bonus_material:
+            await db.add_item(gid, uid, bonus_material, 1)
+
+    title = config["title"]
+    if outcome == "success":
+        panel = Panel(accent=Palette.PURPLE, timeout=None)
+        panel.header(f"{title} · Flawless!")
+        panel.text(f"*{config['success_text']}*")
+    elif outcome == "banked":
+        panel = Panel(accent=Palette.GOLD, timeout=None)
+        panel.header(f"{title} · Banked Early")
+        panel.text("*You stop while you can still call it a win.*")
+    else:
+        panel = Panel(accent=Palette.RED, timeout=None)
+        panel.header(f"{title} · {config['fail_header']}")
+        panel.text(f"*{fail_text or config['fail_text']}*")
+
+    lines = []
+    if qty:
+        lines.append(f"{ITEMS[material]['emoji']} {chip((ITEMS[material]['name'], NAME_W), (f'+{qty}', -QTY_W))}")
+    else:
+        lines.append("Nothing to show for it this time.")
+    if bonus_material:
+        bonus_info = ITEMS[bonus_material]
+        lines.append(f"✨ A rare find: **1x {bonus_info['emoji']} {bonus_info['name']}**!")
+    panel.text("\n".join(lines))
+    footer_text = f"{tier['emoji']} {tier['label']} · {correct}/{length} rounds cleared"
+    panel.footer(f"🧪 TEST MODE · {footer_text}" if dry_run else footer_text)
+    return panel
+
+
+class GatherSessionBase:
+    """Shared plumbing every `.gather`/`.scavenge` minigame kind needs:
+    difficulty tiering, the TEST MODE footer prefix, round-timeout
+    resolution, and the material-reward finish above. Subclasses drive
+    their own round mechanic -- see this module's kind classes below,
+    one per econ/data/gather_minigames.py "kind" -- and just need to
+    track self.correct/self.done and call round_panel()/on_tap()."""
 
     def __init__(
-        self, db, gid: int, uid: int, building_key: str, building_tier: int,
-        total_level: int, difficulty: str, *, dry_run: bool = False,
-        buffs: dict | None = None,
+        self, db, gid: int, uid: int, config: dict, min_rounds: int, max_rounds: int,
+        difficulty: str, *, dry_run: bool = False, buffs: dict | None = None,
+        building_key: str | None = None, building_tier: int | None = None,
+        total_level: int | None = None, material_key: str | None = None,
+        hall_level: int | None = None,
     ):
         self.db = db
         self.gid = gid
         self.uid = uid
+        self.config = config
         self.building_key = building_key
         self.building_tier = building_tier
         self.total_level = total_level
+        self.material_key = material_key
+        self.hall_level = hall_level
         self.dry_run = dry_run
         self.buffs = buffs or {}
         self.difficulty = difficulty
         self.tier = formulas.DIFFICULTIES[difficulty]
-        self.length = formulas.difficulty_length(
-            formulas.GATHER_MIN_ROUNDS, formulas.GATHER_MAX_ROUNDS, difficulty
-        )
-        self.group = MATERIAL_GROUPS[TOWN_BUILDINGS[building_key]["material_group"]]
+        self.length = formulas.difficulty_length(min_rounds, max_rounds, difficulty)
         self.correct = 0
         self.done = False
         self.current_panel: RoundPanel | None = None
-        self.shown: list[str] = []
-        self.target: str | None = None
-        self.choices: list[str] = []
-        self._roll_round()
 
     def _footer_text(self, text: str) -> str:
         return f"🧪 TEST MODE · {text}" if self.dry_run else text
 
+    async def on_round_timeout(self, message: discord.Message) -> None:
+        if self.done:
+            return
+        self.done = True
+        panel = await self._finish(outcome="fail")
+        try:
+            await message.edit(view=panel)
+        except discord.HTTPException:
+            pass
+
+    async def _finish(self, outcome: str) -> Panel:
+        return await _gather_finish_panel(
+            self.db, self.gid, self.uid, self.config, outcome, self.correct, self.length,
+            self.tier, self.difficulty, self.dry_run,
+            building_key=self.building_key, building_tier=self.building_tier,
+            total_level=self.total_level, material_key=self.material_key,
+            hall_level=self.hall_level,
+        )
+
+
+class GatherMatchSession(GatherSessionBase):
+    """Bot names a target among a few decoys, tap the right one before
+    the timer runs out -- powers Sawmill and Weaver's Yard's `.gather`."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.target: str | None = None
+        self.choices: list[str] = []
+        self._roll_round()
+
     def _roll_round(self) -> None:
-        n = len(self.group)
-        start = random.randrange(n)
-        self.shown = [self.group[(start + i) % n] for i in range(3)]
-        self.target = self.group[(start + 3) % n]
-        decoy_n = min(formulas.GATHER_DECOYS + self.tier["bonus"], n - 4)
-        pool = [m for m in self.group if m not in self.shown and m != self.target]
-        self.choices = random.sample(pool, min(decoy_n, len(pool))) + [self.target]
+        options = self.config["options"]
+        keys = list(options)
+        self.target = random.choice(keys)
+        decoy_n = min(self.config["decoys"] + self.tier["bonus"], len(keys) - 1)
+        pool = [k for k in keys if k != self.target]
+        self.choices = random.sample(pool, decoy_n) + [self.target]
         random.shuffle(self.choices)
 
     def round_panel(self) -> Panel:
-        info = TOWN_BUILDINGS[self.building_key]
+        options = self.config["options"]
         dots = "🟢" * self.correct + "⚪" * (self.length - self.correct)
-        timeout = max(1.0, formulas.GATHER_ROUND_TIMEOUT * self.tier["timeout_mult"])
+        timeout = max(1.0, self.config["round_timeout"] * self.tier["timeout_mult"])
         panel = RoundPanel(self, accent=Palette.GOLD, author_id=self.uid, timeout=timeout)
-        panel.header(f"{info['emoji']} Read the Seam · {info['name']}")
-        seam = " → ".join(ITEMS[m]["emoji"] for m in self.shown)
-        panel.text(f"The seam runs {seam} → **?**\nWhat comes next?")
-        panel.text(f"`{dots}` ({self.correct}/{self.length})")
+        panel.header(self.config["title"])
+        label = self.target.replace("_", " ").title()
+        panel.text(f"{options[self.target]} **{label}** {self.config['prompt']}")
+        panel.text(f"`{dots}`  ({self.correct}/{self.length})")
         buttons = []
         for key in self.choices:
             btn = ui.Button(
-                label=ITEMS[key]["name"][:20], emoji=ITEMS[key]["emoji"],
+                label=key.replace("_", " ").title(), emoji=options[key],
                 style=discord.ButtonStyle.secondary,
             )
             btn.callback = self._make_handler(key)
@@ -198,58 +316,345 @@ class GatherSession:
         next_panel.message = interaction.message
         await interaction.response.edit_message(view=next_panel)
 
-    async def on_round_timeout(self, message: discord.Message) -> None:
+
+class GatherSpotDiffSession(GatherSessionBase):
+    """A grid of near-identical tiles hides one that looks *just*
+    subtly different -- no named target, you have to actually scan the
+    grid and spot it yourself. Powers Quarry, Mason's Workshop, and
+    `.scavenge` itself."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.grid_size = self.config["grid_size"] + self.tier["bonus"] * 2
+        self.target_index = 0
+        self._roll_round()
+
+    def _roll_round(self) -> None:
+        self.target_index = random.randrange(self.grid_size)
+
+    def round_panel(self) -> Panel:
+        cfg = self.config
+        dots = "🟢" * self.correct + "⚪" * (self.length - self.correct)
+        timeout = max(1.0, cfg["round_timeout"] * self.tier["timeout_mult"])
+        panel = RoundPanel(self, accent=Palette.GOLD, author_id=self.uid, timeout=timeout)
+        panel.header(cfg["title"])
+        panel.text("*One spot looks just a little different. Find it!*")
+        panel.text(f"`{dots}`  ({self.correct}/{self.length})")
+        buttons = []
+        for i in range(self.grid_size):
+            emoji = cfg["odd_emoji"] if i == self.target_index else cfg["common_emoji"]
+            btn = ui.Button(emoji=emoji, style=discord.ButtonStyle.secondary)
+            btn.callback = self._make_handler(i)
+            buttons.append(btn)
+        for i in range(0, len(buttons), 5):
+            panel.buttons(*buttons[i : i + 5])
+        deadline = int(time.time() + timeout)
+        panel.footer(self._footer_text(f"⏱️ act by <t:{deadline}:R>"))
+        self.current_panel = panel
+        return panel
+
+    def _make_handler(self, index: int):
+        async def handler(interaction: discord.Interaction) -> None:
+            await self.on_tap(interaction, index)
+        return handler
+
+    async def on_tap(self, interaction: discord.Interaction, index: int) -> None:
         if self.done:
+            await interaction.response.defer()
             return
+        if self.current_panel is not None:
+            self.current_panel.stop()
+        if index != self.target_index:
+            self.done = True
+            panel = await self._finish(outcome="fail")
+            await interaction.response.edit_message(view=panel)
+            return
+        self.correct += 1
+        if self.correct == self.length:
+            self.done = True
+            panel = await self._finish(outcome="success")
+            await interaction.response.edit_message(view=panel)
+            return
+        self._roll_round()
+        next_panel = self.round_panel()
+        next_panel.message = interaction.message
+        await interaction.response.edit_message(view=next_panel)
+
+
+class GatherPressLuckSession(GatherSessionBase):
+    """Press-your-luck: keep adding loads toward a hidden limit. One
+    load too many ruins the attempt outright; stop early to bank a
+    smaller, safer reward instead. Powers Brickworks."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        jitter = random.choice([-1, 0, 0, 1])
+        self.target = max(2, self.length + jitter)
+        self.loads = 0
+
+    def _hint(self) -> str:
+        cfg = self.config
+        if self.loads == 0:
+            return cfg["hint_empty"]
+        if self.loads >= self.target - 1:
+            return cfg["hint_near"]
+        if self.loads >= max(1, self.target - 3):
+            return cfg["hint_mid"]
+        return cfg["hint_default"]
+
+    def round_panel(self) -> Panel:
+        cfg = self.config
+        timeout = max(1.0, cfg["step_timeout"] * self.tier["timeout_mult"])
+        panel = RoundPanel(self, accent=Palette.GOLD, author_id=self.uid, timeout=timeout)
+        panel.header(cfg["title"])
+        panel.text(f"*{self._hint()}*")
+        plural = "s" if self.loads != 1 else ""
+        panel.text(f"🥄 {self.loads} {cfg['unit_label']}{plural} added")
+        add_btn = ui.Button(label=cfg["add_label"], emoji=cfg["add_emoji"], style=discord.ButtonStyle.secondary)
+        add_btn.callback = self._on_add
+        stop_btn = ui.Button(label=cfg["stop_label"], emoji=cfg["stop_emoji"], style=discord.ButtonStyle.success)
+        stop_btn.callback = self._on_stop
+        panel.buttons(add_btn, stop_btn)
+        deadline = int(time.time() + timeout)
+        panel.footer(self._footer_text(f"⏱️ decide by <t:{deadline}:R>"))
+        self.current_panel = panel
+        return panel
+
+    async def _on_add(self, interaction: discord.Interaction) -> None:
+        if self.done:
+            await interaction.response.defer()
+            return
+        if self.current_panel is not None:
+            self.current_panel.stop()
+        self.loads += 1
+        if self.loads > self.target:
+            self.done = True
+            self.correct = 0
+            panel = await self._finish(outcome="fail")
+            await interaction.response.edit_message(view=panel)
+            return
+        self.correct = self.loads
+        if self.loads == self.target:
+            self.done = True
+            panel = await self._finish(outcome="success")
+            await interaction.response.edit_message(view=panel)
+            return
+        next_panel = self.round_panel()
+        next_panel.message = interaction.message
+        await interaction.response.edit_message(view=next_panel)
+
+    async def _on_stop(self, interaction: discord.Interaction) -> None:
+        if self.done:
+            await interaction.response.defer()
+            return
+        if self.current_panel is not None:
+            self.current_panel.stop()
         self.done = True
-        panel = await self._finish(outcome="fail")
-        try:
-            await message.edit(view=panel)
-        except discord.HTTPException:
-            pass
+        self.correct = self.loads
+        if self.loads == 0:
+            panel = await self._finish(outcome="fail")
+        else:
+            panel = await self._finish(outcome="banked")
+        await interaction.response.edit_message(view=panel)
 
     async def _finish(self, outcome: str) -> Panel:
-        info = TOWN_BUILDINGS[self.building_key]
-        material = production_output_material(self.building_key, self.building_tier)
-        qty = formulas.gather_reward(
-            self.building_tier, self.total_level, self.correct, self.length, self.difficulty,
+        if outcome == "fail" and self.loads == 0:
+            return await _gather_finish_panel(
+                self.db, self.gid, self.uid, self.config, "fail", 0, self.length,
+                self.tier, self.difficulty, self.dry_run,
+                building_key=self.building_key, building_tier=self.building_tier,
+                total_level=self.total_level, material_key=self.material_key,
+                hall_level=self.hall_level, fail_text=self.config["empty_fail_text"],
+            )
+        return await _gather_finish_panel(
+            self.db, self.gid, self.uid, self.config, outcome, self.correct, self.length,
+            self.tier, self.difficulty, self.dry_run,
+            building_key=self.building_key, building_tier=self.building_tier,
+            total_level=self.total_level, material_key=self.material_key,
+            hall_level=self.hall_level,
         )
-        bonus_material = None
-        if (
-            outcome == "success" and self.building_tier < MAX_BUILDING_TIER
-            and formulas.roll_gather_bridge()
-        ):
-            bonus_material = production_output_material(self.building_key, self.building_tier + 1)
 
-        if not self.dry_run:
-            if qty:
-                await self.db.add_item(self.gid, self.uid, material, qty)
-            if bonus_material:
-                await self.db.add_item(self.gid, self.uid, bonus_material, 1)
 
-        title = f"{info['emoji']} Read the Seam · {info['name']}"
-        if outcome == "success":
-            panel = Panel(accent=Palette.PURPLE, timeout=None)
-            panel.header(f"{title} · Flawless!")
-            panel.text("*You trace the seam true, tap by tap, straight to its rich heart.*")
-        else:
-            panel = Panel(accent=Palette.RED, timeout=None)
-            panel.header(f"{title} · The Seam Splits")
-            panel.text("*You misjudge the vein, and the seam splits away before you finish tracing it.*")
+class GatherReflexSession(GatherSessionBase):
+    """Pure reflex: wait for the right instant, then act before the
+    window closes. Acting too early or too late both fail the whole
+    attempt. Powers Foundry."""
 
-        lines = []
-        if qty:
-            lines.append(f"{ITEMS[material]['emoji']} {chip((ITEMS[material]['name'], NAME_W), (f'+{qty}', -QTY_W))}")
-        else:
-            lines.append("Nothing to show for it this time.")
-        if bonus_material:
-            bonus_info = ITEMS[bonus_material]
-            lines.append(f"✨ A rare find: **1x {bonus_info['emoji']} {bonus_info['name']}**!")
-        panel.text("\n".join(lines))
-        panel.footer(self._footer_text(
-            f"{self.tier['emoji']} {self.tier['label']} · {self.correct}/{self.length} rounds cleared"
-        ))
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.phase = "idle"  # idle -> ready -> resolved
+        self.reel_window = max(0.8, self.config["reel_window"] * self.tier["timeout_mult"])
+
+    def _waiting_panel(self) -> Panel:
+        cfg = self.config
+        dots = "🟢" * self.correct + "⚪" * (self.length - self.correct)
+        panel = Panel(accent=Palette.BLUE, author_id=self.uid, timeout=None)
+        panel.header(cfg["title"])
+        panel.text(cfg["waiting_text"])
+        panel.text(f"`{dots}`  ({self.correct}/{self.length})")
+        btn = ui.Button(label=cfg["watch_label"], emoji=cfg["watch_emoji"], style=discord.ButtonStyle.secondary)
+        btn.callback = self._on_act
+        panel.buttons(btn)
+        panel.footer(self._footer_text("act too soon and it'll spook"))
         return panel
+
+    def _ready_panel(self, deadline: int) -> Panel:
+        cfg = self.config
+        dots = "🟢" * self.correct + "⚪" * (self.length - self.correct)
+        panel = Panel(accent=Palette.GOLD, author_id=self.uid, timeout=None)
+        panel.header(cfg["title"])
+        panel.text(cfg["ready_text"])
+        panel.text(f"`{dots}`  ({self.correct}/{self.length})")
+        btn = ui.Button(label=cfg["action_label"], emoji=cfg["action_emoji"], style=discord.ButtonStyle.success)
+        btn.callback = self._on_act
+        panel.buttons(btn)
+        panel.footer(self._footer_text(f"⏱️ act by <t:{deadline}:R>"))
+        return panel
+
+    async def _on_act(self, interaction: discord.Interaction) -> None:
+        if self.done:
+            await interaction.response.defer()
+            return
+        if self.phase != "ready":
+            self.done = True
+            panel = await self._finish(outcome="fail", fail_text=self.config["fail_early_text"])
+            await interaction.response.edit_message(view=panel)
+            return
+        self.correct += 1
+        self.phase = "resolved"
+        if self.correct == self.length:
+            self.done = True
+            panel = await self._finish(outcome="success")
+            await interaction.response.edit_message(view=panel)
+        else:
+            await interaction.response.edit_message(view=self._waiting_panel())
+
+    async def run(self, sendable) -> None:
+        message = await sendable.send(view=self._waiting_panel())
+        while not self.done:
+            self.phase = "idle"
+            wait = random.uniform(self.config["wait_min"], self.config["wait_max"])
+            await asyncio.sleep(wait)
+            if self.done:
+                return
+            self.phase = "ready"
+            deadline = int(time.time() + self.reel_window)
+            try:
+                await message.edit(view=self._ready_panel(deadline))
+            except discord.HTTPException:
+                return
+            await asyncio.sleep(self.reel_window)
+            if self.done:
+                return
+            if self.phase == "ready":  # never acted in time
+                self.done = True
+                panel = await self._finish(outcome="fail", fail_text=self.config["fail_late_text"])
+                try:
+                    await message.edit(view=panel)
+                except discord.HTTPException:
+                    pass
+                return
+
+    async def _finish(self, outcome: str, fail_text: str | None = None) -> Panel:
+        return await _gather_finish_panel(
+            self.db, self.gid, self.uid, self.config, outcome, self.correct, self.length,
+            self.tier, self.difficulty, self.dry_run,
+            building_key=self.building_key, building_tier=self.building_tier,
+            total_level=self.total_level, material_key=self.material_key,
+            hall_level=self.hall_level, fail_text=fail_text,
+        )
+
+
+class GatherPairsSession(GatherSessionBase):
+    """A face-down grid: flip two tiles at a time. A match stays
+    revealed and banks progress; a mismatch ends the attempt right
+    there. Powers Herb Garden and Gem Cutter's Den."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        gems = list(self.config["gems"])
+        chosen = random.sample(gems, min(self.length, len(gems)))
+        self.grid: list[str] = chosen * 2
+        random.shuffle(self.grid)
+        self.length = len(chosen)  # grid may be smaller than min_len if gems run out
+        self.matched: set[int] = set()
+        self.first_pick: int | None = None
+
+    def round_panel(self) -> Panel:
+        cfg = self.config
+        dots = "🟢" * self.correct + "⚪" * (self.length - self.correct)
+        timeout = max(2.0, cfg["round_timeout"] * self.tier["timeout_mult"])
+        panel = RoundPanel(self, accent=Palette.GOLD, author_id=self.uid, timeout=timeout)
+        panel.header(cfg["title"])
+        hint = (
+            "Pick a second tile to find its match."
+            if self.first_pick is not None else
+            "Flip two tiles to find a pair."
+        )
+        panel.text(f"*{hint}*")
+        panel.text(f"`{dots}`  ({self.correct}/{self.length} pairs)")
+        buttons = []
+        for i, gem in enumerate(self.grid):
+            revealed = i in self.matched or i == self.first_pick
+            emoji = cfg["gems"][gem] if revealed else cfg["hidden_emoji"]
+            style = (
+                discord.ButtonStyle.success if i in self.matched
+                else discord.ButtonStyle.secondary
+            )
+            btn = ui.Button(emoji=emoji, style=style, disabled=(i in self.matched))
+            btn.callback = self._make_handler(i)
+            buttons.append(btn)
+        for i in range(0, len(buttons), 5):
+            panel.buttons(*buttons[i : i + 5])
+        deadline = int(time.time() + timeout)
+        panel.footer(self._footer_text(f"⏱️ act by <t:{deadline}:R>"))
+        self.current_panel = panel
+        return panel
+
+    def _make_handler(self, index: int):
+        async def handler(interaction: discord.Interaction) -> None:
+            await self.on_tap(interaction, index)
+        return handler
+
+    async def on_tap(self, interaction: discord.Interaction, index: int) -> None:
+        if self.done or index in self.matched or index == self.first_pick:
+            await interaction.response.defer()
+            return
+        if self.current_panel is not None:
+            self.current_panel.stop()
+
+        if self.first_pick is None:
+            self.first_pick = index
+            next_panel = self.round_panel()
+            next_panel.message = interaction.message
+            await interaction.response.edit_message(view=next_panel)
+            return
+
+        first, second = self.first_pick, index
+        self.first_pick = None
+        if self.grid[first] == self.grid[second]:
+            self.matched.add(first)
+            self.matched.add(second)
+            self.correct += 1
+            if self.correct == self.length:
+                self.done = True
+                panel = await self._finish(outcome="success")
+                await interaction.response.edit_message(view=panel)
+                return
+            next_panel = self.round_panel()
+            next_panel.message = interaction.message
+            await interaction.response.edit_message(view=next_panel)
+        else:
+            self.done = True
+            panel = await self._finish(outcome="fail")
+            await interaction.response.edit_message(view=panel)
+
+
+GATHER_SESSION_CLASSES = {
+    "match": GatherMatchSession, "spotdiff": GatherSpotDiffSession,
+    "pressluck": GatherPressLuckSession, "reflex": GatherReflexSession,
+    "pairs": GatherPairsSession,
+}
 
 
 class PatrolSession:
@@ -774,14 +1179,48 @@ class Town(commands.Cog):
         await ctx.send(view=panel)
 
     # ══════════════════════════════ .gather ══════════════════════════════
-    # "Read the Seam" -- the active counterpart to .collect's idle
-    # trickle. See GatherSession above for the mechanic. Difficulty is
-    # gated by the BUILDING's own tier (there's no skill level to gate
-    # it by): Medium needs tier 3+, Hard needs it maxed.
+    # The active counterpart to .collect's idle trickle. Each production
+    # building has its own minigame -- see econ/data/gather_minigames.py
+    # for the roster and cogs/town.py's Gather*Session classes above for
+    # the mechanics. Difficulty is gated by the BUILDING's own tier
+    # (there's no skill level to gate it by): Medium needs tier 3+, Hard
+    # needs it maxed.
+
+    async def _start_gather_session(
+        self, sendable, gid: int, uid: int, config: dict, difficulty: str, *,
+        min_rounds: int, max_rounds: int, dry_run: bool, buffs: dict | None = None,
+        building_key: str | None = None, building_tier: int | None = None,
+        total_level: int | None = None, material_key: str | None = None,
+        hall_level: int | None = None,
+    ) -> None:
+        """Shared session-start plumbing for both `.gather` and
+        `.scavenge`: picks the right mechanic class for this config's
+        kind, sends the TEST MODE notice for a dry run, and dispatches to
+        Reflex's own `.run()` loop or the usual round_panel()+send for
+        every other kind (same split as cogs/minigames.py's _send_session)."""
+        session_cls = GATHER_SESSION_CLASSES[config["kind"]]
+        session = session_cls(
+            self.db, gid, uid, config, min_rounds, max_rounds, difficulty,
+            dry_run=dry_run, buffs=buffs, building_key=building_key, building_tier=building_tier,
+            total_level=total_level, material_key=material_key, hall_level=hall_level,
+        )
+        if dry_run:
+            await sendable.send(
+                view=simple_panel(
+                    f"🧪 *TEST MODE for {config['title']}, no cooldown or rewards apply.*",
+                    accent=Palette.PURPLE,
+                )
+            )
+        if isinstance(session, GatherReflexSession):
+            await session.run(sendable)
+        else:
+            panel = session.round_panel()
+            message = await sendable.send(view=panel)
+            panel.message = message
 
     @commands.hybrid_command(
         name="gather",
-        description="Read the Seam: an active minigame for materials from a built production building",
+        description="An active minigame for materials from a built production building",
     )
     @commands.guild_only()
     @app_commands.describe(building="Which production building to gather from")
@@ -822,7 +1261,7 @@ class Town(commands.Cog):
 
     @commands.hybrid_command(
         name="gathertest",
-        description="[Admin] Try the Read the Seam minigame at any building tier, no cooldown/rewards",
+        description="[Admin] Try a production building's gather minigame at any tier, no cooldown/rewards",
     )
     @commands.guild_only()
     @commands.has_permissions(administrator=True)
@@ -851,14 +1290,10 @@ class Town(commands.Cog):
         GATHER_TIER_UNLOCK's thresholds in the BUILDING's own tier.
         Picking a tier starts the attempt (and, for a real run, burns
         the cooldown)."""
-        info = TOWN_BUILDINGS[building_key]
+        config = GATHER_MINIGAMES[building_key]
         panel = Panel(accent=Palette.GOLD, author_id=ctx.author.id, timeout=60)
-        panel.header(f"{info['emoji']} Read the Seam · {info['name']}")
-        panel.text(
-            "*Pick your difficulty. The seam shows three linked materials -- tap "
-            "whichever continues the pattern before time runs out. One wrong tap "
-            "or a blown timer ends the run.*"
-        )
+        panel.header(config["title"])
+        panel.text(f"*Pick your difficulty. {config['how_to']}*")
         lines, buttons = [], []
         for key in formulas.DIFFICULTY_ORDER:
             tier_cfg = formulas.DIFFICULTIES[key]
@@ -916,13 +1351,12 @@ class Town(commands.Cog):
                 # lose, so walking away mid-attempt can't reroll a bad run.
                 await self.db.set_minigame_cooldown(gid, uid, cooldown_key, now)
             total_level = await self.db.total_level(gid, uid)
-            session = GatherSession(
-                self.db, gid, uid, building_key, building_tier, total_level, difficulty,
-                dry_run=dry_run, buffs=buffs,
+            await self._start_gather_session(
+                InteractionSender(interaction), gid, uid, GATHER_MINIGAMES[building_key], difficulty,
+                min_rounds=formulas.GATHER_MIN_ROUNDS, max_rounds=formulas.GATHER_MAX_ROUNDS,
+                dry_run=dry_run, buffs=buffs, building_key=building_key, building_tier=building_tier,
+                total_level=total_level,
             )
-            panel = session.round_panel()
-            panel.message = interaction.message
-            await interaction.response.edit_message(view=panel)
         return handler
 
     # ══════════════════════════════ .buildings ═══════════════════════════
@@ -1390,10 +1824,11 @@ class Town(commands.Cog):
     # unlike .shop), sold in bundles since building/worker tiers need
     # materials by the dozen. Only bootstraps the CHEAP end though --
     # common/uncommon materials, so a fresh building can get off the
-    # ground. Rare and above can't be bought at any price: they come
-    # from a production building's own trickle once it's already there,
-    # from `.gather`, or a lucky drop from ordinary `.work` (the
-    # "universal" group only). See MATERIAL_SUPPLY_MAX_RARITY_ORDER.
+    # ground. Rare and above can't be bought at any price: they come from
+    # a production building's own trickle once it's already there, from
+    # `.gather`, or -- for the "universal" group Town Hall and every
+    # utility/bonus building spends -- from `.scavenge`, or still a lucky
+    # drop from ordinary `.work`. See MATERIAL_SUPPLY_MAX_RARITY_ORDER.
 
     @staticmethod
     def _rarity_order(key: str) -> int:
@@ -1449,7 +1884,7 @@ class Town(commands.Cog):
                 f"`.gather {category_key}` or its own trickle once built"
             )
         else:
-            panel.footer(f"Your purse: {user['gold']:,} gold · rarer stock: a lucky find from `.work`")
+            panel.footer(f"Your purse: {user['gold']:,} gold · rarer stock: `.scavenge` or a lucky find from `.work`")
 
         cat_select = ui.Select(placeholder="🧱 Browse a group…")
         for key, e, n, _items in cats:
@@ -1512,6 +1947,162 @@ class Town(commands.Cog):
             panel = await self._build_supply_panel(interaction.guild_id, interaction.user.id, category_key)
             panel.message = interaction.message
             await interaction.response.edit_message(view=panel)
+        return handler
+
+    # ══════════════════════════════ .scavenge ═════════════════════════════
+    # The active earn path for "universal" materials -- Town Hall's own
+    # ladder and every utility/bonus building spend from this group, but
+    # none of them are tied to one production building the way .gather's
+    # 8 variants are. Before this the only rare+ source was a random 5%
+    # chance off ordinary `.work`; .scavenge lets you pick the EXACT
+    # material you're short on and play for it directly. Which rarity you
+    # can even attempt is gated by Town Hall level (SCAVENGE_RARITY_UNLOCK);
+    # difficulty (round count/reward) is gated by hall level too, same
+    # idea as .gather being gated by the building's own tier.
+
+    @commands.hybrid_command(
+        name="scavenge",
+        description="An active minigame for a specific 'universal' construction material (Town Hall's own stock)",
+    )
+    @commands.guild_only()
+    @app_commands.describe(material="Which rare+ universal material to scavenge for")
+    @app_commands.choices(material=SCAVENGE_CHOICES)
+    async def scavenge(self, ctx: commands.Context, *, material: str):
+        gid, uid = ctx.guild.id, ctx.author.id
+        key = resolve_universal_material(material)
+        if key is None:
+            await ctx.send(
+                view=simple_panel(
+                    f"**{material}** isn't something you scavenge for -- if it's common or "
+                    "uncommon, `.supply` sells it outright.",
+                    accent=Palette.RED,
+                ),
+                ephemeral=True,
+            )
+            return
+        town = await self.db.get_town(gid, uid)
+        if town["hall_level"] <= 0:
+            await ctx.send(
+                view=simple_panel("Found your town first with `.townhall`.", accent=Palette.RED),
+                ephemeral=True,
+            )
+            return
+        rarity = ITEMS[key]["rarity"]
+        need = formulas.SCAVENGE_RARITY_UNLOCK[rarity]
+        if town["hall_level"] < need:
+            await ctx.send(
+                view=simple_panel(
+                    f"{ITEMS[key]['emoji']} **{ITEMS[key]['name']}** needs Town Hall level "
+                    f"{need}+ before it can be scavenged (you're level {town['hall_level']}).",
+                    accent=Palette.RED,
+                ),
+                ephemeral=True,
+            )
+            return
+        buffs = await active_buff_totals(self.db, gid, uid)
+        cooldown = apply_cooldown_buff(formulas.SCAVENGE_COOLDOWN, buffs)
+        last = await self.db.get_minigame_cooldown(gid, uid, "scavenge")
+        now = time.time()
+        if now < last + cooldown:
+            await ctx.send(
+                view=simple_panel(f"Still sorting through the last haul. Ready <t:{int(last + cooldown)}:R>.", accent=Palette.RED),
+                ephemeral=True,
+            )
+            return
+        await self._send_scavenge_difficulty_picker(ctx, key, town["hall_level"], dry_run=False)
+
+    @commands.hybrid_command(
+        name="scavengetest",
+        description="[Admin] Try the Sort the Storeroom minigame at any Town Hall level, no cooldown/rewards",
+    )
+    @commands.guild_only()
+    @commands.has_permissions(administrator=True)
+    @app_commands.describe(
+        material="Which rare+ universal material to simulate",
+        hall_level="Town Hall level to simulate (default 1)",
+    )
+    @app_commands.choices(material=SCAVENGE_CHOICES)
+    async def scavengetest(
+        self, ctx: commands.Context, material: str,
+        hall_level: commands.Range[int, 1, formulas.TOWN_HALL_MAX_LEVEL] = 1,
+    ):
+        key = resolve_universal_material(material)
+        if key is None:
+            await ctx.send(
+                view=simple_panel(f"No such scavengeable material: **{material}**.", accent=Palette.RED),
+                ephemeral=True,
+            )
+            return
+        await self._send_scavenge_difficulty_picker(ctx, key, hall_level, dry_run=True)
+
+    async def _send_scavenge_difficulty_picker(
+        self, ctx: commands.Context, material_key: str, hall_level: int, *, dry_run: bool,
+    ) -> None:
+        config = SCAVENGE_MINIGAME
+        info = ITEMS[material_key]
+        panel = Panel(accent=Palette.GOLD, author_id=ctx.author.id, timeout=60)
+        panel.header(f"{config['title']} · {info['emoji']} {info['name']}")
+        panel.text(f"*Pick your difficulty. {config['how_to']}*")
+        lines, buttons = [], []
+        for key in formulas.DIFFICULTY_ORDER:
+            tier_cfg = formulas.DIFFICULTIES[key]
+            length = formulas.difficulty_length(
+                formulas.SCAVENGE_MIN_ROUNDS, formulas.SCAVENGE_MAX_ROUNDS, key
+            )
+            need = formulas.SCAVENGE_TIER_UNLOCK[key]
+            unlocked = dry_run or hall_level >= need
+            mult = f"×{tier_cfg['reward_mult']:.2f}"
+            if unlocked:
+                lines.append(
+                    f"{tier_cfg['emoji']} {chip((tier_cfg['label'], NAME_W), (mult, -AMT_W))} "
+                    f"· {length} rounds"
+                )
+            else:
+                lines.append(
+                    f"🔒 {chip((tier_cfg['label'], NAME_W), (mult, -AMT_W))} "
+                    f"· needs Town Hall {need}+ (you're {hall_level})"
+                )
+            btn = ui.Button(
+                label=tier_cfg["label"], emoji=tier_cfg["emoji"],
+                style=discord.ButtonStyle.secondary, disabled=not unlocked,
+            )
+            if unlocked:
+                btn.callback = self._make_scavenge_start_handler(material_key, key, hall_level, dry_run)
+            buttons.append(btn)
+        cancel_btn = ui.Button(label="Cancel", style=discord.ButtonStyle.danger)
+        cancel_btn.callback = self._on_generic_cancel
+        buttons.append(cancel_btn)
+        panel.text("\n".join(lines))
+        panel.buttons(*buttons)
+        panel.message = await ctx.send(view=panel)
+
+    def _make_scavenge_start_handler(
+        self, material_key: str, difficulty: str, hall_level: int, dry_run: bool,
+    ):
+        async def handler(interaction: discord.Interaction) -> None:
+            gid, uid = interaction.guild_id, interaction.user.id
+            buffs: dict = {}
+            if not dry_run:
+                buffs = await active_buff_totals(self.db, gid, uid)
+                cooldown = apply_cooldown_buff(formulas.SCAVENGE_COOLDOWN, buffs)
+                last = await self.db.get_minigame_cooldown(gid, uid, "scavenge")
+                now = time.time()
+                if now < last + cooldown:
+                    await interaction.response.edit_message(
+                        view=simple_panel(
+                            f"Too late, the window's closed. Ready <t:{int(last + cooldown)}:R>.",
+                            accent=Palette.RED,
+                        )
+                    )
+                    return
+                await self.db.set_minigame_cooldown(gid, uid, "scavenge", now)
+            total_level = await self.db.total_level(gid, uid)
+            await self._start_gather_session(
+                InteractionSender(interaction), gid, uid, SCAVENGE_MINIGAME, difficulty,
+                min_rounds=formulas.SCAVENGE_MIN_ROUNDS, max_rounds=formulas.SCAVENGE_MAX_ROUNDS,
+                dry_run=dry_run, buffs=buffs, material_key=material_key,
+                total_level=total_level, hall_level=hall_level,
+            )
         return handler
 
     # ══════════════════════════════ .study ═══════════════════════════════

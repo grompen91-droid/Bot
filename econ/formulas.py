@@ -1075,19 +1075,18 @@ STUDY_COOLDOWN = 4 * 60 * 60
 STUDY_GOLD_COST = 20_000
 STUDY_XP_PER_LIBRARY_TIER = 400
 
-# ── .gather: "Read the Seam" ─────────────────────────────────────────────
-# A genuinely new mechanic, not a reskin of the decoy-tap engine behind
-# harvest/dig/fell/hunt/tend: three consecutive materials from a
-# production building's OWN rarity-ordered group (materials.py's
-# MATERIAL_GROUPS is already common->legendary in order) are shown in
-# sequence; tap whichever candidate continues that sequence among
-# decoys drawn from the same group. One wrong tap or a blown timer
-# ends the run right there, same as every other minigame. Reward is
-# proportional to rounds cleared (formulas.roll_minigame_reward's
-# completion-based shape), scaled off the building's own tier and
-# total_level instead of a trade skill level. Difficulty is gated by
-# BUILDING TIER (there's no skill level to gate it by): Medium needs
-# tier 3+, Hard needs the building maxed.
+# ── .gather ────────────────────────────────────────────────────────────
+# The active counterpart to a production building's passive trickle
+# (.collect). Each of the 8 production buildings gets its own clearly-
+# telegraphed minigame -- see econ/data/gather_minigames.py for the
+# roster and cogs/town.py's Gather*Session classes for the mechanics --
+# reusing the same five proven kinds cogs/minigames.py already built out
+# for the job minigames, just re-themed and paying out a construction
+# material instead of gold/XP. Reward is proportional to rounds cleared
+# (same completion-based shape as roll_minigame_reward), scaled off the
+# building's own tier and total_level instead of a trade skill level.
+# Difficulty is gated by BUILDING TIER (there's no skill level to gate it
+# by): Medium needs tier 3+, Hard needs the building maxed.
 #
 # .supply only stocks common/uncommon materials (see
 # MATERIAL_SUPPLY_MAX_RARITY_ORDER in econ/data/materials.py) -- rare
@@ -1193,11 +1192,11 @@ def patrol_reward(
 
 # A small, job-agnostic chance for ANY trade's `.work` to also turn up
 # a "universal" group material (Nails, Blueprint Scroll, Enchanted
-# Dust, ...) -- the town-wide materials (Town Hall's own ladder, the
-# utility/bonus buildings) aren't tied to any one production building,
-# so this is their only earn-it-by-working path once .supply stops
-# selling their rare+ tiers. Rarity leans in your favour the more total
-# skill you've built, same shape as effective_weight's rare-item luck.
+# Dust, ...) -- a passive bonus on top of `.scavenge` (below), which is
+# the deliberate, pick-your-material way to earn this group once
+# .supply stops selling their rare+ tiers. Rarity leans in your favour
+# the more total skill you've built, same shape as effective_weight's
+# rare-item luck.
 WORK_DROP_MATERIAL_CHANCE = 0.05
 WORK_DROP_MATERIAL_QTY = (1, 3)
 WORK_DROP_MATERIAL_LEVEL_CAP = 150
@@ -1215,6 +1214,75 @@ def roll_universal_material_rarity(total_level: int) -> str:
     }
     rarities = list(weights.keys())
     return random.choices(rarities, weights=list(weights.values()), k=1)[0]
+
+
+# ── .scavenge: a real, active earn path for "universal" materials ───────
+# Town Hall's own ladder and all 8 utility/bonus buildings draw from the
+# shared "universal" group instead of a production building's own family
+# -- before this, rare+ universal stock had exactly ONE source beyond
+# .supply's common/uncommon: WORK_DROP_MATERIAL_CHANCE's 5% roll off
+# ordinary `.work`. That left over half the building roster (plus the
+# whole Town Hall ladder) gated behind a passive dice roll with no
+# active-play alternative, unlike every production building's own
+# `.gather`. .scavenge is that alternative: pick the exact material
+# you're short on (see cogs/town.py's SCAVENGE_CHOICES) and play for it
+# directly, same completion-based reward shape as .gather/.patrol.
+#
+# Unlike .gather (gated by the BUILDING's own tier), difficulty here is
+# gated by TOWN HALL level -- there's no single building to key it off
+# -- and which rarity you're even allowed to attempt is a second, separate
+# gate (SCAVENGE_RARITY_UNLOCK), since rare/epic/legendary become
+# relevant at very different points in a town's life.
+
+SCAVENGE_COOLDOWN = 45 * 60
+SCAVENGE_MIN_ROUNDS = 3
+SCAVENGE_MAX_ROUNDS = 6
+SCAVENGE_PERFECT_BONUS = 1.5
+SCAVENGE_TIER_UNLOCK = {"easy": 1, "medium": 3, "hard": 6}  # Town Hall level needed
+
+# Hall level needed before a rarity can be scavenged at all -- roughly
+# when that rarity first becomes relevant (rare ~ Tier 3 buildings,
+# legendary ~ Tier 5 / the Temple & Watchtower's own unlock level).
+SCAVENGE_RARITY_UNLOCK = {"rare": 2, "epic": 4, "legendary": 6}
+
+# Per-unit base yield differs sharply by rarity: legendary tallies (a
+# maxed bonus building, or a late Town Hall level) run into the hundreds
+# of units, so it has to pay out in a slow trickle over many attempts,
+# not a handful of flawless runs. Unlike .gather -- where the bulk of a
+# run's yield is the CURRENT tier's material (mostly crafting/market
+# fodder) and actual tier progress rides on GATHER_NEXT_TIER_CHANCE's
+# slow ~20%-per-run bridge trickle -- .scavenge pays its yield straight
+# into the exact material you picked, no RNG gate on top. It has to
+# stay modest per run to land in the same ballpark of progress-per-day
+# as that bridge trickle, not blow past it. Tune alongside
+# GATHER_BASE_YIELD if the production side ever gets rebalanced again.
+SCAVENGE_YIELD_BY_RARITY = {"rare": 3.0, "epic": 1.3, "legendary": 0.35}
+SCAVENGE_YIELD_PER_HALL_LEVEL = 0.15
+SCAVENGE_YIELD_PER_TOTAL_LEVEL = 0.02
+SCAVENGE_YIELD_LEVEL_CAP = 150
+
+
+def scavenge_base_yield(rarity: str, hall_level: int, total_level: int) -> float:
+    """The full-clear yield an attempt is worth before completion and
+    difficulty scale it down/up."""
+    level_bonus = 1.0 + SCAVENGE_YIELD_PER_TOTAL_LEVEL * min(total_level, SCAVENGE_YIELD_LEVEL_CAP)
+    return SCAVENGE_YIELD_BY_RARITY[rarity] * (1.0 + SCAVENGE_YIELD_PER_HALL_LEVEL * hall_level) * level_bonus
+
+
+def scavenge_reward(
+    rarity: str, hall_level: int, total_level: int, correct: int, length: int, difficulty: str,
+) -> int:
+    """Whole units of the chosen universal material earned for clearing
+    `correct` of `length` rounds at `difficulty`. A flawless run gets
+    SCAVENGE_PERFECT_BONUS, same shape as .gather's."""
+    if correct <= 0 or length <= 0:
+        return 0
+    base = scavenge_base_yield(rarity, hall_level, total_level)
+    completion = min(1.0, correct / length)
+    reward = base * completion * DIFFICULTIES[difficulty]["reward_mult"]
+    if correct >= length:
+        reward *= SCAVENGE_PERFECT_BONUS
+    return max(0, round(reward))
 
 
 # ── .caravan: send your town on a long trade route ───────────────────────
