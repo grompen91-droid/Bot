@@ -354,7 +354,14 @@ class Info(commands.Cog):
             row = skills.get(job_key)
             return row["level"] if row else 0
 
-        lines = []
+        # Grouped the same way .help sections its commands, so the two
+        # screens read as one system.
+        trade_lines = []
+        venture_lines = []
+        gold_lines = []
+        crime_lines = []
+        minigame_lines = []
+        town_lines = []
 
         if user["job"]:
             job_info = JOBS[user["job"]]
@@ -364,11 +371,11 @@ class Info(commands.Cog):
             cooldown = apply_cooldown_buff(
                 formulas.effective_cooldown(job_info["cooldown"], level), buffs
             )
-            lines.append(
+            trade_lines.append(
                 f"{job_info['emoji']} {chip(('.work', NAME_W))} {status(last_work + cooldown)}"
             )
         else:
-            lines.append(f"⚒️ {chip(('.work', NAME_W))} *(take a trade with `.job` first)*")
+            trade_lines.append(f"⚒️ {chip(('.work', NAME_W))} *(take a trade with `.job` first)*")
 
         craft_skill = skills.get("crafting")
         craft_level = craft_skill["level"] if craft_skill else 1
@@ -376,15 +383,15 @@ class Info(commands.Cog):
         craft_cooldown = apply_cooldown_buff(
             formulas.effective_cooldown(formulas.CRAFTING_COOLDOWN, craft_level), buffs
         )
-        lines.append(
+        trade_lines.append(
             f"🛠️ {chip(('.craft', NAME_W))} {status(craft_last + craft_cooldown)}"
         )
 
-        lines.append(
+        trade_lines.append(
             f"🪧 {chip(('.job choose', NAME_W))} "
             f"{status(user['last_job_switch'] + formulas.JOB_SWITCH_COOLDOWN)}"
         )
-        lines.append(
+        venture_lines.append(
             f"🗺️ {chip(('.venture', NAME_W))} "
             f"{status(user['last_venture'] + apply_cooldown_buff(formulas.VENTURE_COOLDOWN, buffs))}"
         )
@@ -398,9 +405,9 @@ class Info(commands.Cog):
             daily_status = f"<t:{int(reset_at.timestamp())}:R>"
         else:
             daily_status = "✅ ready now"
-        lines.append(f"🕯️ {chip(('.daily', NAME_W))} {daily_status}")
+        gold_lines.append(f"🕯️ {chip(('.daily', NAME_W))} {daily_status}")
 
-        lines.append(
+        gold_lines.append(
             f"🥺 {chip(('.beg', NAME_W))} "
             f"{status(mg_last.get('beg', 0.0) + apply_cooldown_buff(formulas.BEG_COOLDOWN, buffs))}"
         )
@@ -410,21 +417,21 @@ class Info(commands.Cog):
             or skill_level("criminal") >= CRIME_MIN_LEVEL_WITHOUT_JOB
         )
         if crime_access:
-            lines.append(
+            crime_lines.append(
                 f"🗡️ {chip(('.pickpocket', NAME_W))} "
                 f"{status(user['last_pickpocket'] + apply_cooldown_buff(formulas.PICKPOCKET_COOLDOWN, buffs))}"
             )
-            lines.append(
+            crime_lines.append(
                 f"🚚 {chip(('.smuggle', NAME_W))} "
                 f"{status(mg_last.get('smuggle', 0.0) + apply_cooldown_buff(formulas.SMUGGLE_COOLDOWN, buffs))}"
             )
-            lines.append(
+            crime_lines.append(
                 f"🏦 {chip(('.rob', NAME_W))} "
                 f"{status(mg_last.get('criminal', 0.0) + apply_cooldown_buff(MINIGAMES['criminal']['cooldown'], buffs))}"
             )
 
         if user["job"] == "alchemist" or skill_level("alchemist") >= formulas.BREW_MIN_LEVEL_WITHOUT_JOB:
-            lines.append(
+            minigame_lines.append(
                 f"🧪 {chip(('.brew', NAME_W))} "
                 f"{status(user['last_brew'] + apply_cooldown_buff(formulas.BREW_COOLDOWN, buffs))}"
             )
@@ -445,7 +452,7 @@ class Info(commands.Cog):
                 buffs,
             )
             command_label = f".{config['command']}"
-            lines.append(
+            minigame_lines.append(
                 f"{JOBS[job_key]['emoji']} {chip((command_label, NAME_W))} "
                 f"{status(mg_last.get(job_key, 0.0) + cooldown)}"
             )
@@ -458,7 +465,7 @@ class Info(commands.Cog):
             if not info_b or info_b["kind"] != "production":
                 continue
             command_label = f".gather {building_key}"
-            lines.append(
+            town_lines.append(
                 f"{info_b['emoji']} {chip((command_label, NAME_W))} "
                 f"{status(mg_last.get(f'gather_{building_key}', 0.0) + formulas.GATHER_COOLDOWN)}"
             )
@@ -468,17 +475,17 @@ class Info(commands.Cog):
         # .brew staying hidden pre-Alchemist above.
         town = await self.db.get_town(gid, uid)
         if town["hall_level"] > 0:
-            lines.append(
+            town_lines.append(
                 f"🧰 {chip(('.scavenge', NAME_W))} "
                 f"{status(mg_last.get('scavenge', 0.0) + formulas.SCAVENGE_COOLDOWN)}"
             )
         if await self.db.get_building_tier(gid, uid, "great_library") > 0:
-            lines.append(
+            town_lines.append(
                 f"📚 {chip(('.study', NAME_W))} "
                 f"{status(mg_last.get('study', 0.0) + formulas.STUDY_COOLDOWN)}"
             )
         if await self.db.get_building_tier(gid, uid, "watchtower") > 0:
-            lines.append(
+            town_lines.append(
                 f"🗼 {chip(('.patrol', NAME_W))} "
                 f"{status(mg_last.get('patrol', 0.0) + formulas.PATROL_COOLDOWN)}"
             )
@@ -491,21 +498,37 @@ class Info(commands.Cog):
             if active_caravan is not None:
                 route = CARAVAN_ROUTES[active_caravan["route"]]
                 ready_at = formulas.caravan_ready_at(active_caravan["departed_at"], route["duration_hours"])
-                lines.append(f"🐎 {chip(('.caravan', NAME_W))} {status(ready_at)}")
+                town_lines.append(f"🐎 {chip(('.caravan', NAME_W))} {status(ready_at)}")
             else:
-                lines.append(f"🐎 {chip(('.caravan', NAME_W))} ✅ ready to send")
+                town_lines.append(f"🐎 {chip(('.caravan', NAME_W))} ✅ ready to send")
 
             active_expedition = await self.db.get_expedition(gid, uid)
             if active_expedition is not None:
                 perks = formulas.expedition_upgrade_perks(town["expedition_upgrades"])
                 ready_at = active_expedition["last_choice_at"] + formulas.expedition_cooldown(perks)
-                lines.append(f"🧭 {chip(('.expedition', NAME_W))} {status(ready_at)}")
+                town_lines.append(f"🧭 {chip(('.expedition', NAME_W))} {status(ready_at)}")
             else:
-                lines.append(f"🧭 {chip(('.expedition', NAME_W))} ✅ ready to send")
+                town_lines.append(f"🧭 {chip(('.expedition', NAME_W))} ✅ ready to send")
 
         panel = Panel(timeout=None)
         panel.header(f"⏳ {target.display_name}'s Cooldowns")
-        panel.text("\n".join(lines))
+        sections = [
+            ("⚒️ Trade", trade_lines),
+            ("🗺️ Venture", venture_lines),
+            ("💰 Gold", gold_lines),
+            ("🗡️ Crime", crime_lines),
+            ("🎯 Job Minigames", minigame_lines),
+            ("🏰 Town", town_lines),
+        ]
+        first = True
+        for title, section_lines in sections:
+            if not section_lines:
+                continue
+            if not first:
+                panel.divider()
+            first = False
+            panel.subheader(title)
+            panel.text("\n".join(section_lines))
         buff_line = active_buff_summary(buffs)
         if buff_line:
             panel.footer(f"✨ active: {buff_line}")
