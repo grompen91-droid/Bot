@@ -1534,7 +1534,7 @@ class Town(commands.Cog):
             panel.message = message
 
     @commands.hybrid_command(
-        name="gather",
+        name="gather", aliases=["g"],
         description="An active minigame for materials from a built production building",
     )
     @commands.guild_only()

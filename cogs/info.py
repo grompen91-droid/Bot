@@ -474,15 +474,18 @@ class Info(commands.Cog):
             )
 
         # .gather has its own cooldown per built production building --
-        # only shows the ones you actually have.
+        # only shows the ones you actually have. Shown as its ".g"
+        # alias with a wider column than NAME_W's usual 16: the longest
+        # building keys (masons_workshop, gem_cutters_den) plus
+        # ".gather " wouldn't fit without truncating past readability.
         for row in await self.db.get_all_buildings(gid, uid):
             building_key = row["building"]
             info_b = TOWN_BUILDINGS.get(building_key)
             if not info_b or info_b["kind"] != "production":
                 continue
-            command_label = f".gather {building_key}"
+            command_label = f".g {building_key}"
             town_lines.append(
-                f"{info_b['emoji']} {chip((command_label, NAME_W))} "
+                f"{info_b['emoji']} {chip((command_label, 18))} "
                 f"{status(mg_last.get(f'gather_{building_key}', 0.0) + formulas.GATHER_COOLDOWN)}"
             )
 
