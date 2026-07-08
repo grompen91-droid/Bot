@@ -211,9 +211,25 @@ class Info(commands.Cog):
                 sources.append("a lucky find from any `.work` (rarity improves with total skill)")
             else:
                 building = TOWN_BUILDINGS[group]
-                tier = keys.index(item_key) // 2 + 1
-                sources.append(f"{building['name']}'s Tier {tier} output, once built")
-                sources.append(f"`.gather {group}` at Tier {tier}+")
+                index = keys.index(item_key)
+                tier = index // 2 + 1
+                if index % 2 == 0:
+                    # Slot 0 -- the building's OWN material at this tier:
+                    # produced passively once built, and .gather always
+                    # pays out in this slot (plus a chance at the next
+                    # tier's, on a flawless run).
+                    sources.append(f"{building['name']}'s Tier {tier} output, once built")
+                    sources.append(f"`.gather {group}` at Tier {tier}+")
+                else:
+                    # Slot 1 -- a linked WORKER's upgrade material only.
+                    # .gather/passive trickle never produce this slot;
+                    # `.scavenge` is the only route once it's rare+.
+                    worker_names = [TOWN_WORKERS[w]["name"] for w in workers_for_building(group)]
+                    workers_str = " / ".join(worker_names)
+                    sources.append(f"{workers_str}'s Tier {tier} upgrade cost, not produced by {building['name']} itself")
+                    rarity_order = list(RARITIES.keys()).index(ITEMS[item_key]["rarity"])
+                    if rarity_order > MATERIAL_SUPPLY_MAX_RARITY_ORDER:
+                        sources.append(f"`.scavenge {ITEMS[item_key]['name']}`, once Town Hall is high enough level")
         for r in RECIPES.values():
             if r["output_item"] == item_key:
                 ing_str = ", ".join(f"{qty}x {ITEMS[i]['name']}" for i, qty in r["ingredients"])

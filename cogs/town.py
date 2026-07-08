@@ -68,24 +68,44 @@ GATHER_CHOICES = [
     app_commands.Choice(name=f"{info['emoji']} {info['name']}", value=key)
     for key, info in TOWN_BUILDINGS.items() if info["kind"] == "production"
 ]
-# `.scavenge` only ever targets the 12 rare+ "universal" materials --
-# common/uncommon are already `.supply`'s job (see MATERIAL_SUPPLY_MAX_RARITY_ORDER).
-SCAVENGE_CHOICES = [
-    app_commands.Choice(name=f"{ITEMS[key]['emoji']} {ITEMS[key]['name']}", value=key)
-    for key in MATERIAL_GROUPS["universal"]
-    if list(RARITIES.keys()).index(ITEMS[key]["rarity"]) > MATERIAL_SUPPLY_MAX_RARITY_ORDER
-]
+# `.scavenge` targets any rare+ material with no other earn path:
+# - the 12 rare+ "universal" items (Town Hall's own ladder, every
+#   utility/bonus building) -- common/uncommon there are `.supply`'s job
+#   (see MATERIAL_SUPPLY_MAX_RARITY_ORDER).
+# - each production group's own rare+ SLOT-1 item (indices 5, 7, 9 --
+#   see town_workers.py: a production-linked worker's tier 3-5 upgrade
+#   spends this, never the building's own slot-0 material). `.gather`
+#   and a built building's passive trickle only ever produce slot-0
+#   (production_output_material always reads slot 0), so without this,
+#   16 of the 20 workers could never pass tier 2 -- there was simply no
+#   way to earn their tier 3+ material at all, not even a slow one.
+#
+# 12 + 8*3 = 36 candidates, well past Discord's 25-choice cap for
+# app_commands.choices, so this is free text (like .craft/.study),
+# not a fixed dropdown.
+def _scavengeable_materials() -> set[str]:
+    keys = {
+        key for key in MATERIAL_GROUPS["universal"]
+        if list(RARITIES.keys()).index(ITEMS[key]["rarity"]) > MATERIAL_SUPPLY_MAX_RARITY_ORDER
+    }
+    for group, items in MATERIAL_GROUPS.items():
+        if group == "universal":
+            continue
+        keys.update(items[5:10:2])  # slot-1 of tiers 3 (rare), 4 (epic), 5 (legendary)
+    return keys
 
 
-def resolve_universal_material(query: str) -> str | None:
-    """Fuzzy-match one of `.scavenge`'s 12 rare+ "universal" materials
-    by key or display name."""
-    valid = {c.value for c in SCAVENGE_CHOICES}
+SCAVENGEABLE_MATERIALS = _scavengeable_materials()
+
+
+def resolve_scavenge_material(query: str) -> str | None:
+    """Fuzzy-match one of `.scavenge`'s rare+ targets by key or display
+    name."""
     q = query.strip().lower().replace(" ", "_").replace("'", "")
-    if q in valid:
+    if q in SCAVENGEABLE_MATERIALS:
         return q
     q2 = query.strip().lower()
-    for key in valid:
+    for key in SCAVENGEABLE_MATERIALS:
         if ITEMS[key]["name"].lower() == q2:
             return key
     return None
@@ -2250,26 +2270,27 @@ class Town(commands.Cog):
         return handler
 
     # ══════════════════════════════ .scavenge ═════════════════════════════
-    # The active earn path for "universal" materials -- Town Hall's own
-    # ladder and every utility/bonus building spend from this group, but
-    # none of them are tied to one production building the way .gather's
-    # 8 variants are. Before this the only rare+ source was a random 5%
-    # chance off ordinary `.work`; .scavenge lets you pick the EXACT
-    # material you're short on and play for it directly. Which rarity you
-    # can even attempt is gated by Town Hall level (SCAVENGE_RARITY_UNLOCK);
-    # difficulty (round count/reward) is gated by hall level too, same
-    # idea as .gather being gated by the building's own tier.
+    # The active earn path for every rare+ material that has no other
+    # route: the "universal" group (Town Hall's own ladder, every
+    # utility/bonus building) plus each production group's own slot-1
+    # item (what a production-linked WORKER's tier 3-5 upgrade spends --
+    # .gather/passive trickle only ever produce that building's own
+    # slot-0 material, never the worker's). .scavenge lets you pick the
+    # EXACT material you're short on and play for it directly. Which
+    # rarity you can even attempt is gated by Town Hall level
+    # (SCAVENGE_RARITY_UNLOCK); difficulty (round count/reward) is gated
+    # by hall level too, same idea as .gather being gated by the
+    # building's own tier.
 
     @commands.hybrid_command(
         name="scavenge",
-        description="An active minigame for a specific 'universal' construction material (Town Hall's own stock)",
+        description="An active minigame for one specific rare+ construction material",
     )
     @commands.guild_only()
-    @app_commands.describe(material="Which rare+ universal material to scavenge for")
-    @app_commands.choices(material=SCAVENGE_CHOICES)
+    @app_commands.describe(material="Which rare+ material to scavenge for")
     async def scavenge(self, ctx: commands.Context, *, material: str):
         gid, uid = ctx.guild.id, ctx.author.id
-        key = resolve_universal_material(material)
+        key = resolve_scavenge_material(material)
         if key is None:
             await ctx.send(
                 view=simple_panel(
@@ -2318,15 +2339,14 @@ class Town(commands.Cog):
     @commands.guild_only()
     @commands.has_permissions(administrator=True)
     @app_commands.describe(
-        material="Which rare+ universal material to simulate",
+        material="Which rare+ material to simulate",
         hall_level="Town Hall level to simulate (default 1)",
     )
-    @app_commands.choices(material=SCAVENGE_CHOICES)
     async def scavengetest(
         self, ctx: commands.Context, material: str,
         hall_level: commands.Range[int, 1, formulas.TOWN_HALL_MAX_LEVEL] = 1,
     ):
-        key = resolve_universal_material(material)
+        key = resolve_scavenge_material(material)
         if key is None:
             await ctx.send(
                 view=simple_panel(f"No such scavengeable material: **{material}**.", accent=Palette.RED),

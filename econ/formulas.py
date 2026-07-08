@@ -1258,17 +1258,19 @@ def roll_universal_material_rarity(total_level: int) -> str:
     return random.choices(rarities, weights=list(weights.values()), k=1)[0]
 
 
-# ── .scavenge: a real, active earn path for "universal" materials ───────
-# Town Hall's own ladder and all 8 utility/bonus buildings draw from the
-# shared "universal" group instead of a production building's own family
-# -- before this, rare+ universal stock had exactly ONE source beyond
-# .supply's common/uncommon: WORK_DROP_MATERIAL_CHANCE's 5% roll off
-# ordinary `.work`. That left over half the building roster (plus the
-# whole Town Hall ladder) gated behind a passive dice roll with no
-# active-play alternative, unlike every production building's own
-# `.gather`. .scavenge is that alternative: pick the exact material
-# you're short on (see cogs/town.py's SCAVENGE_CHOICES) and play for it
-# directly, same completion-based reward shape as .gather/.patrol.
+# ── .scavenge: a real, active earn path for materials .gather can't touch ─
+# Two groups had no active-play route before this:
+# - the "universal" group (Town Hall's own ladder, all 8 utility/bonus
+#   buildings) -- rare+ stock there had exactly ONE source: a passive
+#   5% roll off ordinary `.work` (WORK_DROP_MATERIAL_CHANCE).
+# - each production group's own slot-1 item -- what a production-linked
+#   WORKER's tier 3-5 upgrade spends. .gather and a built building's own
+#   trickle only ever produce that group's slot-0 material
+#   (production_output_material always reads slot 0), so a worker's
+#   rare+ material had NO source at all, not even a passive one.
+# .scavenge covers both: pick the exact material you're short on (see
+# cogs/town.py's SCAVENGEABLE_MATERIALS) and play for it directly, same
+# completion-based reward shape as .gather/.patrol.
 #
 # Unlike .gather (gated by the BUILDING's own tier), difficulty here is
 # gated by TOWN HALL level -- there's no single building to key it off
