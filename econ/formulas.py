@@ -1282,10 +1282,13 @@ SCAVENGE_MAX_ROUNDS = 6
 SCAVENGE_PERFECT_BONUS = 1.5
 SCAVENGE_TIER_UNLOCK = {"easy": 1, "medium": 3, "hard": 6}  # Town Hall level needed
 
-# Hall level needed before a rarity can be scavenged at all -- roughly
-# when that rarity first becomes relevant (rare ~ Tier 3 buildings,
-# legendary ~ Tier 5 / the Temple & Watchtower's own unlock level).
-SCAVENGE_RARITY_UNLOCK = {"rare": 2, "epic": 4, "legendary": 6}
+# Hall level needed before a rarity can be scavenged at all. Each entry
+# must stay strictly BELOW the Town Hall level that town_hall_material()
+# actually spends that rarity on (rare at level 4, epic at level 5,
+# legendary at level 6+) -- get that backwards and it's a straight
+# chicken-and-egg lock: legendary gated behind level 6 would mean the
+# item needed to REACH level 6 required already being level 6.
+SCAVENGE_RARITY_UNLOCK = {"rare": 2, "epic": 4, "legendary": 5}
 
 # Per-unit base yield differs sharply by rarity: legendary tallies (a
 # maxed bonus building, or a late Town Hall level) run into the hundreds
